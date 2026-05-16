@@ -56,3 +56,6 @@ button.ghost { background: #edf2f7; color: var(--text); }
 
 .top-actions { display: grid; gap: 6px; justify-items: end; }
 .top-actions a { color: var(--accent); font-weight: 700; text-decoration: none; }
+
+.selection-note { color: var(--muted); font-size: 12px; margin-top: -8px; }
+input[type="file"] { cursor: pointer; }

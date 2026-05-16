@@ -86,7 +86,7 @@ def iter_source_files(target: Path):
     for path in target.rglob('*'):
         if not path.is_file():
             continue
-        if any(part in EXCLUDED_DIRS for part in path.parts):
+        if is_excluded_path(path, target):
             continue
         if path.suffix.lower() in LANG_BY_EXT or path.name in LANG_BY_NAME:
             yield path
@@ -205,7 +205,7 @@ def run_dependency_checks(target: Path) -> tuple[list[Finding], dict[str, str]]:
 def run_pip_audit(target: Path) -> tuple[list[Finding], str]:
     if not PIP_AUDIT_EXE.exists():
         return [], 'not installed'
-    requirement_files = [p for p in target.rglob('requirements*.txt') if not any(part in EXCLUDED_DIRS for part in p.parts)]
+    requirement_files = [p for p in target.rglob('requirements*.txt') if not is_excluded_path(p, target)]
     if not requirement_files:
         return [], 'skipped: no requirements files'
     findings: list[Finding] = []
@@ -240,7 +240,7 @@ def run_pip_audit(target: Path) -> tuple[list[Finding], str]:
 def check_unpinned_python_requirements(target: Path) -> list[Finding]:
     findings: list[Finding] = []
     for req in target.rglob('requirements*.txt'):
-        if any(part in EXCLUDED_DIRS for part in req.parts):
+        if is_excluded_path(req, target):
             continue
         for idx, line in enumerate(req.read_text(encoding='utf-8', errors='ignore').splitlines(), 1):
             clean = line.strip()
@@ -263,7 +263,7 @@ def check_unpinned_python_requirements(target: Path) -> list[Finding]:
 def check_unpinned_package_json(target: Path) -> list[Finding]:
     findings: list[Finding] = []
     for manifest in target.rglob('package.json'):
-        if any(part in EXCLUDED_DIRS for part in manifest.parts):
+        if is_excluded_path(manifest, target):
             continue
         try:
             payload = json.loads(manifest.read_text(encoding='utf-8'))
@@ -324,6 +324,15 @@ def relpath(path: str, target: Path) -> str:
     except Exception:
         return str(path).replace('\\', '/')
 
+
+
+
+def is_excluded_path(path: Path, target: Path) -> bool:
+    try:
+        relative_parts = path.resolve().relative_to(target.resolve()).parts
+    except ValueError:
+        relative_parts = path.parts
+    return any(part in EXCLUDED_DIRS for part in relative_parts)
 
 
 def language_for_path(path: Path) -> str:

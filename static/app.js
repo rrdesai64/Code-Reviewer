@@ -5,11 +5,34 @@ const findingsEl = document.querySelector('#findings');
 const actionsEl = document.querySelector('#actions');
 const healthEl = document.querySelector('#health');
 const authUserEl = document.querySelector('#auth-user');
+const folderPicker = document.querySelector('#folder-picker');
+const archivePicker = document.querySelector('#archive-picker');
+const folderSelectionEl = document.querySelector('#folder-selection');
 let currentScan = null;
 
 fetch('/api/health').then(r => r.json()).then(data => {
   healthEl.textContent = data.ok ? `Service ready: ${data.features.join(', ')}` : 'Service unavailable';
 }).catch(() => healthEl.textContent = 'Service unavailable');
+
+
+folderPicker?.addEventListener('change', () => {
+  const files = Array.from(folderPicker.files || []);
+  if (!files.length) {
+    folderSelectionEl.textContent = 'No folder selected';
+    return;
+  }
+  const firstPath = files[0].webkitRelativePath || files[0].name;
+  const folderName = firstPath.includes('/') ? firstPath.split('/')[0] : 'Selected folder';
+  folderSelectionEl.textContent = `${folderName}: ${files.length} files selected`;
+  if (archivePicker) archivePicker.value = '';
+});
+
+archivePicker?.addEventListener('change', () => {
+  if (archivePicker.files?.length && folderPicker) {
+    folderPicker.value = '';
+    folderSelectionEl.textContent = 'No folder selected';
+  }
+});
 
 fetch('/auth/me').then(r => r.ok ? r.json() : null).then(user => {
   if (!user) return;
@@ -24,6 +47,7 @@ form.addEventListener('submit', async (event) => {
   actionsEl.innerHTML = '';
   const body = new FormData(form);
   if (!body.get('archive')?.name) body.delete('archive');
+  if (!folderPicker?.files?.length) body.delete('folder_files');
   const response = await fetch('/api/scans', { method: 'POST', body });
   if (!response.ok) {
     const detail = await response.text();

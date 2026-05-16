@@ -20,9 +20,10 @@
       <h2>Scan Target</h2>
       <form id="scan-form">
         <label>Project name<input name="project_name" placeholder="Optional display name" /></label>
-        <label>Repository path<input name="repo_path" placeholder="G:\\path\\to\\repo" /></label>
+        <label>Project folder<input id="folder-picker" name="folder_files" type="file" webkitdirectory directory multiple /></label>
+        <div id="folder-selection" class="selection-note">No folder selected</div>
         <div class="or">or</div>
-        <label>ZIP archive<input name="archive" type="file" accept=".zip" /></label>
+        <label>ZIP archive<input id="archive-picker" name="archive" type="file" accept=".zip" /></label>
         <button type="submit">Run Security Scan</button>
       </form>
       <div id="status" class="status"></div>

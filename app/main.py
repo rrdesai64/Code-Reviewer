@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import shutil
-import uuid
 import zipfile
 from pathlib import Path
 
@@ -111,8 +110,8 @@ def scans(user: AuthUser = Depends(require_permission('scan:read'))) -> list[dic
 
 
 @app.post('/api/scans')
-async def create_scan(project_name: str | None = Form(None), repo_path: str | None = Form(None), archive: UploadFile | None = File(None), folder_files: list[UploadFile] | None = File(None), user: AuthUser = Depends(require_permission('scan:run'))) -> dict:
-    target = await resolve_target(repo_path, archive, folder_files)
+async def create_scan(project_name: str | None = Form(None), repo_path: str | None = Form(None), archive: UploadFile | None = File(None), user: AuthUser = Depends(require_permission('scan:run'))) -> dict:
+    target = await resolve_target(repo_path, archive)
     scan = run_scan(target, project_name=project_name)
     save_scan(scan)
     update_repository_memory(scan)
@@ -260,14 +259,12 @@ def audit_log(limit: int = 100, user: AuthUser = Depends(require_permission('ent
     return {'events': audit_events(limit=limit)}
 
 
-async def resolve_target(repo_path: str | None, archive: UploadFile | None, folder_files: list[UploadFile] | None = None) -> Path:
-    if folder_files:
-        usable_files = [item for item in folder_files if item.filename]
-        if usable_files:
-            return await save_uploaded_folder(usable_files)
+async def resolve_target(repo_path: str | None, archive: UploadFile | None) -> Path:
     if archive and archive.filename:
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        scan_dir = UPLOAD_DIR / f"{Path(archive.filename).stem.replace(' ', '_')}-{uuid.uuid4().hex[:8]}"
+        scan_dir = UPLOAD_DIR / Path(archive.filename).stem.replace(' ', '_')
+        if scan_dir.exists():
+            shutil.rmtree(scan_dir)
         scan_dir.mkdir(parents=True)
         zip_path = UPLOAD_DIR / archive.filename
         zip_path.write_bytes(await archive.read())
@@ -277,29 +274,7 @@ async def resolve_target(repo_path: str | None, archive: UploadFile | None, fold
         target = Path(repo_path).expanduser().resolve()
         if target.exists() and target.is_dir():
             return target
-    raise HTTPException(status_code=400, detail='Choose a folder, upload a ZIP archive, or provide a valid repo_path')
-
-
-async def save_uploaded_folder(files: list[UploadFile]) -> Path:
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    root_name = Path(files[0].filename.replace('\\', '/')).parts[0] if files[0].filename else 'uploaded-folder'
-    scan_dir = UPLOAD_DIR / f"{safe_name(root_name)}-{uuid.uuid4().hex[:8]}"
-    scan_dir.mkdir(parents=True)
-    saved = 0
-    for uploaded in files:
-        relative_name = uploaded.filename.replace('\\', '/')
-        if not relative_name or relative_name.endswith('/'):
-            continue
-        relative_path = safe_relative_path(relative_name)
-        destination = (scan_dir / relative_path).resolve()
-        if not str(destination).startswith(str(scan_dir.resolve())):
-            raise HTTPException(status_code=400, detail='Unsafe folder upload path detected')
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(await uploaded.read())
-        saved += 1
-    if saved == 0:
-        raise HTTPException(status_code=400, detail='Selected folder did not contain uploadable files')
-    return scan_dir
+    raise HTTPException(status_code=400, detail='Provide a valid repo_path or ZIP archive')
 
 
 def safe_extract_zip(zip_path: Path, destination: Path) -> None:
@@ -309,19 +284,3 @@ def safe_extract_zip(zip_path: Path, destination: Path) -> None:
             if not str(target).startswith(str(destination.resolve())):
                 raise HTTPException(status_code=400, detail='Unsafe ZIP path detected')
         zf.extractall(destination)
-
-
-def safe_relative_path(path: str) -> Path:
-    parts = []
-    for part in Path(path).parts:
-        if part in {'', '.', '..'}:
-            continue
-        parts.append(safe_name(part))
-    if not parts:
-        raise HTTPException(status_code=400, detail='Invalid uploaded folder path')
-    return Path(*parts)
-
-
-def safe_name(value: str) -> str:
-    cleaned = ''.join(ch if ch.isalnum() or ch in '._- ' else '_' for ch in value).strip()
-    return cleaned or 'uploaded'

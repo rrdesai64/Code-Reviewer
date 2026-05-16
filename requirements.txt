@@ -1,0 +1,10 @@
+fastapi==0.136.1
+uvicorn[standard]==0.47.0
+python-multipart==0.0.28
+semgrep==1.163.0
+bandit==1.9.4
+pip-audit==2.10.0
+jinja2==3.1.6
+authlib==1.7.2
+itsdangerous==2.2.0
+python3-saml==1.16.0

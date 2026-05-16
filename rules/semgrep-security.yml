@@ -1,0 +1,57 @@
+rules:
+  - id: python-subprocess-shell-true
+    languages: [python]
+    severity: ERROR
+    message: Avoid subprocess calls with shell=True; pass arguments as a list and validate input.
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021-Injection"]
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.$FUNC(..., shell=True, ...)
+          - pattern: os.system(...)
+  - id: python-dynamic-execution
+    languages: [python]
+    severity: ERROR
+    message: Avoid eval/exec on dynamic data.
+    metadata:
+      cwe: ["CWE-94"]
+      owasp: ["A03:2021-Injection"]
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: exec(...)
+  - id: python-hardcoded-secret
+    languages: [python]
+    severity: WARNING
+    message: Potential hardcoded secret in source code.
+    metadata:
+      cwe: ["CWE-798"]
+      owasp: ["A07:2021-Identification and Authentication Failures"]
+    patterns:
+      - pattern-regex: (?i)(password|passwd|api[_-]?key|secret|token)\s*=\s*['\"][^'\"]{8,}['\"]
+  - id: flask-debug-enabled
+    languages: [python]
+    severity: WARNING
+    message: Flask debug mode should not be enabled in deployable code.
+    metadata:
+      cwe: ["CWE-489"]
+      owasp: ["A05:2021-Security Misconfiguration"]
+    pattern: app.run(..., debug=True, ...)
+  - id: javascript-dynamic-execution
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Avoid eval or Function constructors with dynamic data.
+    metadata:
+      cwe: ["CWE-94"]
+      owasp: ["A03:2021-Injection"]
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: new Function(...)
+  - id: javascript-innerhtml-assignment
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: Assigning to innerHTML can introduce cross-site scripting if data is untrusted.
+    metadata:
+      cwe: ["CWE-79"]
+      owasp: ["A03:2021-Injection"]
+    pattern: $EL.innerHTML = $VALUE

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Secure Code Review Assistant</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Secure Code Review Assistant</h1>
+      <p>Deterministic scanners with explainable remediation and CI-ready exports.</p>
+    </div>
+    <div class="top-actions"><div class="health" id="health">Checking service</div><div class="health" id="auth-user"></div></div>
+  </header>
+
+  <main class="layout">
+    <section class="panel scan-panel">
+      <h2>Scan Target</h2>
+      <form id="scan-form">
+        <label>Project name<input name="project_name" placeholder="Optional display name" /></label>
+        <label>Repository path<input name="repo_path" placeholder="G:\\path\\to\\repo" /></label>
+        <div class="or">or</div>
+        <label>ZIP archive<input name="archive" type="file" accept=".zip" /></label>
+        <button type="submit">Run Security Scan</button>
+      </form>
+      <div id="status" class="status"></div>
+    </section>
+
+    <section class="panel summary-panel">
+      <h2>Summary</h2>
+      <div id="summary" class="summary-grid"></div>
+      <div class="actions" id="actions"></div>
+    </section>
+
+    <section class="findings" id="findings"></section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

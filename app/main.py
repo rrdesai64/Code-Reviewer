@@ -1,0 +1,286 @@
+from __future__ import annotations
+
+import shutil
+import zipfile
+from pathlib import Path
+
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
+
+from .models import DecisionRequest, LLMRequest
+from .auth import AuthEnforcementMiddleware, AuthUser, auth_config, auth_status, login_user, logout_user, make_oauth, make_saml_auth, normalize_user, require_permission, require_user, saml_metadata_response
+from .enterprise import audit, audit_events, compliance_report, load_enterprise
+from .llm import generate, provider_status
+from .memory import load_memory, update_repository_memory
+from .rag import add_knowledge_document, build_index, retrieve
+from .refactor import build_fix_proposal
+from .reporting import github_pr_comment, html_report, markdown_report
+from .sarif import build_sarif
+from .scanner import ROOT, run_scan
+from .storage import apply_decisions, load_baseline, load_scan, save_baseline, save_decision, save_scan, list_scans
+
+app = FastAPI(title='Secure Code Review Assistant', version='0.7.0')
+oauth = make_oauth()
+STATIC_DIR = ROOT / 'static'
+UPLOAD_DIR = ROOT / 'data' / 'uploads'
+cfg = auth_config()
+app.add_middleware(AuthEnforcementMiddleware)
+app.add_middleware(SessionMiddleware, secret_key=cfg.session_secret, https_only=cfg.cookie_secure, same_site=cfg.cookie_same_site)
+app.mount('/static', StaticFiles(directory=STATIC_DIR), name='static')
+
+
+@app.get('/', response_class=HTMLResponse)
+def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
+    return (STATIC_DIR / 'index.html').read_text(encoding='utf-8')
+
+
+@app.get('/api/health')
+def health() -> dict:
+    return {'ok': True, 'phase': 'phase-6', 'features': ['semgrep', 'bandit', 'pip-audit', 'sarif', 'baseline', 'pr-comments', 'rag', 'memory', 'secure-refactoring', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml'], 'llm_providers': provider_status(), 'auth': auth_status()}
+
+
+@app.get('/auth/me')
+def auth_me(user: AuthUser = Depends(require_user)) -> dict:
+    return user.model_dump()
+
+
+@app.get('/auth/login/oidc')
+async def oidc_login(request: Request):
+    if not getattr(oauth, 'oidc', None):
+        raise HTTPException(status_code=503, detail='OIDC is not configured')
+    redirect_uri = f"{auth_config().public_base_url}/auth/callback/oidc"
+    return await oauth.oidc.authorize_redirect(request, redirect_uri)
+
+
+@app.get('/auth/callback/oidc')
+async def oidc_callback(request: Request):
+    if not getattr(oauth, 'oidc', None):
+        raise HTTPException(status_code=503, detail='OIDC is not configured')
+    token = await oauth.oidc.authorize_access_token(request)
+    claims = dict(token.get('userinfo') or {})
+    if not claims and token.get('id_token'):
+        claims = dict(await oauth.oidc.parse_id_token(request, token))
+    user = normalize_user(claims, 'oidc')
+    login_user(request, user, id_token=token.get('id_token'))
+    return RedirectResponse(url='/', status_code=303)
+
+
+@app.get('/auth/login/saml')
+async def saml_login(request: Request):
+    auth = await make_saml_auth(request)
+    return RedirectResponse(url=auth.login(), status_code=303)
+
+
+@app.post('/auth/saml/acs')
+async def saml_acs(request: Request):
+    auth = await make_saml_auth(request)
+    auth.process_response()
+    errors = auth.get_errors()
+    if errors or not auth.is_authenticated():
+        raise HTTPException(status_code=401, detail={'errors': errors, 'reason': auth.get_last_error_reason()})
+    claims = {key: value[0] if isinstance(value, list) and value else value for key, value in auth.get_attributes().items()}
+    claims['NameID'] = auth.get_nameid()
+    user = normalize_user(claims, 'saml')
+    login_user(request, user)
+    return RedirectResponse(url='/', status_code=303)
+
+
+@app.get('/auth/saml/metadata')
+def saml_metadata():
+    return saml_metadata_response()
+
+
+@app.api_route('/auth/saml/sls', methods=['GET', 'POST'])
+async def saml_sls(request: Request):
+    logout_user(request)
+    return RedirectResponse(url='/', status_code=303)
+
+
+@app.get('/auth/logout')
+def logout(request: Request):
+    logout_user(request)
+    return RedirectResponse(url='/', status_code=303)
+
+
+@app.get('/api/scans')
+def scans(user: AuthUser = Depends(require_permission('scan:read'))) -> list[dict]:
+    return [scan.model_dump(mode='json') for scan in list_scans()]
+
+
+@app.post('/api/scans')
+async def create_scan(project_name: str | None = Form(None), repo_path: str | None = Form(None), archive: UploadFile | None = File(None), user: AuthUser = Depends(require_permission('scan:run'))) -> dict:
+    target = await resolve_target(repo_path, archive)
+    scan = run_scan(target, project_name=project_name)
+    save_scan(scan)
+    update_repository_memory(scan)
+    audit(user.username, 'scan.created', scan.scan_id, {'project': scan.project_name})
+    return scan.model_dump(mode='json')
+
+
+@app.get('/api/scans/{scan_id}')
+def get_scan(scan_id: str, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    return scan.model_dump(mode='json')
+
+
+@app.get('/api/scans/{scan_id}/sarif')
+def sarif(scan_id: str, user: AuthUser = Depends(require_permission('scan:read'))) -> JSONResponse:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    return JSONResponse(build_sarif(scan), media_type='application/sarif+json')
+
+
+@app.get('/api/scans/{scan_id}/report.md', response_class=PlainTextResponse)
+def report_markdown(scan_id: str, user: AuthUser = Depends(require_permission('scan:read'))) -> str:
+    try:
+        return markdown_report(apply_decisions(load_scan(scan_id)))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+
+
+@app.get('/api/scans/{scan_id}/report.html', response_class=HTMLResponse)
+def report_html(scan_id: str, user: AuthUser = Depends(require_permission('scan:read'))) -> str:
+    try:
+        return html_report(apply_decisions(load_scan(scan_id)))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+
+
+@app.get('/api/scans/{scan_id}/github-pr-comment', response_class=PlainTextResponse)
+def pr_comment(scan_id: str, user: AuthUser = Depends(require_permission('scan:read'))) -> str:
+    try:
+        return github_pr_comment(apply_decisions(load_scan(scan_id)))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+
+
+@app.post('/api/scans/{scan_id}/baseline')
+def baseline(scan_id: str, user: AuthUser = Depends(require_permission('baseline:write'))) -> dict:
+    try:
+        scan = load_scan(scan_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    save_baseline(scan)
+    return {'saved': True, 'scan_id': scan_id, 'findings': len(scan.findings)}
+
+
+@app.get('/api/baseline')
+def current_baseline(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    return load_baseline() or {'scan_id': None, 'fingerprints': []}
+
+
+@app.post('/api/scans/{scan_id}/decisions')
+def decision(scan_id: str, request: DecisionRequest, user: AuthUser = Depends(require_permission('decision:write'))) -> dict:
+    try:
+        scan = load_scan(scan_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    if request.finding_id not in {finding.id for finding in scan.findings}:
+        raise HTTPException(status_code=404, detail='finding not found')
+    save_decision(request.finding_id, request.state, request.reason)
+    return {'saved': True, 'finding_id': request.finding_id, 'state': request.state}
+
+
+@app.get('/api/rag/query')
+def rag_query(q: str, limit: int = 5, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    return {'query': q, 'results': [chunk.model_dump() for chunk in retrieve(q, limit=limit)]}
+
+
+@app.post('/api/rag/reindex')
+def rag_reindex(user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    chunks = build_index()
+    audit(user.username, 'rag.reindexed', 'knowledge-base', {'chunks': str(len(chunks))})
+    return {'chunks': len(chunks)}
+
+
+@app.post('/api/rag/documents')
+def rag_document(title: str = Body(...), text: str = Body(...), user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    chunk = add_knowledge_document(title, text)
+    audit(user.username, 'rag.document_added', chunk.id, {'title': title})
+    return chunk.model_dump()
+
+
+@app.get('/api/memory')
+def memory(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    return load_memory()
+
+
+@app.get('/api/llm/providers')
+def llm_providers(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    return provider_status()
+
+
+@app.post('/api/llm/generate')
+def llm_generate(request: LLMRequest, user: AuthUser = Depends(require_permission('fix:propose'))) -> dict:
+    response = generate(request)
+    audit(user.username, 'llm.generate', request.provider, {'fallback': str(response.used_fallback)})
+    return response.model_dump()
+
+
+@app.post('/api/scans/{scan_id}/findings/{finding_id}/fix-proposal')
+def fix_proposal(scan_id: str, finding_id: str, provider: str = 'offline', model: str | None = None, user: AuthUser = Depends(require_permission('fix:propose'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    try:
+        proposal = build_fix_proposal(scan, finding_id, provider=provider, model=model)
+    except ValueError:
+        raise HTTPException(status_code=404, detail='finding not found')
+    audit(user.username, 'fix.proposed', finding_id, {'scan_id': scan_id, 'provider': provider})
+    return proposal.model_dump()
+
+
+@app.get('/api/scans/{scan_id}/compliance')
+def scan_compliance(scan_id: str, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    report = compliance_report(scan)
+    audit(user.username, 'enterprise.compliance_reported', scan_id, {'project': scan.project_name})
+    return report
+
+
+@app.get('/api/enterprise')
+def enterprise(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    return load_enterprise()
+
+
+@app.get('/api/audit')
+def audit_log(limit: int = 100, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    return {'events': audit_events(limit=limit)}
+
+
+async def resolve_target(repo_path: str | None, archive: UploadFile | None) -> Path:
+    if archive and archive.filename:
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        scan_dir = UPLOAD_DIR / Path(archive.filename).stem.replace(' ', '_')
+        if scan_dir.exists():
+            shutil.rmtree(scan_dir)
+        scan_dir.mkdir(parents=True)
+        zip_path = UPLOAD_DIR / archive.filename
+        zip_path.write_bytes(await archive.read())
+        safe_extract_zip(zip_path, scan_dir)
+        return scan_dir
+    if repo_path:
+        target = Path(repo_path).expanduser().resolve()
+        if target.exists() and target.is_dir():
+            return target
+    raise HTTPException(status_code=400, detail='Provide a valid repo_path or ZIP archive')
+
+
+def safe_extract_zip(zip_path: Path, destination: Path) -> None:
+    with zipfile.ZipFile(zip_path) as zf:
+        for member in zf.infolist():
+            target = (destination / member.filename).resolve()
+            if not str(target).startswith(str(destination.resolve())):
+                raise HTTPException(status_code=400, detail='Unsafe ZIP path detected')
+        zf.extractall(destination)

@@ -1,0 +1,171 @@
+# Secure Code Review Assistant
+
+Production-shaped secure code review assistant built from the strategic upgrade roadmap.
+
+## Implemented Phases
+
+### Phase 1: Secure Review MVP
+
+- FastAPI backend with browser UI
+- ZIP upload or local repository path scanning
+- Semgrep integration with local security rules
+- Bandit integration for Python
+- Python dependency vulnerability checks with `pip-audit`
+- Dependency manifest hygiene checks for Python and Node projects
+- Normalized findings with CWE/OWASP mapping, severity, confidence, explanation, and fix guidance
+- Markdown and printable HTML reports
+
+### Phase 2: Developer Workflow Integration
+
+- SARIF export for GitHub Security and CI tools
+- GitHub Actions workflow template
+- Baseline save/compare to distinguish new, resolved, and unchanged findings
+- False-positive / risk-accepted / accepted-fix decisions
+- GitHub PR comment summary artifact
+- CI CLI
+
+### Phase 3: RAG And Repository Memory
+
+- Local markdown knowledge base in `knowledge/`
+- Lightweight lexical RAG index stored in `data/rag_index.json`
+- RAG query endpoint for CWE/OWASP/security guidance
+- Repository memory in `data/memory.json`
+- Scan history, recurring rules, severity trends, and hotspot files
+
+### Phase 4: Secure Refactoring
+
+- Human-reviewed fix proposal endpoint
+- Unified diff generation for common issue classes
+- RAG-backed and optional LLM-backed safety notes
+- No automatic code modification or merge behavior
+
+### Phase 5: Local And Cloud LLMs
+
+Supported providers:
+
+- `offline`: deterministic local fallback, always available
+- `ollama`: local model server at `OLLAMA_BASE_URL`
+- `openai`: OpenAI Responses API using `OPENAI_API_KEY`
+- `openai_compatible`: local or cloud OpenAI-compatible chat endpoint using `LLM_BASE_URL`
+
+### Phase 6: Enterprise Capabilities
+
+- Local RBAC configuration with admin, security reviewer, developer, and auditor roles
+- SSO configuration placeholder
+- Enterprise policy definitions
+- Audit log in `data/audit.log`
+- Compliance report endpoint mapped to OWASP/CWE and policies
+
+## Run The Web App
+
+```powershell
+.\run.ps1
+```
+
+Open `http://127.0.0.1:8000`.
+
+## Try The Sample Project
+
+```powershell
+.\scan.ps1 -Path "G:\My Software Projects\Code Reviewer - Codex\sample_project"
+```
+
+Or use the web form with the same path.
+
+## CLI Examples
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path . --sarif-out secure-review.sarif --report-out secure-review.md --pr-comment-out pr-comment.md --compliance-out compliance.json --fix-proposals-out fix-proposals.json --fail-on high
+```
+
+Exit code `2` means findings met or exceeded the configured `--fail-on` threshold.
+
+## LLM Configuration
+
+```powershell
+# OpenAI cloud provider
+$env:OPENAI_API_KEY="your-key"
+$env:OPENAI_MODEL="gpt-5.2"
+
+# Ollama local provider
+$env:OLLAMA_BASE_URL="http://127.0.0.1:11434"
+$env:OLLAMA_MODEL="codellama"
+
+# OpenAI-compatible endpoint
+$env:LLM_BASE_URL="http://127.0.0.1:8001/v1"
+$env:LLM_API_KEY="optional-key"
+$env:LLM_MODEL="local-model"
+```
+
+The app falls back to `offline` guidance if a configured LLM provider is unavailable.
+
+## Key API Endpoints
+
+- `POST /api/scans`
+- `GET /api/scans/{scan_id}/sarif`
+- `GET /api/scans/{scan_id}/compliance`
+- `POST /api/scans/{scan_id}/findings/{finding_id}/fix-proposal?provider=offline`
+- `GET /api/rag/query?q=CWE-78`
+- `POST /api/rag/reindex`
+- `GET /api/memory`
+- `GET /api/llm/providers`
+- `GET /api/enterprise`
+- `GET /api/audit`
+
+## Safety Notes
+
+Generated fixes are proposals only. Review diffs, run tests, rerun scans, and require human approval before accepting code changes.
+
+
+## Production SSO Enforcement
+
+The app supports enforced OIDC and SAML login. When `AUTH_REQUIRED=true`, unauthenticated UI requests redirect to the configured SSO login route and unauthenticated API requests return `401`.
+
+### Common Auth Settings
+
+```powershell
+$env:AUTH_REQUIRED="true"
+$env:AUTH_MODE="oidc" # oidc or saml
+$env:AUTH_SESSION_SECRET="replace-with-a-long-random-secret"
+$env:PUBLIC_BASE_URL="https://secure-review.example.com"
+$env:AUTH_COOKIE_SECURE="true"
+$env:AUTH_COOKIE_SAMESITE="lax"
+$env:AUTH_DEFAULT_ROLES="developer"
+$env:AUTH_ADMIN_EMAILS="security-admin@example.com"
+$env:AUTH_GROUP_ROLE_MAP="Security Team:security_reviewer;Auditors:auditor"
+```
+
+### OIDC Settings
+
+Register this redirect URI with your identity provider:
+
+`https://secure-review.example.com/auth/callback/oidc`
+
+```powershell
+$env:OIDC_CLIENT_ID="client-id"
+$env:OIDC_CLIENT_SECRET="client-secret"
+$env:OIDC_DISCOVERY_URL="https://issuer.example.com/.well-known/openid-configuration"
+$env:OIDC_SCOPE="openid profile email"
+```
+
+### SAML Settings
+
+Import the SP metadata into your identity provider:
+
+`https://secure-review.example.com/auth/saml/metadata`
+
+Configure the IdP ACS URL as:
+
+`https://secure-review.example.com/auth/saml/acs`
+
+```powershell
+$env:AUTH_MODE="saml"
+$env:SAML_IDP_ENTITY_ID="https://idp.example.com/entity"
+$env:SAML_IDP_SSO_URL="https://idp.example.com/sso"
+$env:SAML_IDP_SLO_URL="https://idp.example.com/slo"
+$env:SAML_IDP_X509_CERT="-----BEGIN CERTIFICATE-----..."
+$env:SAML_SP_ENTITY_ID="https://secure-review.example.com/auth/saml/metadata"
+$env:SAML_WANT_ASSERTIONS_SIGNED="true"
+```
+
+For production, run behind HTTPS, set `AUTH_COOKIE_SECURE=true`, use a strong `AUTH_SESSION_SECRET`, and map IdP groups to local roles with `AUTH_GROUP_ROLE_MAP`.

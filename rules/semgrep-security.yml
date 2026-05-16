@@ -55,3 +55,82 @@ rules:
       cwe: ["CWE-79"]
       owasp: ["A03:2021-Injection"]
     pattern: $EL.innerHTML = $VALUE
+
+  - id: javascript-child-process-exec
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Avoid child_process.exec with dynamic command strings; use execFile/spawn with argument arrays.
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021-Injection"]
+    pattern-either:
+      - pattern: require('child_process').exec(...)
+      - pattern: child_process.exec(...)
+  - id: javascript-hardcoded-secret
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: Potential hardcoded secret in JavaScript/TypeScript source.
+    metadata:
+      cwe: ["CWE-798"]
+      owasp: ["A07:2021-Identification and Authentication Failures"]
+    patterns:
+      - pattern-regex: (?i)(password|passwd|api[_-]?key|secret|token)\s*[:=]\s*['\"][^'\"]{8,}['\"]
+  - id: java-runtime-exec
+    languages: [java]
+    severity: ERROR
+    message: Avoid Runtime.exec with untrusted input; use safer APIs and strict allowlists.
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021-Injection"]
+    pattern-either:
+      - pattern: Runtime.getRuntime().exec(...)
+      - pattern: new ProcessBuilder(...)
+  - id: java-xxe-document-builder
+    languages: [java]
+    severity: WARNING
+    message: XML parsers should disable external entities to prevent XXE.
+    metadata:
+      cwe: ["CWE-611"]
+      owasp: ["A05:2021-Security Misconfiguration"]
+    pattern: DocumentBuilderFactory.newInstance()
+  - id: go-command-exec
+    languages: [go]
+    severity: ERROR
+    message: Review os/exec command construction for injection risks.
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021-Injection"]
+    pattern: exec.Command(...)
+  - id: go-sql-string-format
+    languages: [go]
+    severity: WARNING
+    message: Avoid constructing SQL with fmt.Sprintf; use parameterized queries.
+    metadata:
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021-Injection"]
+    pattern: fmt.Sprintf("...", ...)
+  - id: rust-command-spawn
+    languages: [rust]
+    severity: WARNING
+    message: Review Command usage for user-controlled command or argument injection.
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021-Injection"]
+    pattern: Command::new(...)
+  - id: yaml-hardcoded-secret
+    languages: [yaml]
+    severity: WARNING
+    message: Potential hardcoded secret in YAML configuration.
+    metadata:
+      cwe: ["CWE-798"]
+      owasp: ["A07:2021-Identification and Authentication Failures"]
+    patterns:
+      - pattern-regex: (?i)(password|passwd|api[_-]?key|secret|token)\s*:\s*['\"]?[^'\"\s]{8,}
+  - id: dockerfile-root-user
+    languages: [dockerfile]
+    severity: WARNING
+    message: Containers should set a non-root USER for runtime stages.
+    metadata:
+      cwe: ["CWE-250"]
+      owasp: ["A05:2021-Security Misconfiguration"]
+    pattern-regex: (?m)^USER\s+root\s*$

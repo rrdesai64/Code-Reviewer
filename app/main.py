@@ -38,7 +38,7 @@ def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
 
 @app.get('/api/health')
 def health() -> dict:
-    return {'ok': True, 'phase': 'phase-6', 'features': ['semgrep', 'bandit', 'pip-audit', 'sarif', 'baseline', 'pr-comments', 'rag', 'memory', 'secure-refactoring', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml'], 'llm_providers': provider_status(), 'auth': auth_status()}
+    return {'ok': True, 'phase': 'phase-6', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'pip-audit', 'sarif', 'baseline', 'pr-comments', 'rag', 'memory', 'secure-refactoring', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml'], 'llm_providers': provider_status(), 'auth': auth_status()}
 
 
 @app.get('/auth/me')

@@ -39,3 +39,6 @@ Thumbs.db
 
 # Empty scratch scaffold from initial setup
 secure-review-assistant/
+node_modules/
+tools/codeql/
+tools/downloads/

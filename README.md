@@ -117,6 +117,48 @@ The app falls back to `offline` guidance if a configured LLM provider is unavail
 Generated fixes are proposals only. Review diffs, run tests, rerun scans, and require human approval before accepting code changes.
 
 
+
+
+## Phase A: Scanner Depth
+
+Phase A adds deeper scanner orchestration while keeping external enterprise tools opt-in.
+
+Implemented:
+
+- Built-in Python AST analysis using the standard `ast` parser
+- Expanded language-specific Semgrep rules for Python, JavaScript/TypeScript, Java, Go, Rust, YAML, and Dockerfile
+- CodeQL adapter that activates only when `CODEQL_ENABLED=true` and the CodeQL CLI is installed
+- SonarQube adapter that activates only when `SONAR_ENABLED=true`, `sonar-scanner` is installed, and server credentials are configured
+- Tool status reporting for `python-ast`, `codeql`, and `sonarqube`
+
+### Enable CodeQL
+
+CodeQL CLI has been installed locally under `tools/codeql/`. To override or disable it, set:
+
+```powershell
+$env:CODEQL_ENABLED="auto" # auto, true, or false
+$env:CODEQL_EXE="C:\path\to\codeql.exe" # optional if codeql is on PATH
+$env:CODEQL_QUERY_SUITE="codeql-suites/code-scanning.qls"
+$env:CODEQL_TIMEOUT_SECONDS="900"
+```
+
+The app creates temporary CodeQL databases under `data/codeql/`, which is ignored by Git. CodeQL query packs were installed into the user CodeQL cache with `codeql pack download`.
+
+### Enable SonarQube
+
+SonarScanner has been installed as a local npm dev dependency. Create a SonarQube/SonarCloud token, then set:
+
+```powershell
+$env:SONAR_ENABLED="auto" # auto, true, or false
+$env:SONAR_SCANNER_EXE="C:\path\to\sonar-scanner.bat" # optional if on PATH
+$env:SONAR_HOST_URL="https://sonarqube.example.com"
+$env:SONAR_TOKEN="your-token"
+$env:SONAR_PROJECT_KEY="secure-review-project"
+$env:SONAR_TIMEOUT_SECONDS="600"
+```
+
+When disabled or unavailable, CodeQL and SonarQube report their status without failing the rest of the scan.
+
 ## Production SSO Enforcement
 
 The app supports enforced OIDC and SAML login. When `AUTH_REQUIRED=true`, unauthenticated UI requests redirect to the configured SSO login route and unauthenticated API requests return `401`.

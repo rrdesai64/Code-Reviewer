@@ -107,6 +107,16 @@ class KnowledgeChunk(BaseModel):
     text: str
     tags: list[str] = Field(default_factory=list)
     score: float = 0
+    section: str | None = None
+    chunk_index: int = 0
+    metadata: dict[str, str] = Field(default_factory=dict)
+
+
+class RagQueryResponse(BaseModel):
+    query: str
+    total_indexed: int
+    results: list[KnowledgeChunk] = Field(default_factory=list)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class LLMRequest(BaseModel):

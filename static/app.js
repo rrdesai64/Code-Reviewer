@@ -49,6 +49,7 @@ function renderScan(scan) {
     <button class="ghost" onclick="saveBaseline('${scan.scan_id}')">Save Baseline</button>
     <button class="ghost" onclick="showCompliance('${scan.scan_id}')">Compliance</button>
     <button class="ghost" onclick="showMemory()">Memory</button>
+    <button class="ghost" onclick="showRagStats()">Knowledge</button>
     <button class="ghost" onclick="showEnterprise()">Enterprise</button>`;
   findingsEl.innerHTML = scan.findings.map(renderFinding).join('') || '<section class="panel">No findings reported.</section>';
 }
@@ -87,6 +88,7 @@ function renderFinding(f) {
         <option value="openai">openai</option>
         <option value="openai_compatible">compatible</option>
       </select>
+      <button class="ghost" onclick="showRagContext('${f.id}')">RAG</button>
       <button class="ghost" onclick="proposeFix('${f.id}')">Propose Fix</button>
     </div>
     <pre class="proposal" id="proposal-${f.id}"></pre>
@@ -126,6 +128,20 @@ async function showCompliance(scanId) {
   showJsonPanel('Compliance Report', await response.json());
 }
 
+async function showRagContext(findingId) {
+  const response = await fetch(`/api/scans/${currentScan.scan_id}/findings/${findingId}/rag-context`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not retrieve RAG context.';
+    return;
+  }
+  const data = await response.json();
+  showJsonPanel('Finding RAG Context', data);
+}
+
+async function showRagStats() {
+  const response = await fetch('/api/rag/stats');
+  showJsonPanel('Knowledge Index', await response.json());
+}
 async function showMemory() {
   const response = await fetch('/api/memory');
   showJsonPanel('Repository Memory', await response.json());

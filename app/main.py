@@ -14,14 +14,14 @@ from .auth import AuthEnforcementMiddleware, AuthUser, auth_config, auth_status,
 from .enterprise import audit, audit_events, compliance_report, load_enterprise
 from .llm import generate, provider_status
 from .memory import load_memory, update_repository_memory
-from .rag import add_knowledge_document, build_index, retrieve
+from .rag import add_knowledge_document, build_index, finding_context, index_stats, retrieve_response
 from .refactor import build_fix_proposal
 from .reporting import github_pr_comment, html_report, markdown_report
 from .sarif import build_sarif
 from .scanner import ROOT, run_scan
 from .storage import apply_decisions, load_baseline, load_scan, save_baseline, save_decision, save_scan, list_scans
 
-app = FastAPI(title='Secure Code Review Assistant', version='0.8.0')
+app = FastAPI(title='Secure Code Review Assistant', version='0.9.0')
 oauth = make_oauth()
 STATIC_DIR = ROOT / 'static'
 UPLOAD_DIR = ROOT / 'data' / 'uploads'
@@ -38,7 +38,7 @@ def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
 
 @app.get('/api/health')
 def health() -> dict:
-    return {'ok': True, 'phase': 'phase-6', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'memory', 'secure-refactoring', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml'], 'llm_providers': provider_status(), 'auth': auth_status()}
+    return {'ok': True, 'phase': 'phase-6', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'secure-refactoring', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml'], 'llm_providers': provider_status(), 'auth': auth_status()}
 
 
 @app.get('/auth/me')
@@ -189,15 +189,33 @@ def decision(scan_id: str, request: DecisionRequest, user: AuthUser = Depends(re
 
 
 @app.get('/api/rag/query')
-def rag_query(q: str, limit: int = 5, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
-    return {'query': q, 'results': [chunk.model_dump() for chunk in retrieve(q, limit=limit)]}
+def rag_query(q: str, limit: int = 5, tags: str | None = None, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    tag_list = [item.strip() for item in (tags or '').split(',') if item.strip()]
+    return retrieve_response(q, limit=limit, tags=tag_list).model_dump(mode='json')
+
+
+@app.get('/api/rag/stats')
+def rag_stats(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    return index_stats()
+
+
+@app.get('/api/scans/{scan_id}/findings/{finding_id}/rag-context')
+def scan_finding_rag_context(scan_id: str, finding_id: str, limit: int = 5, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    try:
+        return finding_context(scan, finding_id, limit=limit)
+    except ValueError:
+        raise HTTPException(status_code=404, detail='finding not found')
 
 
 @app.post('/api/rag/reindex')
 def rag_reindex(user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
     chunks = build_index()
     audit(user.username, 'rag.reindexed', 'knowledge-base', {'chunks': str(len(chunks))})
-    return {'chunks': len(chunks)}
+    return {'chunks': len(chunks), 'stats': index_stats()}
 
 
 @app.post('/api/rag/documents')

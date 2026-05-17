@@ -233,3 +233,26 @@ Risk priority mapping:
 - `P2`: score 40-64, remediate in the current sprint
 - `P3`: score 15-39, track as maintenance work
 - `P4`: score 0-14, informational triage
+
+## Phase C: RAG Expansion
+
+Phase C expands the local RAG layer while keeping it deterministic and offline-friendly.
+
+Implemented:
+
+- Recursive markdown ingestion under `knowledge/`
+- Rich knowledge chunk metadata with section names, chunk indexes, source paths, tags, and document titles
+- Weighted retrieval across title, tags, metadata, and body text
+- Tag-aware retrieval for CWE, OWASP, risk tier, and priority terms
+- Finding-aware RAG context endpoint for scanner findings
+- RAG index stats endpoint for corpus visibility
+- Secure refactoring now retrieves guidance using the whole finding context, including CWE/OWASP and risk factors
+- Web UI actions for knowledge index stats and per-finding RAG context
+- Expanded built-in knowledge base for injection, secrets, supply chain, SSO, RBAC, and audit evidence
+
+Useful endpoints:
+
+- `GET /api/rag/query?q=CWE-78&limit=5&tags=CWE-78`
+- `GET /api/rag/stats`
+- `POST /api/rag/reindex`
+- `GET /api/scans/{scan_id}/findings/{finding_id}/rag-context`

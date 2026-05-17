@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .llm import generate
 from .models import Finding, FixProposal, LLMRequest, ScanResult
-from .rag import retrieve
+from .rag import retrieve_for_finding
 
 
 def build_fix_proposal(scan: ScanResult, finding_id: str, provider: str = 'offline', model: str | None = None) -> FixProposal:
@@ -29,7 +29,7 @@ def build_fix_proposal(scan: ScanResult, finding_id: str, provider: str = 'offli
         f'Patch:\n{patch}\n'
         'Keep it brief and mention validation steps.'
     )
-    context = retrieve(' '.join([finding.rule_id, finding.message, *finding.cwe, *finding.owasp]), limit=4)
+    context = retrieve_for_finding(finding, limit=4)
     llm_response = generate(LLMRequest(prompt=prompt, provider=provider, model=model, context=context))
     if llm_response.text:
         notes.append(llm_response.text[:1200])

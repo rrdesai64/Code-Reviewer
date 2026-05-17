@@ -36,6 +36,10 @@ button.ghost { background: #edf2f7; color: var(--text); }
 .findings { grid-column: 1 / -1; display: grid; gap: 12px; }
 .finding { background: var(--panel); border: 1px solid var(--line); border-left: 5px solid var(--info); border-radius: 8px; padding: 16px; display: grid; gap: 10px; }
 .finding.high, .finding.critical { border-left-color: var(--danger); }
+.risk-pill { border-radius: 999px; padding: 5px 10px; background: #111827; color: #fff; font-size: 12px; font-weight: 800; align-self: start; white-space: nowrap; }
+.risk-details { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: #fbfcfe; color: var(--muted); }
+.risk-details summary { color: var(--text); cursor: pointer; font-weight: 700; }
+.risk-details ul { margin: 8px 0 0; padding-left: 20px; }
 .finding.medium { border-left-color: var(--warn); }
 .finding.low { border-left-color: var(--accent); }
 .finding-head { display: flex; justify-content: space-between; gap: 16px; }

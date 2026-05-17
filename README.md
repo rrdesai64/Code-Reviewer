@@ -211,3 +211,25 @@ $env:SAML_WANT_ASSERTIONS_SIGNED="true"
 ```
 
 For production, run behind HTTPS, set `AUTH_COOKIE_SECURE=true`, use a strong `AUTH_SESSION_SECRET`, and map IdP groups to local roles with `AUTH_GROUP_ROLE_MAP`.
+
+## Phase B: Risk Scoring
+
+Phase B adds deterministic, explainable risk prioritization on top of scanner severity.
+
+Implemented:
+
+- Per-finding risk score from 0-100
+- Risk tier, priority label, recommended action, and factor breakdown
+- Scoring factors for scanner severity, confidence, new-vs-baseline status, high-impact CWE/OWASP categories, exploitability keywords, scanner source, and sensitive/exposed file paths
+- Risk-aware finding ordering in CLI and web scans
+- Aggregate summary metrics: max risk score, average risk score, risk tiers, and priority counts
+- Risk data in JSON scan output, SARIF properties, Markdown/HTML reports, GitHub PR comments, and compliance reports
+- Enterprise policy check for unresolved P0 risk findings
+
+Risk priority mapping:
+
+- `P0`: score 85-100, release-blocking review
+- `P1`: score 65-84, security review before merge or deployment
+- `P2`: score 40-64, remediate in the current sprint
+- `P3`: score 15-39, track as maintenance work
+- `P4`: score 0-14, informational triage

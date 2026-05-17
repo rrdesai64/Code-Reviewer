@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 Severity = Literal['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
 DecisionState = Literal['open', 'false_positive', 'accepted_fix', 'risk_accepted']
+Priority = Literal['P0', 'P1', 'P2', 'P3', 'P4']
 
 
 class Location(BaseModel):
@@ -20,6 +21,21 @@ class FixSuggestion(BaseModel):
     summary: str
     guidance: list[str] = Field(default_factory=list)
     patch: str | None = None
+
+
+class RiskFactor(BaseModel):
+    name: str
+    label: str
+    points: int
+    detail: str
+
+
+class RiskScore(BaseModel):
+    score: int = 0
+    tier: Severity = 'INFO'
+    priority: Priority = 'P4'
+    recommended_action: str = 'Review and triage.'
+    factors: list[RiskFactor] = Field(default_factory=list)
 
 
 class Finding(BaseModel):
@@ -37,6 +53,7 @@ class Finding(BaseModel):
     explanation: str
     fix: FixSuggestion
     fingerprint: str
+    risk: RiskScore = Field(default_factory=RiskScore)
     decision: DecisionState = 'open'
     decision_reason: str | None = None
 
@@ -51,6 +68,10 @@ class ScanSummary(BaseModel):
     files_scanned: int = 0
     languages: dict[str, int] = Field(default_factory=dict)
     tools: dict[str, str] = Field(default_factory=dict)
+    max_risk_score: int = 0
+    avg_risk_score: float = 0
+    risk_tiers: dict[str, int] = Field(default_factory=dict)
+    priorities: dict[str, int] = Field(default_factory=dict)
 
 
 class ScanResult(BaseModel):
@@ -77,7 +98,6 @@ class BaselineComparison(BaseModel):
     new_findings: list[str] = Field(default_factory=list)
     resolved_findings: list[str] = Field(default_factory=list)
     unchanged_findings: list[str] = Field(default_factory=list)
-
 
 
 class KnowledgeChunk(BaseModel):

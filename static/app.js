@@ -19,7 +19,7 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(user => {
 
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
-  statusEl.textContent = 'Scanning with source analyzers, dependency audit, memory update, and enterprise audit logging.';
+  statusEl.textContent = 'Scanning with source analyzers, dependency audit, risk scoring, memory update, and enterprise audit logging.';
   findingsEl.innerHTML = '';
   actionsEl.innerHTML = '';
   const body = new FormData(form);
@@ -38,8 +38,8 @@ form.addEventListener('submit', async (event) => {
 function renderScan(scan) {
   const s = scan.summary;
   summaryEl.innerHTML = [
-    metric('Total', s.total_findings), metric('High', s.high + s.critical), metric('Medium', s.medium),
-    metric('Low', s.low), metric('Files', s.files_scanned), metric('New', scan.new_findings.length)
+    metric('Total', s.total_findings), metric('Max Risk', s.max_risk_score || 0), metric('Avg Risk', s.avg_risk_score || 0),
+    metric('P0/P1', priorityCount(s, 'P0') + priorityCount(s, 'P1')), metric('Files', s.files_scanned), metric('New', scan.new_findings.length)
   ].join('');
   actionsEl.innerHTML = `
     <a class="link-button" href="/api/scans/${scan.scan_id}/sarif" target="_blank">SARIF</a>
@@ -57,13 +57,21 @@ function metric(label, value) {
   return `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`;
 }
 
+function priorityCount(summary, priority) {
+  return (summary.priorities && summary.priorities[priority]) || 0;
+}
+
 function renderFinding(f) {
   const tags = [...(f.cwe || []), ...(f.owasp || [])].map(t => `<span class="badge">${escapeHtml(t)}</span>`).join('');
   const guidance = (f.fix.guidance || []).map(item => `<li>${escapeHtml(item)}</li>`).join('');
-  return `<article class="finding ${f.severity.toLowerCase()}">
-    <div class="finding-head"><h3>[${f.severity}] ${escapeHtml(f.title)}</h3><span class="badge">${escapeHtml(f.source)}</span></div>
-    <div class="meta"><span>${escapeHtml(f.location.path)}:${f.location.line}</span><span>${escapeHtml(f.rule_id)}</span><span>${escapeHtml(f.confidence)}</span>${tags}</div>
+  const riskFactors = ((f.risk && f.risk.factors) || []).map(item => `<li>${escapeHtml(item.label)} +${item.points}: ${escapeHtml(item.detail)}</li>`).join('');
+  const risk = f.risk || { score: 0, tier: 'INFO', priority: 'P4', recommended_action: 'Review and triage.' };
+  return `<article class="finding ${risk.tier.toLowerCase()}">
+    <div class="finding-head"><h3>[${risk.priority} / ${risk.score}] ${escapeHtml(f.title)}</h3><span class="risk-pill">${escapeHtml(risk.tier)}</span></div>
+    <div class="meta"><span>${escapeHtml(f.location.path)}:${f.location.line}</span><span>${escapeHtml(f.rule_id)}</span><span>${escapeHtml(f.source)}</span><span>Severity ${escapeHtml(f.severity)}</span><span>Confidence ${escapeHtml(f.confidence)}</span>${tags}</div>
     <p>${escapeHtml(f.message)}</p>
+    <p>${escapeHtml(risk.recommended_action)}</p>
+    <details class="risk-details"><summary>Risk factors</summary><ul>${riskFactors || '<li>No risk factors recorded.</li>'}</ul></details>
     <p>${escapeHtml(f.explanation)}</p>
     <strong>${escapeHtml(f.fix.summary)}</strong>
     <ul class="fix-list">${guidance}</ul>

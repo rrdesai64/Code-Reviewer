@@ -10,14 +10,20 @@ def markdown_report(scan: ScanResult) -> str:
         f'- Scan ID: `{scan.scan_id}`', f'- Target: `{scan.target_path}`',
         f'- Files scanned: {scan.summary.files_scanned}',
         f'- Findings: {scan.summary.total_findings} total, {scan.summary.high} high, {scan.summary.medium} medium, {scan.summary.low} low',
+        f'- Max risk score: {scan.summary.max_risk_score}',
+        f'- Average risk score: {scan.summary.avg_risk_score}',
+        f'- Risk tiers: {format_counts(scan.summary.risk_tiers)}',
+        f'- Priorities: {format_counts(scan.summary.priorities)}',
         f'- New since baseline: {len(scan.new_findings)}', f'- Resolved since baseline: {len(scan.resolved_findings)}', '', '## Findings',
     ]
     if not scan.findings:
         lines.append('No findings were reported by the configured scanners.')
     for finding in scan.findings:
-        lines.extend(['', f'### [{finding.severity}] {finding.title}', f'- ID: `{finding.id}`',
+        factors = ', '.join(f'{factor.label} +{factor.points}' for factor in finding.risk.factors) or 'n/a'
+        lines.extend(['', f'### [{finding.risk.priority} / {finding.risk.score}] {finding.title}', f'- ID: `{finding.id}`',
             f'- Tool: `{finding.source}` / `{finding.rule_id}`', f'- Location: `{finding.location.path}:{finding.location.line}`',
-            f'- Confidence: {finding.confidence}', f'- CWE: {", ".join(finding.cwe) if finding.cwe else "n/a"}',
+            f'- Severity: {finding.severity}', f'- Risk tier: {finding.risk.tier}', f'- Recommended action: {finding.risk.recommended_action}',
+            f'- Risk factors: {factors}', f'- Confidence: {finding.confidence}', f'- CWE: {", ".join(finding.cwe) if finding.cwe else "n/a"}',
             f'- OWASP: {", ".join(finding.owasp) if finding.owasp else "n/a"}', f'- Decision: {finding.decision}', '',
             finding.message, '', '**Explanation**', '', finding.explanation, '', '**Suggested fix**', '', finding.fix.summary])
         for item in finding.fix.guidance:
@@ -32,12 +38,17 @@ def html_report(scan: ScanResult) -> str:
 
 def github_pr_comment(scan: ScanResult) -> str:
     lines = ['## Secure Code Review Summary', '', f'**{scan.summary.total_findings} findings** across **{scan.summary.files_scanned} files**.',
+        f'Max risk: **{scan.summary.max_risk_score}** | Average risk: **{scan.summary.avg_risk_score}** | Priorities: **{format_counts(scan.summary.priorities)}**',
         f'New: **{len(scan.new_findings)}** | Resolved: **{len(scan.resolved_findings)}** | Unchanged: **{len(scan.unchanged_findings)}**', '',
-        '| Severity | Rule | Location | Message |', '| --- | --- | --- | --- |']
+        '| Risk | Severity | Rule | Location | Message |', '| --- | --- | --- | --- | --- |']
     for finding in scan.findings[:25]:
         location = f'{finding.location.path}:{finding.location.line}'
-        message = finding.message.replace('|', '\|')[:180]
-        lines.append(f'| {finding.severity} | `{finding.rule_id}` | `{location}` | {message} |')
+        message = finding.message.replace('|', '\\|')[:180]
+        lines.append(f'| {finding.risk.priority} {finding.risk.score} | {finding.severity} | `{finding.rule_id}` | `{location}` | {message} |')
     if len(scan.findings) > 25:
         lines.append(f'\nShowing 25 of {len(scan.findings)} findings. See SARIF/report artifact for the full result.')
     return '\n'.join(lines) + '\n'
+
+
+def format_counts(values: dict[str, int]) -> str:
+    return ', '.join(f'{key}={value}' for key, value in values.items()) if values else 'none'

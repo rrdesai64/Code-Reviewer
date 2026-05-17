@@ -14,6 +14,7 @@ from .ai import explain, suggest_fix
 from .ast_scanner import run_ast_analysis
 from .external_scanners import run_codeql, run_sonarqube
 from .models import Finding, Location, ScanResult, ScanSummary
+from .risk import score_scan
 from .storage import apply_decisions, compare_to_baseline
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,16 +70,17 @@ def run_scan(target_path: Path, project_name: str | None = None) -> ScanResult:
     findings.extend(dependency_findings)
     tools.update(dependency_status)
 
-    findings = sorted(dedupe_findings(findings), key=lambda item: (-SEVERITY_ORDER.get(item.severity, 0), item.location.path, item.location.line))
-    summary = build_summary(files, findings, tools)
+    findings = dedupe_findings(findings)
     scan = ScanResult(
         scan_id=scan_id,
         project_name=project_name or target.name,
         target_path=str(target),
-        summary=summary,
+        summary=build_summary(files, findings, tools),
         findings=findings,
     )
-    scan = compare_to_baseline(scan)
+    scan = score_scan(compare_to_baseline(scan))
+    scan.findings = sorted(scan.findings, key=lambda item: (-item.risk.score, -SEVERITY_ORDER.get(item.severity, 0), item.location.path, item.location.line))
+    scan.summary = build_summary(files, scan.findings, tools)
     return apply_decisions(scan)
 
 
@@ -95,6 +97,8 @@ def iter_source_files(target: Path):
 def build_summary(files: list[Path], findings: list[Finding], tools: dict[str, str]) -> ScanSummary:
     languages = Counter(language_for_path(path) for path in files)
     severities = Counter(f.severity for f in findings)
+    risk_tiers = Counter(f.risk.tier for f in findings)
+    priorities = Counter(f.risk.priority for f in findings)
     return ScanSummary(
         total_findings=len(findings),
         critical=severities['CRITICAL'],
@@ -105,6 +109,10 @@ def build_summary(files: list[Path], findings: list[Finding], tools: dict[str, s
         files_scanned=len(files),
         languages=dict(sorted(languages.items())),
         tools=tools,
+        max_risk_score=max((f.risk.score for f in findings), default=0),
+        avg_risk_score=round(sum(f.risk.score for f in findings) / len(findings), 1) if findings else 0,
+        risk_tiers=dict(sorted(risk_tiers.items())),
+        priorities=dict(sorted(priorities.items())),
     )
 
 

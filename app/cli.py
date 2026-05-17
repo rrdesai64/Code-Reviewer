@@ -51,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.fix_proposals_out).write_text(json.dumps(proposals, indent=2), encoding='utf-8')
 
     print(f'Scan {scan.scan_id}: {scan.summary.total_findings} findings across {scan.summary.files_scanned} files')
+    print(f'Risk: max={scan.summary.max_risk_score}, avg={scan.summary.avg_risk_score}, priorities={scan.summary.priorities}')
     print(f"Tools: {', '.join(f'{k}={v}' for k, v in scan.summary.tools.items())}")
     if args.fail_on:
         threshold = SEVERITY_ORDER[args.fail_on.upper()]

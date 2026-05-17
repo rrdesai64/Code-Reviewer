@@ -306,3 +306,39 @@ CLI export:
 ```powershell
 .\scan.ps1 -Path "G:\Path\To\Repo" -RemediationPlanOut remediation-plan.json
 ```
+
+## Phase F: IDE Experience
+
+Phase F adds a dependency-light VS Code extension under `vscode-extension/` that connects to the stable local API.
+
+Implemented:
+
+- VS Code activity bar view for Secure Review findings
+- Configurable backend URL via `secureCodeReview.apiBaseUrl`
+- Command to scan the current workspace folder through `POST /api/scans`
+- Findings tree with priority, risk score, location, and source navigation
+- Commands for backend health, refresh findings, scan summary, remediation plan, RAG context, and fix proposals
+- Human-reviewed fix proposal display with validation checks, validation commands, safety notes, and diff content
+- Web app opener for deeper browser-based review
+- Plain JavaScript extension with no build step or runtime npm dependencies
+
+Extension folder:
+
+```text
+vscode-extension/
+```
+
+Development flow:
+
+1. Start the backend from this project root:
+
+```powershell
+.\run.ps1
+```
+
+2. Open `vscode-extension/` in VS Code.
+3. Run the extension in an Extension Development Host.
+4. Use `Secure Review: Configure API URL` if the backend is not at `http://127.0.0.1:8000`.
+5. Use `Secure Review: Scan Workspace` from the command palette or the Secure Review activity bar.
+
+The extension does not apply patches automatically. It only displays remediation plans and fix proposal diffs for human review.

@@ -42,3 +42,7 @@ secure-review-assistant/
 node_modules/
 tools/codeql/
 tools/downloads/
+
+# VS Code extension packaging
+vscode-extension/node_modules/
+vscode-extension/*.vsix

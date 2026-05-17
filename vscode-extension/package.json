@@ -1,0 +1,130 @@
+{
+  "name": "secure-code-review-assistant",
+  "displayName": "Secure Code Review Assistant",
+  "description": "Run Secure Code Review Assistant scans and review risk findings from VS Code.",
+  "version": "0.1.0",
+  "publisher": "secure-review-local",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:secureCodeReviewFindings",
+    "onCommand:secureCodeReview.scanWorkspace",
+    "onCommand:secureCodeReview.refreshFindings",
+    "onCommand:secureCodeReview.health",
+    "onCommand:secureCodeReview.configureApi"
+  ],
+  "main": "./src/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Secure Code Review Assistant",
+      "properties": {
+        "secureCodeReview.apiBaseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8000",
+          "description": "Base URL for the Secure Code Review Assistant backend."
+        },
+        "secureCodeReview.projectName": {
+          "type": "string",
+          "default": "",
+          "description": "Optional project display name to send with scans. Defaults to the VS Code workspace folder name."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "secureCodeReview.configureApi",
+        "title": "Secure Review: Configure API URL"
+      },
+      {
+        "command": "secureCodeReview.health",
+        "title": "Secure Review: Check Backend Health"
+      },
+      {
+        "command": "secureCodeReview.scanWorkspace",
+        "title": "Secure Review: Scan Workspace"
+      },
+      {
+        "command": "secureCodeReview.refreshFindings",
+        "title": "Secure Review: Refresh Findings"
+      },
+      {
+        "command": "secureCodeReview.showLastScan",
+        "title": "Secure Review: Show Last Scan Summary"
+      },
+      {
+        "command": "secureCodeReview.showRemediationPlan",
+        "title": "Secure Review: Show Remediation Plan"
+      },
+      {
+        "command": "secureCodeReview.proposeFix",
+        "title": "Secure Review: Propose Fix"
+      },
+      {
+        "command": "secureCodeReview.showRagContext",
+        "title": "Secure Review: Show RAG Context"
+      },
+      {
+        "command": "secureCodeReview.openFinding",
+        "title": "Secure Review: Open Finding"
+      },
+      {
+        "command": "secureCodeReview.openWebApp",
+        "title": "Secure Review: Open Web App"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "secureCodeReview",
+          "title": "Secure Review",
+          "icon": "resources/secure-review.svg"
+        }
+      ]
+    },
+    "views": {
+      "secureCodeReview": [
+        {
+          "id": "secureCodeReviewFindings",
+          "name": "Findings"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "secureCodeReview.scanWorkspace",
+          "when": "view == secureCodeReviewFindings",
+          "group": "navigation"
+        },
+        {
+          "command": "secureCodeReview.refreshFindings",
+          "when": "view == secureCodeReviewFindings",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "secureCodeReview.openFinding",
+          "when": "view == secureCodeReviewFindings && viewItem == finding",
+          "group": "inline"
+        },
+        {
+          "command": "secureCodeReview.proposeFix",
+          "when": "view == secureCodeReviewFindings && viewItem == finding",
+          "group": "navigation"
+        },
+        {
+          "command": "secureCodeReview.showRagContext",
+          "when": "view == secureCodeReviewFindings && viewItem == finding",
+          "group": "navigation"
+        }
+      ]
+    }
+  }
+}

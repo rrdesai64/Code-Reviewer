@@ -256,3 +256,27 @@ Useful endpoints:
 - `GET /api/rag/stats`
 - `POST /api/rag/reindex`
 - `GET /api/scans/{scan_id}/findings/{finding_id}/rag-context`
+
+## Phase D: Repository Memory And Trends
+
+Phase D expands repository memory from a simple snapshot into repeat-scan intelligence.
+
+Implemented:
+
+- Schema-versioned local memory stored in `data/memory.json`
+- Per-repository scan history with finding, risk, P0/P1, and severity trend deltas
+- Finding lifecycle memory with first seen, last seen, seen count, active/resolved status, and days open
+- Current and cumulative hotspot files
+- Current and cumulative recurring rules
+- Top open risks ranked by risk score and recurrence
+- Decision-aware memory context for secure refactoring prompts
+- Repository recommendations based on P0/P1 counts, hotspots, recurrence, and worsening trends
+- Web UI `Memory Brief` action for the current scan
+
+Useful endpoints:
+
+- `GET /api/memory`
+- `GET /api/memory/summary`
+- `GET /api/memory/repositories`
+- `GET /api/memory/repositories/{repo_key}`
+- `GET /api/scans/{scan_id}/memory-context`

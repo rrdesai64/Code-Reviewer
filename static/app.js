@@ -49,6 +49,7 @@ function renderScan(scan) {
     <button class="ghost" onclick="saveBaseline('${scan.scan_id}')">Save Baseline</button>
     <button class="ghost" onclick="showCompliance('${scan.scan_id}')">Compliance</button>
     <button class="ghost" onclick="showMemory()">Memory</button>
+    <button class="ghost" onclick="showMemoryBrief('${scan.scan_id}')">Memory Brief</button>
     <button class="ghost" onclick="showRagStats()">Knowledge</button>
     <button class="ghost" onclick="showEnterprise()">Enterprise</button>`;
   findingsEl.innerHTML = scan.findings.map(renderFinding).join('') || '<section class="panel">No findings reported.</section>';
@@ -147,6 +148,14 @@ async function showMemory() {
   showJsonPanel('Repository Memory', await response.json());
 }
 
+async function showMemoryBrief(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/memory-context`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not load repository memory context.';
+    return;
+  }
+  showJsonPanel('Repository Memory Brief', await response.json());
+}
 async function showEnterprise() {
   const response = await fetch('/api/enterprise');
   showJsonPanel('Enterprise Configuration', await response.json());

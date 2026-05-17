@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from .llm import generate
+from .memory import repository_context
 from .models import Finding, FixProposal, LLMRequest, ScanResult
 from .rag import retrieve_for_finding
 
@@ -26,6 +27,7 @@ def build_fix_proposal(scan: ScanResult, finding_id: str, provider: str = 'offli
         f'Finding: {finding.title}\n'
         f'Rule: {finding.rule_id}\n'
         f'Message: {finding.message}\n'
+        f'{repository_context(scan.target_path)}\n'
         f'Patch:\n{patch}\n'
         'Keep it brief and mention validation steps.'
     )

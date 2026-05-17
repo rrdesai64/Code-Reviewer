@@ -13,7 +13,7 @@ from .models import DecisionRequest, LLMRequest
 from .auth import AuthEnforcementMiddleware, AuthUser, auth_config, auth_status, login_user, logout_user, make_oauth, make_saml_auth, normalize_user, require_permission, require_user, saml_metadata_response
 from .enterprise import audit, audit_events, compliance_report, load_enterprise
 from .llm import generate, provider_status
-from .memory import load_memory, update_repository_memory
+from .memory import load_memory, memory_summary, repository_memory, repository_memory_for_scan, update_repository_memory
 from .rag import add_knowledge_document, build_index, finding_context, index_stats, retrieve_response
 from .refactor import build_fix_proposal
 from .reporting import github_pr_comment, html_report, markdown_report
@@ -21,7 +21,7 @@ from .sarif import build_sarif
 from .scanner import ROOT, run_scan
 from .storage import apply_decisions, load_baseline, load_scan, save_baseline, save_decision, save_scan, list_scans
 
-app = FastAPI(title='Secure Code Review Assistant', version='0.9.0')
+app = FastAPI(title='Secure Code Review Assistant', version='0.10.0')
 oauth = make_oauth()
 STATIC_DIR = ROOT / 'static'
 UPLOAD_DIR = ROOT / 'data' / 'uploads'
@@ -38,7 +38,7 @@ def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
 
 @app.get('/api/health')
 def health() -> dict:
-    return {'ok': True, 'phase': 'phase-6', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'secure-refactoring', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml'], 'llm_providers': provider_status(), 'auth': auth_status()}
+    return {'ok': True, 'phase': 'phase-6', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml'], 'llm_providers': provider_status(), 'auth': auth_status()}
 
 
 @app.get('/auth/me')
@@ -228,6 +228,33 @@ def rag_document(title: str = Body(...), text: str = Body(...), user: AuthUser =
 @app.get('/api/memory')
 def memory(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
     return load_memory()
+
+
+@app.get('/api/memory/summary')
+def memory_summary_endpoint(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    return memory_summary()
+
+
+@app.get('/api/memory/repositories')
+def memory_repositories(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    return {'repositories': memory_summary().get('repositories', [])}
+
+
+@app.get('/api/memory/repositories/{repo_key}')
+def memory_repository(repo_key: str, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    try:
+        return repository_memory(repo_key)
+    except KeyError:
+        raise HTTPException(status_code=404, detail='repository memory not found')
+
+
+@app.get('/api/scans/{scan_id}/memory-context')
+def scan_memory_context(scan_id: str, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    return repository_memory_for_scan(scan)
 
 
 @app.get('/api/llm/providers')

@@ -38,8 +38,8 @@ def normalize_memory(memory: dict) -> dict:
     normalized.update(memory if isinstance(memory, dict) else {})
     normalized.setdefault('repositories', {})
     for repo_key, repo in normalized['repositories'].items():
-        if isinstance(repo, dict):
-            repo.setdefault('repo_key', repo_key)
+        if isinstance(repo, dict) and not repo.get('repo_key'):
+            repo['repo_key'] = repo_key
     normalized.setdefault('scan_history', [])
     normalized.setdefault('hotspots', {})
     normalized.setdefault('recurring_rules', {})

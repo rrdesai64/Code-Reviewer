@@ -15,13 +15,13 @@ from .enterprise import audit, audit_events, compliance_report, load_enterprise
 from .llm import generate, provider_status
 from .memory import load_memory, memory_summary, repository_memory, repository_memory_for_scan, update_repository_memory
 from .rag import add_knowledge_document, build_index, finding_context, index_stats, retrieve_response
-from .refactor import build_fix_proposal
+from .refactor import build_fix_proposal, build_remediation_plan
 from .reporting import github_pr_comment, html_report, markdown_report
 from .sarif import build_sarif
 from .scanner import ROOT, run_scan
 from .storage import apply_decisions, load_baseline, load_scan, save_baseline, save_decision, save_scan, list_scans
 
-app = FastAPI(title='Secure Code Review Assistant', version='0.10.0')
+app = FastAPI(title='Secure Code Review Assistant', version='0.11.0')
 oauth = make_oauth()
 STATIC_DIR = ROOT / 'static'
 UPLOAD_DIR = ROOT / 'data' / 'uploads'
@@ -38,7 +38,7 @@ def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
 
 @app.get('/api/health')
 def health() -> dict:
-    return {'ok': True, 'phase': 'phase-6', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml'], 'llm_providers': provider_status(), 'auth': auth_status()}
+    return {'ok': True, 'phase': 'phase-6', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml'], 'llm_providers': provider_status(), 'auth': auth_status()}
 
 
 @app.get('/auth/me')
@@ -279,8 +279,19 @@ def fix_proposal(scan_id: str, finding_id: str, provider: str = 'offline', model
         proposal = build_fix_proposal(scan, finding_id, provider=provider, model=model)
     except ValueError:
         raise HTTPException(status_code=404, detail='finding not found')
-    audit(user.username, 'fix.proposed', finding_id, {'scan_id': scan_id, 'provider': provider})
-    return proposal.model_dump()
+    audit(user.username, 'fix.proposed', finding_id, {'scan_id': scan_id, 'provider': provider, 'priority': proposal.priority})
+    return proposal.model_dump(mode='json')
+
+
+@app.get('/api/scans/{scan_id}/remediation-plan')
+def remediation_plan(scan_id: str, limit: int = 50, user: AuthUser = Depends(require_permission('fix:propose'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    plan = build_remediation_plan(scan, limit=limit)
+    audit(user.username, 'fix.remediation_plan', scan_id, {'steps': str(plan.total_steps), 'p0': str(plan.p0_steps), 'p1': str(plan.p1_steps)})
+    return plan.model_dump(mode='json')
 
 
 @app.get('/api/scans/{scan_id}/compliance')

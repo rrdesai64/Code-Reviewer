@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 Severity = Literal['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
 DecisionState = Literal['open', 'false_positive', 'accepted_fix', 'risk_accepted']
 Priority = Literal['P0', 'P1', 'P2', 'P3', 'P4']
+ValidationStatus = Literal['passed', 'warning', 'blocked', 'manual']
 
 
 class Location(BaseModel):
@@ -135,6 +136,12 @@ class LLMResponse(BaseModel):
     error: str | None = None
 
 
+class ValidationCheck(BaseModel):
+    name: str
+    status: ValidationStatus = 'manual'
+    detail: str
+
+
 class FixProposal(BaseModel):
     finding_id: str
     scan_id: str
@@ -143,6 +150,40 @@ class FixProposal(BaseModel):
     patch: str
     safety_notes: list[str] = Field(default_factory=list)
     requires_human_approval: bool = True
+    priority: Priority = 'P4'
+    risk_score: int = 0
+    effort: str = 'manual-review'
+    confidence: str = 'manual'
+    validation_checks: list[ValidationCheck] = Field(default_factory=list)
+    validation_commands: list[str] = Field(default_factory=list)
+    context_summary: dict[str, str] = Field(default_factory=dict)
+
+
+class RemediationStep(BaseModel):
+    finding_id: str
+    title: str
+    priority: Priority
+    risk_score: int
+    path: str
+    line: int
+    rule_id: str
+    summary: str
+    effort: str
+    proposal_endpoint: str
+    validation_commands: list[str] = Field(default_factory=list)
+
+
+class RemediationPlan(BaseModel):
+    scan_id: str
+    project_name: str
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    total_steps: int = 0
+    p0_steps: int = 0
+    p1_steps: int = 0
+    estimated_effort: str = 'manual-review'
+    guardrails: list[str] = Field(default_factory=list)
+    validation_commands: list[str] = Field(default_factory=list)
+    steps: list[RemediationStep] = Field(default_factory=list)
 
 
 class Role(BaseModel):

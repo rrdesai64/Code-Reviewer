@@ -48,6 +48,7 @@ function renderScan(scan) {
     <a class="link-button secondary" href="/api/scans/${scan.scan_id}/github-pr-comment" target="_blank">PR Comment</a>
     <button class="ghost" onclick="saveBaseline('${scan.scan_id}')">Save Baseline</button>
     <button class="ghost" onclick="showCompliance('${scan.scan_id}')">Compliance</button>
+    <button class="ghost" onclick="showRemediationPlan('${scan.scan_id}')">Remediation</button>
     <button class="ghost" onclick="showMemory()">Memory</button>
     <button class="ghost" onclick="showMemoryBrief('${scan.scan_id}')">Memory Brief</button>
     <button class="ghost" onclick="showRagStats()">Knowledge</button>
@@ -121,9 +122,38 @@ async function proposeFix(findingId) {
     return;
   }
   const proposal = await response.json();
-  target.textContent = `${proposal.summary}\n\n${proposal.patch}\n\nSafety notes:\n- ${proposal.safety_notes.join('\n- ')}`;
+  target.textContent = formatProposal(proposal);
 }
 
+function formatProposal(proposal) {
+  const checks = (proposal.validation_checks || []).map(item => `- ${item.status}: ${item.name} - ${item.detail}`).join('\n');
+  const commands = (proposal.validation_commands || []).map(item => `- ${item}`).join('\n');
+  const notes = (proposal.safety_notes || []).map(item => `- ${item}`).join('\n');
+  return [
+    `${proposal.summary}`,
+    `Priority: ${proposal.priority} | Risk: ${proposal.risk_score} | Effort: ${proposal.effort} | Confidence: ${proposal.confidence}`,
+    '',
+    'Validation checks:',
+    checks || '- none recorded',
+    '',
+    'Validation commands:',
+    commands || '- rerun scan and project tests',
+    '',
+    proposal.patch,
+    '',
+    'Safety notes:',
+    notes || '- human review required'
+  ].join('\n');
+}
+
+async function showRemediationPlan(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/remediation-plan`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not load remediation plan.';
+    return;
+  }
+  showJsonPanel('Remediation Plan', await response.json());
+}
 async function showCompliance(scanId) {
   const response = await fetch(`/api/scans/${scanId}/compliance`);
   showJsonPanel('Compliance Report', await response.json());

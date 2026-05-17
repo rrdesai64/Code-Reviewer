@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .enterprise import audit, compliance_report
 from .memory import update_repository_memory
-from .refactor import build_fix_proposal
+from .refactor import build_fix_proposal, build_remediation_plan
 from .reporting import github_pr_comment, markdown_report
 from .sarif import build_sarif
 from .scanner import SEVERITY_ORDER, run_scan
@@ -25,6 +25,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--pr-comment-out')
     parser.add_argument('--compliance-out')
     parser.add_argument('--fix-proposals-out')
+    parser.add_argument('--remediation-plan-out')
     parser.add_argument('--fix-provider', default='offline')
     parser.add_argument('--save-baseline', action='store_true')
     parser.add_argument('--fail-on', choices=['critical', 'high', 'medium', 'low', 'info'], default=None)
@@ -47,8 +48,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.compliance_out:
         Path(args.compliance_out).write_text(json.dumps(compliance_report(scan), indent=2), encoding='utf-8')
     if args.fix_proposals_out:
-        proposals = [build_fix_proposal(scan, finding.id, provider=args.fix_provider).model_dump() for finding in scan.findings if finding.severity in {'CRITICAL', 'HIGH', 'MEDIUM'}]
+        proposals = [build_fix_proposal(scan, finding.id, provider=args.fix_provider).model_dump(mode='json') for finding in scan.findings if finding.severity in {'CRITICAL', 'HIGH', 'MEDIUM'}]
         Path(args.fix_proposals_out).write_text(json.dumps(proposals, indent=2), encoding='utf-8')
+    if args.remediation_plan_out:
+        Path(args.remediation_plan_out).write_text(json.dumps(build_remediation_plan(scan).model_dump(mode='json'), indent=2), encoding='utf-8')
 
     print(f'Scan {scan.scan_id}: {scan.summary.total_findings} findings across {scan.summary.files_scanned} files')
     print(f'Risk: max={scan.summary.max_risk_score}, avg={scan.summary.avg_risk_score}, priorities={scan.summary.priorities}')

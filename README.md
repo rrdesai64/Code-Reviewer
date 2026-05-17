@@ -280,3 +280,29 @@ Useful endpoints:
 - `GET /api/memory/repositories`
 - `GET /api/memory/repositories/{repo_key}`
 - `GET /api/scans/{scan_id}/memory-context`
+
+## Phase E: Secure Refactoring Expansion
+
+Phase E expands secure refactoring from individual patch stubs into a safer remediation workflow.
+
+Implemented:
+
+- Rich fix proposals with priority, risk score, effort, confidence, validation checks, validation commands, RAG sources, and memory context
+- Proposal guardrails that keep all changes human-reviewed and diff-only
+- Language-aware patch comments/examples for Python and JavaScript/TypeScript findings
+- Patch validation checks for target file existence, file scope, patch size, placeholders, and manual-only cases
+- Scan-level remediation plan ordered by risk score and priority
+- Remediation plan API and CLI export support
+- Web UI `Remediation` action and richer proposal display
+- `scan.ps1` now emits `remediation-plan.json` by default
+
+Useful endpoints:
+
+- `POST /api/scans/{scan_id}/findings/{finding_id}/fix-proposal`
+- `GET /api/scans/{scan_id}/remediation-plan`
+
+CLI export:
+
+```powershell
+.\scan.ps1 -Path "G:\Path\To\Repo" -RemediationPlanOut remediation-plan.json
+```

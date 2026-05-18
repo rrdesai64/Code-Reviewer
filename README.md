@@ -377,3 +377,27 @@ PowerShell wrapper output:
 ```
 
 By default, `scan.ps1` now emits `cyclonedx-sbom.json`, `spdx-sbom.json`, `sbom-policy.json`, and `sbom-compare.json` along with the existing scan artifacts. Use `--fail-on-sbom-policy` in CI when you want unknown licenses or critical package vulnerabilities to fail the CLI run.
+
+### SPDX Compliance Reports
+
+SPDX now supports enterprise review artifacts beyond the raw SPDX JSON export.
+
+Implemented for:
+
+- Legal/license compliance: classifies approved, review-required, prohibited, and unknown licenses
+- Supplier audits: reports supplier, originator, download location, homepage, package URL, and manifest evidence
+- Open-source obligation reports: lists notice, license text, source availability, reciprocal license, and review actions
+- Enterprise procurement requirements: produces `ready`, `review_required`, or `blocked` status with requirement-level pass/warning/fail evidence
+- Formal software supply chain documentation: records SPDX 2.3 namespace, package count, relationships, annotations, manifests, scan ID, and tool metadata
+
+Useful endpoint:
+
+- `GET /api/scans/{scan_id}/sbom/spdx/compliance`
+
+CLI export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --spdx-out spdx-sbom.json --spdx-compliance-out spdx-compliance.json --fail-on-spdx-compliance
+```
+
+`scan.ps1` now emits `spdx-compliance.json` by default. Unknown licenses, missing supplier evidence, reciprocal licenses, prohibited licenses, and vulnerable package components are surfaced for legal, supplier, security, or procurement review.

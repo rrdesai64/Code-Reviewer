@@ -18,11 +18,11 @@ from .rag import add_knowledge_document, build_index, finding_context, index_sta
 from .refactor import build_fix_proposal, build_remediation_plan
 from .reporting import github_pr_comment, html_report, markdown_report
 from .sarif import build_sarif
-from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report
+from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report, spdx_compliance_report
 from .scanner import ROOT, run_scan
 from .storage import apply_decisions, load_baseline, load_scan, save_baseline, save_decision, save_scan, list_scans
 
-app = FastAPI(title='Secure Code Review Assistant', version='0.12.0')
+app = FastAPI(title='Secure Code Review Assistant', version='0.13.0')
 oauth = make_oauth()
 STATIC_DIR = ROOT / 'static'
 UPLOAD_DIR = ROOT / 'data' / 'uploads'
@@ -39,7 +39,7 @@ def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
 
 @app.get('/api/health')
 def health() -> dict:
-    return {'ok': True, 'phase': 'phase-7', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare'], 'llm_providers': provider_status(), 'auth': auth_status()}
+    return {'ok': True, 'phase': 'phase-7', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance'], 'llm_providers': provider_status(), 'auth': auth_status()}
 
 
 @app.get('/auth/me')
@@ -159,6 +159,16 @@ def spdx_sbom(scan_id: str, user: AuthUser = Depends(require_permission('scan:re
     audit(user.username, 'sbom.spdx_exported', scan_id, {'packages': str(len(payload.get('packages', [])))})
     return JSONResponse(payload, media_type='application/spdx+json')
 
+
+@app.get('/api/scans/{scan_id}/sbom/spdx/compliance')
+def spdx_compliance(scan_id: str, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    report = spdx_compliance_report(scan)
+    audit(user.username, 'sbom.spdx_compliance_reported', scan_id, {'status': report['status'], 'procurement_ready': str(report['procurement_ready'])})
+    return report
 
 @app.get('/api/scans/{scan_id}/sbom/policy')
 def scan_sbom_policy(scan_id: str, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:

@@ -10,7 +10,7 @@ from .memory import update_repository_memory
 from .refactor import build_fix_proposal, build_remediation_plan
 from .reporting import github_pr_comment, markdown_report
 from .sarif import build_sarif
-from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report
+from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report, spdx_compliance_report
 from .scanner import SEVERITY_ORDER, run_scan
 from .storage import load_baseline, load_scan, save_baseline, save_scan
 
@@ -24,6 +24,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--sarif-out')
     parser.add_argument('--cyclonedx-out')
     parser.add_argument('--spdx-out')
+    parser.add_argument('--spdx-compliance-out')
     parser.add_argument('--sbom-policy-out')
     parser.add_argument('--sbom-compare-out')
     parser.add_argument('--sbom-compare-to', help='saved scan ID to compare SBOMs against; defaults to the saved baseline scan when available')
@@ -36,6 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--save-baseline', action='store_true')
     parser.add_argument('--fail-on', choices=['critical', 'high', 'medium', 'low', 'info'], default=None)
     parser.add_argument('--fail-on-sbom-policy', action='store_true', help='exit with code 3 when SBOM policy checks fail')
+    parser.add_argument('--fail-on-spdx-compliance', action='store_true', help='exit with code 4 when SPDX compliance is not procurement-ready')
     args = parser.parse_args(argv)
 
     scan = run_scan(Path(args.path), project_name=args.project_name)
@@ -52,6 +54,8 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.cyclonedx_out).write_text(json.dumps(build_cyclonedx(scan), indent=2), encoding='utf-8')
     if args.spdx_out:
         Path(args.spdx_out).write_text(json.dumps(build_spdx(scan), indent=2), encoding='utf-8')
+    if args.spdx_compliance_out:
+        Path(args.spdx_compliance_out).write_text(json.dumps(spdx_compliance_report(scan), indent=2), encoding='utf-8')
     if args.sbom_policy_out:
         Path(args.sbom_policy_out).write_text(json.dumps(sbom_policy_report(scan), indent=2), encoding='utf-8')
     if args.sbom_compare_out:
@@ -90,6 +94,8 @@ def main(argv: list[str] | None = None) -> int:
             return 2
     if args.fail_on_sbom_policy and sbom_policy_report(scan)['status'] == 'failed':
         return 3
+    if args.fail_on_spdx_compliance and spdx_compliance_report(scan)['status'] != 'ready':
+        return 4
     return 0
 
 

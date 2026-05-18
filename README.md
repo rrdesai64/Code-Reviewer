@@ -503,3 +503,57 @@ $env:TRUFFLEHOG_EXE="C:\path\to\trufflehog.exe"
 ```
 
 For confirmed leaks, rotate credentials before closing the finding. Removing the value from the latest file is not enough if it was committed into repository history.
+
+## Roadmap Point 2: GitHub PR-Native Review
+
+Point 2 adds GitHub pull request review artifacts and optional publishing while keeping the default workflow safe and local-first.
+
+Implemented:
+
+- GitHub PR review payload generation from a saved scan
+- Inline review comments for findings that map to added PR diff lines
+- Summary-only fallback for findings outside the PR diff, below threshold, or above the inline limit
+- Review gate status: `pass`, `warn`, or `fail`
+- Optional GitHub review publishing through the Pull Request Reviews API
+- Optional commit status publishing for the PR head SHA
+- GitHub webhook signature verification with `X-Hub-Signature-256`
+- Bot command parser for `/review`, `/full-review`, and `/fix-plan`
+- CLI artifact export with `--github-pr-review-out`
+- Web UI `GitHub PR` preview action
+- `scan.ps1` now emits `github-pr-review.json` by default
+
+Useful endpoints:
+
+- `GET /api/integrations/github/status`
+- `GET /api/scans/{scan_id}/github/pr-review`
+- `POST /api/scans/{scan_id}/github/pr-review`
+- `POST /api/integrations/github/webhook`
+
+CLI dry-run export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --github-pr-review-out github-pr-review.json --github-pr-repository owner/repo --github-pr-number 123 --github-pr-diff pr.diff
+```
+
+CLI publish, once credentials are configured:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --github-pr-review-out github-pr-review.json --github-pr-repository owner/repo --github-pr-number 123 --github-pr-publish --github-pr-publish-status
+```
+
+Configuration:
+
+```powershell
+$env:GITHUB_TOKEN="github_pat_or_app_token"
+$env:GITHUB_REPOSITORY="owner/repo"
+$env:GITHUB_PR_NUMBER="123"
+$env:GITHUB_DRY_RUN="true"
+$env:GITHUB_FETCH_PR_DIFF="false"
+$env:GITHUB_REVIEW_EVENT="COMMENT" # COMMENT, REQUEST_CHANGES, APPROVE, or auto
+$env:GITHUB_MAX_INLINE_COMMENTS="25"
+$env:GITHUB_MIN_INLINE_RISK="40"
+$env:GITHUB_PUBLISH_STATUS="false"
+$env:GITHUB_WEBHOOK_SECRET="long-random-webhook-secret"
+```
+
+For production, keep `GITHUB_WEBHOOK_ALLOW_UNSIGNED=false`, configure a GitHub webhook secret, and start with dry-run artifacts before enabling `--github-pr-publish`. GitHub inline review comments require mapping findings to positions in the PR diff, so findings outside changed lines remain in the review summary.

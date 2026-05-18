@@ -205,3 +205,15 @@ class AuditEvent(BaseModel):
     resource: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: dict[str, str] = Field(default_factory=dict)
+
+
+class GitHubPrReviewRequest(BaseModel):
+    repository: str | None = None
+    pr_number: int | None = None
+    commit_sha: str | None = None
+    diff_text: str | None = None
+    publish: bool = False
+    publish_status: bool | None = None
+    event: str | None = None
+    max_inline_comments: int | None = None
+    min_inline_risk: int | None = None

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .enterprise import audit, compliance_report
 from .advanced_ai import build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, phase_g_report, run_multi_agent_review, semantic_search
+from .github_pr import GitHubIntegrationError, build_github_pr_review
 from .memory import update_repository_memory
 from .refactor import build_fix_proposal, build_remediation_plan
 from .reporting import github_pr_comment, markdown_report
@@ -39,6 +40,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--sbom-compare-to', help='saved scan ID to compare SBOMs against; defaults to the saved baseline scan when available')
     parser.add_argument('--report-out')
     parser.add_argument('--pr-comment-out')
+    parser.add_argument('--github-pr-review-out')
+    parser.add_argument('--github-pr-repository')
+    parser.add_argument('--github-pr-number', type=int)
+    parser.add_argument('--github-pr-commit')
+    parser.add_argument('--github-pr-diff', help='path to a unified GitHub PR diff for offline inline-comment mapping')
+    parser.add_argument('--github-pr-event', help='COMMENT, REQUEST_CHANGES, APPROVE, or auto')
+    parser.add_argument('--github-pr-max-inline', type=int)
+    parser.add_argument('--github-pr-min-risk', type=int)
+    parser.add_argument('--github-pr-publish', action='store_true', help='publish the prepared PR review to GitHub')
+    parser.add_argument('--github-pr-publish-status', action='store_true', help='publish a commit status for the PR head commit')
     parser.add_argument('--compliance-out')
     parser.add_argument('--fix-proposals-out')
     parser.add_argument('--remediation-plan-out')
@@ -108,6 +119,26 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.report_out).write_text(markdown_report(scan), encoding='utf-8')
     if args.pr_comment_out:
         Path(args.pr_comment_out).write_text(github_pr_comment(scan), encoding='utf-8')
+    if args.github_pr_review_out or args.github_pr_publish or args.github_pr_publish_status:
+        diff_text = Path(args.github_pr_diff).read_text(encoding='utf-8') if args.github_pr_diff else None
+        try:
+            github_review = build_github_pr_review(
+                scan,
+                repository=args.github_pr_repository,
+                pr_number=args.github_pr_number,
+                diff_text=diff_text,
+                commit_sha=args.github_pr_commit,
+                publish=args.github_pr_publish,
+                publish_status=args.github_pr_publish_status,
+                event=args.github_pr_event,
+                max_inline_comments=args.github_pr_max_inline,
+                min_inline_risk=args.github_pr_min_risk,
+            )
+        except GitHubIntegrationError as exc:
+            print(f'GitHub PR review failed: {exc}', file=sys.stderr)
+            return 6
+        if args.github_pr_review_out:
+            Path(args.github_pr_review_out).write_text(json.dumps(github_review, indent=2), encoding='utf-8')
     if args.compliance_out:
         Path(args.compliance_out).write_text(json.dumps(compliance_report(scan), indent=2), encoding='utf-8')
     if args.fix_proposals_out:

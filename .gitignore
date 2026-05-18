@@ -27,6 +27,7 @@ data/
 *pr-comment.md
 compliance.json
 secret-policy.json
+github-pr-review.json
 fix-proposals.json
 
 # OS/editor noise

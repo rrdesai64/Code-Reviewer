@@ -49,6 +49,7 @@ function renderScan(scan) {
     <button class="ghost" onclick="saveBaseline('${scan.scan_id}')">Save Baseline</button>
     <button class="ghost" onclick="showCompliance('${scan.scan_id}')">Compliance</button>
     <button class="ghost" onclick="showSecretPolicy('${scan.scan_id}')">Push Protection</button>
+    <button class="ghost" onclick="showGithubPrReview('${scan.scan_id}')">GitHub PR</button>
     <button class="ghost" onclick="showRemediationPlan('${scan.scan_id}')">Remediation</button>
     <button class="ghost" onclick="showMemory()">Memory</button>
     <button class="ghost" onclick="showMemoryBrief('${scan.scan_id}')">Memory Brief</button>
@@ -167,6 +168,15 @@ async function showSecretPolicy(scanId) {
     return;
   }
   showJsonPanel('Push Protection', await response.json());
+}
+
+async function showGithubPrReview(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/github/pr-review`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not build GitHub PR review preview.';
+    return;
+  }
+  showJsonPanel('GitHub PR Review', await response.json());
 }
 
 async function showRagContext(findingId) {

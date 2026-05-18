@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import zipfile
 from pathlib import Path
@@ -9,11 +10,12 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from .models import DecisionRequest, LLMRequest
+from .models import DecisionRequest, GitHubPrReviewRequest, LLMRequest
 from .advanced_ai import advanced_ai_status, build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, gpu_profile, local_runtime_status, phase_g_report, run_multi_agent_review, semantic_search
 from .auth import AuthEnforcementMiddleware, AuthUser, auth_config, auth_status, login_user, logout_user, make_oauth, make_saml_auth, normalize_user, require_permission, require_user, saml_metadata_response
 from .enterprise import audit, audit_events, compliance_report, load_enterprise
 from .llm import generate, provider_status
+from .github_pr import GitHubIntegrationError, build_github_pr_review, github_integration_status, handle_github_webhook, verify_github_webhook_signature
 from .memory import load_memory, memory_summary, repository_memory, repository_memory_for_scan, update_repository_memory
 from .rag import add_knowledge_document, build_index, finding_context, index_stats, retrieve_response
 from .refactor import build_fix_proposal, build_remediation_plan
@@ -24,7 +26,7 @@ from .scanner import ROOT, run_scan
 from .secrets import secret_policy_report
 from .storage import apply_decisions, load_baseline, load_scan, save_baseline, save_decision, save_scan, list_scans
 
-app = FastAPI(title='Secure Code Review Assistant', version='0.15.0')
+app = FastAPI(title='Secure Code Review Assistant', version='0.16.0')
 oauth = make_oauth()
 STATIC_DIR = ROOT / 'static'
 UPLOAD_DIR = ROOT / 'data' / 'uploads'
@@ -41,7 +43,7 @@ def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
 
 @app.get('/api/health')
 def health() -> dict:
-    return {'ok': True, 'phase': 'phase-h', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter'], 'llm_providers': provider_status(), 'auth': auth_status()}
+    return {'ok': True, 'phase': 'phase-i', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands'], 'llm_providers': provider_status(), 'auth': auth_status()}
 
 
 @app.get('/auth/me')
@@ -247,6 +249,87 @@ def pr_comment(scan_id: str, user: AuthUser = Depends(require_permission('scan:r
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail='scan not found')
 
+@app.get('/api/integrations/github/status')
+def github_status(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    return github_integration_status()
+
+
+@app.get('/api/scans/{scan_id}/github/pr-review')
+def github_pr_review_preview(
+    scan_id: str,
+    repository: str | None = None,
+    pr_number: int | None = None,
+    commit_sha: str | None = None,
+    event: str | None = None,
+    max_inline_comments: int | None = None,
+    min_inline_risk: int | None = None,
+    user: AuthUser = Depends(require_permission('scan:read')),
+) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    try:
+        report = build_github_pr_review(
+            scan,
+            repository=repository,
+            pr_number=pr_number,
+            commit_sha=commit_sha,
+            publish=False,
+            event=event,
+            max_inline_comments=max_inline_comments,
+            min_inline_risk=min_inline_risk,
+        )
+    except GitHubIntegrationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'github.pr_review_previewed', scan_id, {'repository': repository or '', 'pr_number': str(pr_number or ''), 'inline': str(report['review']['inline_comment_count'])})
+    return report
+
+
+@app.post('/api/scans/{scan_id}/github/pr-review')
+def github_pr_review_publish(scan_id: str, request: GitHubPrReviewRequest, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    if request.publish and 'enterprise:write' not in user.permissions:
+        raise HTTPException(status_code=403, detail='Missing permission: enterprise:write')
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    try:
+        report = build_github_pr_review(
+            scan,
+            repository=request.repository,
+            pr_number=request.pr_number,
+            diff_text=request.diff_text,
+            commit_sha=request.commit_sha,
+            publish=request.publish,
+            publish_status=request.publish_status,
+            event=request.event,
+            max_inline_comments=request.max_inline_comments,
+            min_inline_risk=request.min_inline_risk,
+        )
+    except GitHubIntegrationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'github.pr_review_published' if request.publish else 'github.pr_review_prepared', scan_id, {'repository': request.repository or '', 'pr_number': str(request.pr_number or ''), 'published': str(request.publish), 'inline': str(report['review']['inline_comment_count'])})
+    return report
+
+
+@app.post('/api/integrations/github/webhook')
+async def github_webhook(request: Request) -> dict:
+    body = await request.body()
+    verification = verify_github_webhook_signature(body, request.headers.get('x-hub-signature-256'))
+    if not verification['valid']:
+        raise HTTPException(status_code=401, detail=verification['reason'])
+    try:
+        payload = json.loads(body.decode('utf-8') or '{}')
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail='Invalid JSON webhook payload')
+    event = request.headers.get('x-github-event', '')
+    delivery = request.headers.get('x-github-delivery', '')
+    result = handle_github_webhook(event, payload)
+    result['delivery'] = delivery
+    result['signature'] = {'configured': verification['configured'], 'valid': verification['valid']}
+    audit('github-webhook', 'github.webhook_received', delivery or event or 'unknown', {'event': event, 'action': result.get('action', ''), 'accepted': str(result.get('accepted', False)), 'command': str(result.get('command') or '')})
+    return result
 
 @app.post('/api/scans/{scan_id}/baseline')
 def baseline(scan_id: str, user: AuthUser = Depends(require_permission('baseline:write'))) -> dict:

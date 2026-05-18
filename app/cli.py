@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .enterprise import audit, compliance_report
+from .advanced_ai import build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, phase_g_report, run_multi_agent_review, semantic_search
 from .memory import update_repository_memory
 from .refactor import build_fix_proposal, build_remediation_plan
 from .reporting import github_pr_comment, markdown_report
@@ -22,6 +23,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--project-name', default=None)
     parser.add_argument('--json-out')
     parser.add_argument('--sarif-out')
+    parser.add_argument('--advanced-ai-out')
+    parser.add_argument('--agent-review-out')
+    parser.add_argument('--finetune-experiment-out')
+    parser.add_argument('--finetune-dataset-out')
+    parser.add_argument('--embedding-index-out')
+    parser.add_argument('--semantic-search-out')
     parser.add_argument('--cyclonedx-out')
     parser.add_argument('--spdx-out')
     parser.add_argument('--spdx-compliance-out')
@@ -34,6 +41,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--fix-proposals-out')
     parser.add_argument('--remediation-plan-out')
     parser.add_argument('--fix-provider', default='offline')
+    parser.add_argument('--advanced-ai-provider', default='offline')
+    parser.add_argument('--advanced-ai-model')
+    parser.add_argument('--embedding-provider', default='local')
+    parser.add_argument('--embedding-model')
+    parser.add_argument('--semantic-query')
     parser.add_argument('--save-baseline', action='store_true')
     parser.add_argument('--fail-on', choices=['critical', 'high', 'medium', 'low', 'info'], default=None)
     parser.add_argument('--fail-on-sbom-policy', action='store_true', help='exit with code 3 when SBOM policy checks fail')
@@ -50,6 +62,20 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.json_out).write_text(scan.model_dump_json(indent=2), encoding='utf-8')
     if args.sarif_out:
         Path(args.sarif_out).write_text(json.dumps(build_sarif(scan), indent=2), encoding='utf-8')
+    if args.embedding_index_out:
+        payload = build_embedding_index(provider=args.embedding_provider, model=args.embedding_model, force=True)
+        Path(args.embedding_index_out).write_text(json.dumps({key: value for key, value in payload.items() if key != 'items'}, indent=2), encoding='utf-8')
+    if args.semantic_search_out:
+        query = args.semantic_query or f'{scan.project_name} secure code review risk remediation'
+        Path(args.semantic_search_out).write_text(json.dumps(semantic_search(query, provider=args.embedding_provider, model=args.embedding_model), indent=2), encoding='utf-8')
+    if args.advanced_ai_out:
+        Path(args.advanced_ai_out).write_text(json.dumps(phase_g_report(scan, provider=args.advanced_ai_provider, model=args.advanced_ai_model, embedding_provider=args.embedding_provider), indent=2), encoding='utf-8')
+    if args.agent_review_out:
+        Path(args.agent_review_out).write_text(json.dumps(run_multi_agent_review(scan, provider=args.advanced_ai_provider, model=args.advanced_ai_model), indent=2), encoding='utf-8')
+    if args.finetune_experiment_out:
+        Path(args.finetune_experiment_out).write_text(json.dumps(fine_tune_experiment_plan(scan), indent=2), encoding='utf-8')
+    if args.finetune_dataset_out:
+        Path(args.finetune_dataset_out).write_text(fine_tune_dataset_jsonl(scan), encoding='utf-8')
     if args.cyclonedx_out:
         Path(args.cyclonedx_out).write_text(json.dumps(build_cyclonedx(scan), indent=2), encoding='utf-8')
     if args.spdx_out:

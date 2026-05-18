@@ -401,3 +401,57 @@ CLI export:
 ```
 
 `scan.ps1` now emits `spdx-compliance.json` by default. Unknown licenses, missing supplier evidence, reciprocal licenses, prohibited licenses, and vulnerable package components are surfaced for legal, supplier, security, or procurement review.
+
+## Phase G: Advanced AI
+
+Phase G adds optional advanced-AI capabilities while keeping the app usable on ordinary local hardware.
+
+Implemented:
+
+- Embeddings and semantic RAG search with a deterministic local hashing fallback
+- Optional embedding providers for Ollama, OpenAI, and OpenAI-compatible runtimes
+- Multi-agent secure review orchestration with risk triage, exploitability, remediation, and compliance agents
+- Fine-tuned model experiment planning with chat JSONL dataset export and evaluation guidance
+- Local runtime discovery for Ollama, OpenAI-compatible servers, LM Studio, vLLM, and llama.cpp-style endpoints
+- GPU profiling and optimization recommendations using `nvidia-smi` and optional PyTorch detection
+- Phase G CLI exports and API endpoints
+
+Useful endpoints:
+
+- `GET /api/advanced-ai/status`
+- `GET /api/advanced-ai/runtimes`
+- `GET /api/advanced-ai/gpu`
+- `POST /api/rag/embeddings/reindex?provider=local&force=true`
+- `GET /api/rag/semantic-query?q=dependency%20risk&limit=5`
+- `GET /api/scans/{scan_id}/advanced-ai/report`
+- `GET /api/scans/{scan_id}/advanced-ai/review`
+- `GET /api/scans/{scan_id}/advanced-ai/finetune-experiment`
+- `GET /api/scans/{scan_id}/advanced-ai/finetune-dataset`
+
+CLI export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --advanced-ai-out advanced-ai.json --agent-review-out agent-review.json --embedding-index-out embedding-index.json --semantic-query "dependency vulnerability remediation" --semantic-search-out semantic-search.json --finetune-experiment-out finetune-experiment.json --finetune-dataset-out finetune-dataset.jsonl
+```
+
+Local runtime configuration:
+
+```powershell
+# Ollama generation and embeddings
+$env:OLLAMA_BASE_URL="http://127.0.0.1:11434"
+$env:OLLAMA_MODEL="codellama"
+$env:OLLAMA_EMBEDDING_MODEL="nomic-embed-text"
+
+# OpenAI-compatible local runtime such as LM Studio, vLLM, llama.cpp server, or compatible gateway
+$env:LLM_BASE_URL="http://127.0.0.1:1234/v1"
+$env:LLM_API_KEY="optional"
+$env:LLM_MODEL="local-review-model"
+$env:EMBEDDING_BASE_URL="http://127.0.0.1:1234/v1"
+$env:EMBEDDING_MODEL="local-embedding-model"
+
+# OpenAI cloud embeddings, only for repositories approved for external processing
+$env:OPENAI_API_KEY="your-key"
+$env:OPENAI_EMBEDDING_MODEL="text-embedding-3-small"
+```
+
+`scan.ps1` now emits `advanced-ai.json` by default. Fine-tune exports are dataset artifacts only; the app does not automatically submit training jobs or deploy fine-tuned models. Keep sensitive repositories on local embeddings/models unless external processing is explicitly approved.

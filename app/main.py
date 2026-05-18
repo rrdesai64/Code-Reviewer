@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from .models import DecisionRequest, LLMRequest
+from .advanced_ai import advanced_ai_status, build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, gpu_profile, local_runtime_status, phase_g_report, run_multi_agent_review, semantic_search
 from .auth import AuthEnforcementMiddleware, AuthUser, auth_config, auth_status, login_user, logout_user, make_oauth, make_saml_auth, normalize_user, require_permission, require_user, saml_metadata_response
 from .enterprise import audit, audit_events, compliance_report, load_enterprise
 from .llm import generate, provider_status
@@ -22,7 +23,7 @@ from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report
 from .scanner import ROOT, run_scan
 from .storage import apply_decisions, load_baseline, load_scan, save_baseline, save_decision, save_scan, list_scans
 
-app = FastAPI(title='Secure Code Review Assistant', version='0.13.0')
+app = FastAPI(title='Secure Code Review Assistant', version='0.14.0')
 oauth = make_oauth()
 STATIC_DIR = ROOT / 'static'
 UPLOAD_DIR = ROOT / 'data' / 'uploads'
@@ -39,7 +40,7 @@ def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
 
 @app.get('/api/health')
 def health() -> dict:
-    return {'ok': True, 'phase': 'phase-7', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance'], 'llm_providers': provider_status(), 'auth': auth_status()}
+    return {'ok': True, 'phase': 'phase-g', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization'], 'llm_providers': provider_status(), 'auth': auth_status()}
 
 
 @app.get('/auth/me')
@@ -262,6 +263,32 @@ def rag_query(q: str, limit: int = 5, tags: str | None = None, user: AuthUser = 
 def rag_stats(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
     return index_stats()
 
+@app.get('/api/advanced-ai/status')
+def advanced_ai_status_endpoint(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    return advanced_ai_status()
+
+
+@app.get('/api/advanced-ai/runtimes')
+def advanced_ai_runtimes(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    return {'runtimes': local_runtime_status()}
+
+
+@app.get('/api/advanced-ai/gpu')
+def advanced_ai_gpu(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    return gpu_profile()
+
+
+@app.post('/api/rag/embeddings/reindex')
+def rag_embeddings_reindex(provider: str = 'local', model: str | None = None, force: bool = False, user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    payload = build_embedding_index(provider=provider, model=model, force=force)
+    audit(user.username, 'advanced_ai.embeddings_reindexed', 'knowledge-base', {'provider': payload.get('provider', ''), 'chunks': str(payload.get('chunk_count', 0))})
+    return {key: value for key, value in payload.items() if key != 'items'}
+
+
+@app.get('/api/rag/semantic-query')
+def rag_semantic_query(q: str, limit: int = 5, provider: str = 'local', model: str | None = None, hybrid: bool = True, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    return semantic_search(q, limit=limit, provider=provider, model=model, hybrid=hybrid)
+
 
 @app.get('/api/scans/{scan_id}/findings/{finding_id}/rag-context')
 def scan_finding_rag_context(scan_id: str, finding_id: str, limit: int = 5, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
@@ -346,6 +373,51 @@ def fix_proposal(scan_id: str, finding_id: str, provider: str = 'offline', model
     audit(user.username, 'fix.proposed', finding_id, {'scan_id': scan_id, 'provider': provider, 'priority': proposal.priority})
     return proposal.model_dump(mode='json')
 
+
+@app.get('/api/scans/{scan_id}/advanced-ai/report')
+def scan_advanced_ai_report(scan_id: str, provider: str = 'offline', model: str | None = None, embedding_provider: str = 'local', user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    report = phase_g_report(scan, provider=provider, model=model, embedding_provider=embedding_provider)
+    audit(user.username, 'advanced_ai.reported', scan_id, {'provider': provider, 'status': report['multi_agent_review']['synthesis']['status']})
+    return report
+
+
+@app.get('/api/scans/{scan_id}/advanced-ai/review')
+def scan_advanced_ai_review(scan_id: str, finding_id: str | None = None, provider: str = 'offline', model: str | None = None, limit: int = 5, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    try:
+        report = run_multi_agent_review(scan, finding_id=finding_id, provider=provider, model=model, limit=limit)
+    except ValueError:
+        raise HTTPException(status_code=404, detail='finding not found')
+    audit(user.username, 'advanced_ai.agent_reviewed', scan_id, {'provider': provider, 'findings': str(report['finding_count'])})
+    return report
+
+
+@app.get('/api/scans/{scan_id}/advanced-ai/finetune-experiment')
+def scan_finetune_experiment(scan_id: str, limit: int = 50, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    report = fine_tune_experiment_plan(scan, limit=limit)
+    audit(user.username, 'advanced_ai.finetune_experiment_reported', scan_id, {'examples': str(report['dataset']['example_count'])})
+    return report
+
+
+@app.get('/api/scans/{scan_id}/advanced-ai/finetune-dataset', response_class=PlainTextResponse)
+def scan_finetune_dataset(scan_id: str, limit: int = 100, user: AuthUser = Depends(require_permission('enterprise:read'))) -> str:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    audit(user.username, 'advanced_ai.finetune_dataset_exported', scan_id, {'limit': str(limit)})
+    return fine_tune_dataset_jsonl(scan, limit=limit)
 
 @app.get('/api/scans/{scan_id}/remediation-plan')
 def remediation_plan(scan_id: str, limit: int = 50, user: AuthUser = Depends(require_permission('fix:propose'))) -> dict:

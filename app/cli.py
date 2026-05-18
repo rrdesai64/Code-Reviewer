@@ -10,8 +10,9 @@ from .memory import update_repository_memory
 from .refactor import build_fix_proposal, build_remediation_plan
 from .reporting import github_pr_comment, markdown_report
 from .sarif import build_sarif
+from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report
 from .scanner import SEVERITY_ORDER, run_scan
-from .storage import save_baseline, save_scan
+from .storage import load_baseline, load_scan, save_baseline, save_scan
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -21,6 +22,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--project-name', default=None)
     parser.add_argument('--json-out')
     parser.add_argument('--sarif-out')
+    parser.add_argument('--cyclonedx-out')
+    parser.add_argument('--spdx-out')
+    parser.add_argument('--sbom-policy-out')
+    parser.add_argument('--sbom-compare-out')
+    parser.add_argument('--sbom-compare-to', help='saved scan ID to compare SBOMs against; defaults to the saved baseline scan when available')
     parser.add_argument('--report-out')
     parser.add_argument('--pr-comment-out')
     parser.add_argument('--compliance-out')
@@ -29,6 +35,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--fix-provider', default='offline')
     parser.add_argument('--save-baseline', action='store_true')
     parser.add_argument('--fail-on', choices=['critical', 'high', 'medium', 'low', 'info'], default=None)
+    parser.add_argument('--fail-on-sbom-policy', action='store_true', help='exit with code 3 when SBOM policy checks fail')
     args = parser.parse_args(argv)
 
     scan = run_scan(Path(args.path), project_name=args.project_name)
@@ -41,6 +48,27 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.json_out).write_text(scan.model_dump_json(indent=2), encoding='utf-8')
     if args.sarif_out:
         Path(args.sarif_out).write_text(json.dumps(build_sarif(scan), indent=2), encoding='utf-8')
+    if args.cyclonedx_out:
+        Path(args.cyclonedx_out).write_text(json.dumps(build_cyclonedx(scan), indent=2), encoding='utf-8')
+    if args.spdx_out:
+        Path(args.spdx_out).write_text(json.dumps(build_spdx(scan), indent=2), encoding='utf-8')
+    if args.sbom_policy_out:
+        Path(args.sbom_policy_out).write_text(json.dumps(sbom_policy_report(scan), indent=2), encoding='utf-8')
+    if args.sbom_compare_out:
+        baseline_scan = None
+        baseline_scan_id = args.sbom_compare_to
+        explicit_compare = bool(baseline_scan_id)
+        if not baseline_scan_id:
+            baseline = load_baseline()
+            baseline_scan_id = baseline.get('scan_id') if baseline else None
+        if baseline_scan_id:
+            try:
+                baseline_scan = load_scan(baseline_scan_id)
+            except FileNotFoundError:
+                if explicit_compare:
+                    print(f'Baseline scan not found for SBOM comparison: {baseline_scan_id}', file=sys.stderr)
+                    return 2
+        Path(args.sbom_compare_out).write_text(json.dumps(compare_sboms(scan, baseline_scan), indent=2), encoding='utf-8')
     if args.report_out:
         Path(args.report_out).write_text(markdown_report(scan), encoding='utf-8')
     if args.pr_comment_out:
@@ -60,6 +88,8 @@ def main(argv: list[str] | None = None) -> int:
         threshold = SEVERITY_ORDER[args.fail_on.upper()]
         if any(SEVERITY_ORDER[f.severity] >= threshold for f in scan.findings):
             return 2
+    if args.fail_on_sbom_policy and sbom_policy_report(scan)['status'] == 'failed':
+        return 3
     return 0
 
 

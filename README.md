@@ -342,3 +342,38 @@ Development flow:
 5. Use `Secure Review: Scan Workspace` from the command palette or the Secure Review activity bar.
 
 The extension does not apply patches automatically. It only displays remediation plans and fix proposal diffs for human review.
+
+## SBOM Export, Policy, And Comparison
+
+This phase adds first-class SBOM artifacts for supply-chain review.
+
+Implemented:
+
+- CycloneDX 1.5 JSON export for scanned Python and Node manifests
+- SPDX 2.3 JSON export for the same component inventory
+- `pip-audit` vulnerability findings attached to CycloneDX components through `vulnerabilities.affects`
+- SBOM policy checks for critical package vulnerabilities, high vulnerability review, and unknown licenses
+- SBOM comparison against a saved baseline scan or a specific scan ID
+- CLI and PowerShell wrapper output for SBOM artifacts
+
+Useful endpoints:
+
+- `GET /api/scans/{scan_id}/sbom/cyclonedx`
+- `GET /api/scans/{scan_id}/sbom/spdx`
+- `GET /api/scans/{scan_id}/sbom/policy`
+- `GET /api/scans/{scan_id}/sbom/compare`
+- `GET /api/scans/{scan_id}/sbom/compare?baseline_scan_id={baseline_scan_id}`
+
+CLI export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --cyclonedx-out cyclonedx-sbom.json --spdx-out spdx-sbom.json --sbom-policy-out sbom-policy.json --sbom-compare-out sbom-compare.json
+```
+
+PowerShell wrapper output:
+
+```powershell
+.\scan.ps1 -Path "G:\Path\To\Repo"
+```
+
+By default, `scan.ps1` now emits `cyclonedx-sbom.json`, `spdx-sbom.json`, `sbom-policy.json`, and `sbom-compare.json` along with the existing scan artifacts. Use `--fail-on-sbom-policy` in CI when you want unknown licenses or critical package vulnerabilities to fail the CLI run.

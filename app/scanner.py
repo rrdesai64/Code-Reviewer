@@ -15,6 +15,7 @@ from .ast_scanner import run_ast_analysis
 from .external_scanners import run_codeql, run_sonarqube
 from .models import Finding, Location, ScanResult, ScanSummary
 from .risk import score_scan
+from .secrets import run_secret_scan
 from .storage import apply_decisions, compare_to_baseline
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,6 +58,10 @@ def run_scan(target_path: Path, project_name: str | None = None) -> ScanResult:
     ast_findings, ast_status = run_ast_analysis(target, files)
     findings.extend(ast_findings)
     tools['python-ast'] = ast_status
+
+    secret_findings, secret_status = run_secret_scan(target, files)
+    findings.extend(secret_findings)
+    tools.update(secret_status)
 
     codeql_findings, codeql_status = run_codeql(target, files)
     findings.extend(codeql_findings)

@@ -13,6 +13,7 @@ from .reporting import github_pr_comment, markdown_report
 from .sarif import build_sarif
 from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report, spdx_compliance_report
 from .scanner import SEVERITY_ORDER, run_scan
+from .secrets import secret_policy_report
 from .storage import load_baseline, load_scan, save_baseline, save_scan
 
 
@@ -33,6 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--spdx-out')
     parser.add_argument('--spdx-compliance-out')
     parser.add_argument('--sbom-policy-out')
+    parser.add_argument('--secret-policy-out')
     parser.add_argument('--sbom-compare-out')
     parser.add_argument('--sbom-compare-to', help='saved scan ID to compare SBOMs against; defaults to the saved baseline scan when available')
     parser.add_argument('--report-out')
@@ -50,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--fail-on', choices=['critical', 'high', 'medium', 'low', 'info'], default=None)
     parser.add_argument('--fail-on-sbom-policy', action='store_true', help='exit with code 3 when SBOM policy checks fail')
     parser.add_argument('--fail-on-spdx-compliance', action='store_true', help='exit with code 4 when SPDX compliance is not procurement-ready')
+    parser.add_argument('--fail-on-secrets', action='store_true', help='exit with code 5 when push protection blocks open secret findings')
     args = parser.parse_args(argv)
 
     scan = run_scan(Path(args.path), project_name=args.project_name)
@@ -84,6 +87,8 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.spdx_compliance_out).write_text(json.dumps(spdx_compliance_report(scan), indent=2), encoding='utf-8')
     if args.sbom_policy_out:
         Path(args.sbom_policy_out).write_text(json.dumps(sbom_policy_report(scan), indent=2), encoding='utf-8')
+    if args.secret_policy_out:
+        Path(args.secret_policy_out).write_text(json.dumps(secret_policy_report(scan), indent=2), encoding='utf-8')
     if args.sbom_compare_out:
         baseline_scan = None
         baseline_scan_id = args.sbom_compare_to
@@ -114,6 +119,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f'Scan {scan.scan_id}: {scan.summary.total_findings} findings across {scan.summary.files_scanned} files')
     print(f'Risk: max={scan.summary.max_risk_score}, avg={scan.summary.avg_risk_score}, priorities={scan.summary.priorities}')
     print(f"Tools: {', '.join(f'{k}={v}' for k, v in scan.summary.tools.items())}")
+    secret_policy = secret_policy_report(scan)
+    if secret_policy['total_secret_findings']:
+        print(f"Push protection: {secret_policy['status']} ({secret_policy['blocking_findings']} blocking secrets)")
     if args.fail_on:
         threshold = SEVERITY_ORDER[args.fail_on.upper()]
         if any(SEVERITY_ORDER[f.severity] >= threshold for f in scan.findings):
@@ -122,6 +130,8 @@ def main(argv: list[str] | None = None) -> int:
         return 3
     if args.fail_on_spdx_compliance and spdx_compliance_report(scan)['status'] != 'ready':
         return 4
+    if args.fail_on_secrets and secret_policy_report(scan)['status'] == 'blocked':
+        return 5
     return 0
 
 

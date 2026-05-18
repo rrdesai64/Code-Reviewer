@@ -455,3 +455,51 @@ $env:OPENAI_EMBEDDING_MODEL="text-embedding-3-small"
 ```
 
 `scan.ps1` now emits `advanced-ai.json` by default. Fine-tune exports are dataset artifacts only; the app does not automatically submit training jobs or deploy fine-tuned models. Keep sensitive repositories on local embeddings/models unless external processing is explicitly approved.
+
+## Roadmap Point 1: Secret Scanning And Push Protection
+
+Point 1 adds a merge-blocking secret scanning layer while keeping local-first scanning as the default.
+
+Implemented:
+
+- Built-in regex secret scanner for hardcoded tokens, API keys, private keys, JWTs, database URLs with inline credentials, and generic secret assignments
+- Secret values are redacted from findings; a secret-derived hash is used only inside stable fingerprints
+- Optional external adapters for `gitleaks` and `trufflehog` when those CLIs are installed or configured
+- Push-protection policy report that blocks open high/critical secret findings
+- CLI artifact export with `--secret-policy-out`
+- CI/pre-push failure mode with `--fail-on-secrets` exit code `5`
+- Web/API access to the secret policy report
+- `scan.ps1` now emits `secret-policy.json` by default
+
+Useful endpoints:
+
+- `GET /api/scans/{scan_id}/secrets/policy`
+- `GET /api/scans/{scan_id}/push-protection`
+
+CLI export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --secret-policy-out secret-policy.json --fail-on-secrets
+```
+
+PowerShell wrapper output:
+
+```powershell
+.\scan.ps1 -Path "G:\Path\To\Repo"
+```
+
+Configuration:
+
+```powershell
+$env:SECRET_SCAN_ENABLED="true"
+$env:SECRET_SCAN_MAX_FILE_BYTES="1048576"
+$env:SECRET_SCAN_EXTERNAL_ENABLED="auto"
+$env:PUSH_PROTECTION_ENABLED="true"
+$env:SECRET_POLICY_BLOCK_SEVERITY="HIGH"
+$env:GITLEAKS_ENABLED="auto"
+$env:GITLEAKS_EXE="C:\path\to\gitleaks.exe"
+$env:TRUFFLEHOG_ENABLED="auto"
+$env:TRUFFLEHOG_EXE="C:\path\to\trufflehog.exe"
+```
+
+For confirmed leaks, rotate credentials before closing the finding. Removing the value from the latest file is not enough if it was committed into repository history.

@@ -21,9 +21,10 @@ from .reporting import github_pr_comment, html_report, markdown_report
 from .sarif import build_sarif
 from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report, spdx_compliance_report
 from .scanner import ROOT, run_scan
+from .secrets import secret_policy_report
 from .storage import apply_decisions, load_baseline, load_scan, save_baseline, save_decision, save_scan, list_scans
 
-app = FastAPI(title='Secure Code Review Assistant', version='0.14.0')
+app = FastAPI(title='Secure Code Review Assistant', version='0.15.0')
 oauth = make_oauth()
 STATIC_DIR = ROOT / 'static'
 UPLOAD_DIR = ROOT / 'data' / 'uploads'
@@ -40,7 +41,7 @@ def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
 
 @app.get('/api/health')
 def health() -> dict:
-    return {'ok': True, 'phase': 'phase-g', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization'], 'llm_providers': provider_status(), 'auth': auth_status()}
+    return {'ok': True, 'phase': 'phase-h', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter'], 'llm_providers': provider_status(), 'auth': auth_status()}
 
 
 @app.get('/auth/me')
@@ -181,6 +182,27 @@ def scan_sbom_policy(scan_id: str, user: AuthUser = Depends(require_permission('
     audit(user.username, 'sbom.policy_reported', scan_id, {'status': report['status']})
     return report
 
+
+@app.get('/api/scans/{scan_id}/secrets/policy')
+def scan_secret_policy(scan_id: str, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    report = secret_policy_report(scan)
+    audit(user.username, 'secrets.policy_reported', scan_id, {'status': report['status'], 'blocking': str(report['blocking_findings'])})
+    return report
+
+
+@app.get('/api/scans/{scan_id}/push-protection')
+def scan_push_protection(scan_id: str, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    report = secret_policy_report(scan)
+    audit(user.username, 'secrets.push_protection_checked', scan_id, {'status': report['status'], 'blocking': str(report['blocking_findings'])})
+    return report
 
 @app.get('/api/scans/{scan_id}/sbom/compare')
 def scan_sbom_compare(scan_id: str, baseline_scan_id: str | None = None, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:

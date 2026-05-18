@@ -19,7 +19,7 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(user => {
 
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
-  statusEl.textContent = 'Scanning with source analyzers, dependency audit, risk scoring, memory update, and enterprise audit logging.';
+  statusEl.textContent = 'Scanning with source analyzers, dependency audit, secret scanning, risk scoring, memory update, and enterprise audit logging.';
   findingsEl.innerHTML = '';
   actionsEl.innerHTML = '';
   const body = new FormData(form);
@@ -48,6 +48,7 @@ function renderScan(scan) {
     <a class="link-button secondary" href="/api/scans/${scan.scan_id}/github-pr-comment" target="_blank">PR Comment</a>
     <button class="ghost" onclick="saveBaseline('${scan.scan_id}')">Save Baseline</button>
     <button class="ghost" onclick="showCompliance('${scan.scan_id}')">Compliance</button>
+    <button class="ghost" onclick="showSecretPolicy('${scan.scan_id}')">Push Protection</button>
     <button class="ghost" onclick="showRemediationPlan('${scan.scan_id}')">Remediation</button>
     <button class="ghost" onclick="showMemory()">Memory</button>
     <button class="ghost" onclick="showMemoryBrief('${scan.scan_id}')">Memory Brief</button>
@@ -157,6 +158,15 @@ async function showRemediationPlan(scanId) {
 async function showCompliance(scanId) {
   const response = await fetch(`/api/scans/${scanId}/compliance`);
   showJsonPanel('Compliance Report', await response.json());
+}
+
+async function showSecretPolicy(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/secrets/policy`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not load push-protection policy.';
+    return;
+  }
+  showJsonPanel('Push Protection', await response.json());
 }
 
 async function showRagContext(findingId) {

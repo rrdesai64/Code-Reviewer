@@ -57,7 +57,7 @@ def score_finding(finding: Finding, is_new: bool = False) -> RiskScore:
     if any(keyword in text for keyword in EXPLOITABLE_KEYWORDS):
         add_factor(factors, 'exploitability', 'Exploitability signal', 8, 'Finding text contains a known exploitability indicator.')
 
-    if finding.source in {'pip-audit', 'codeql', 'sonarqube'}:
+    if finding.source in {'pip-audit', 'codeql', 'sonarqube', 'secret-scan', 'gitleaks', 'trufflehog'}:
         add_factor(factors, 'source', 'High-value scanner source', 5, finding.source)
 
     path = finding.location.path.replace('\\', '/')

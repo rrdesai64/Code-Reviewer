@@ -26,6 +26,7 @@ data/
 *report.md
 *pr-comment.md
 compliance.json
+secret-policy.json
 fix-proposals.json
 
 # OS/editor noise

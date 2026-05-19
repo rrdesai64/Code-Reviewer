@@ -961,3 +961,47 @@ $env:BITBUCKET_PUBLISH_STATUS="false"
 ```
 
 For Bitbucket Server/Data Center, set `BITBUCKET_DEPLOYMENT=server`, `BITBUCKET_API_URL=https://bitbucket.example.com/rest/api/1.0`, `BITBUCKET_PROJECT_KEY`, and `BITBUCKET_REPO_SLUG`. Start with dry-run artifacts, then enable one provider at a time with a scoped service account token.
+
+## Roadmap Point 12: Team Learning And Security Campaign Dashboard
+
+Point 12 adds the team-level learning layer that turns repeated scan evidence into coaching themes, security campaigns, and trend signals. It stays local-first: dashboard metrics are derived from stored scan history, repository memory, decisions, and campaign records under `data/`.
+
+Implemented:
+
+- Team learning dashboard with risk cards, recurring patterns, scanner gaps, trend direction, and learning recommendations
+- Security campaign store for planned, active, paused, and completed remediation campaigns
+- Campaign recommendations for secrets, dependencies, injection risk, hotspot files, and scanner coverage gaps
+- Scan-level learning brief for the latest evidence from a single scan
+- API endpoints protected by existing enterprise/read-write permissions and audit logging
+- CLI export with `--team-learning-out` and `--team-learning-limit`
+- Browser UI and VS Code report access for `team-learning-dashboard.json`
+- `scan.ps1` and GitHub Actions artifact output for `team-learning-dashboard.json`
+
+Useful endpoints:
+
+- `GET /api/team-learning/dashboard`
+- `GET /api/team-learning/campaigns`
+- `POST /api/team-learning/campaigns`
+- `GET /api/scans/{scan_id}/team-learning`
+
+CLI export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --team-learning-out team-learning-dashboard.json --team-learning-limit 100
+```
+
+Create a campaign through the API:
+
+```json
+{
+  "title": "Secrets exposure reduction",
+  "focus_area": "secrets",
+  "owner": "AppSec",
+  "status": "planned",
+  "target_reduction_percent": 80,
+  "rule_ids": ["gitleaks.generic-api-key"],
+  "repository_keys": ["payments-service"]
+}
+```
+
+Use the dashboard as a security-management artifact, not only a scanner artifact. The intended workflow is scan, review recurring patterns, open a focused campaign, verify improvement with later scans, and keep accepted-risk decisions auditable.

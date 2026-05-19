@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from .models import ChatNotificationRequest, CodeHostReviewRequest, DecisionRequest, FixApplyRequest, GitHubPrReviewRequest, IssuePlanRequest, LLMRequest
+from .models import ChatNotificationRequest, CodeHostReviewRequest, DecisionRequest, FixApplyRequest, GitHubPrReviewRequest, IssuePlanRequest, LLMRequest, TeamCampaignRequest
 from .advanced_ai import advanced_ai_status, build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, gpu_profile, local_runtime_status, phase_g_report, run_multi_agent_review, semantic_search
 from .chat_agents import ChatAgentError, build_chat_notification, chat_agent_status, handle_slack_command, handle_teams_command, verify_slack_signature, verify_teams_command_secret
 from .code_hosts import CodeHostIntegrationError, build_code_host_review, code_host_status
@@ -33,8 +33,9 @@ from .scanner_depth import scanner_depth_report
 from .secrets import secret_policy_report
 from .sonarqube import sonarqube_quality_report
 from .storage import apply_decisions, load_baseline, load_scan, save_baseline, save_decision, save_scan, list_scans
+from .team_learning import create_campaign, load_campaigns, scan_learning_brief_by_id, team_learning_dashboard
 
-app = FastAPI(title='Secure Code Review Assistant', version='0.24.0')
+app = FastAPI(title='Secure Code Review Assistant', version='0.25.0')
 oauth = make_oauth()
 STATIC_DIR = ROOT / 'static'
 UPLOAD_DIR = ROOT / 'data' / 'uploads'
@@ -51,7 +52,7 @@ def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
 
 @app.get('/api/health')
 def health() -> dict:
-    return {'ok': True, 'phase': 'phase-q', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'sonarqube-issue-ingestion', 'sonarqube-quality-gate', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'scanner-mesh', 'scanner-depth', 'semgrep-multi-config', 'codeql-query-depth', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run', 'ide-cli-parity', 'vscode-extension-parity', 'ide-evidence-export', 'issue-planning', 'jira-planning', 'linear-planning', 'issue-plan-dry-run', 'slack-teams-agent', 'chat-notifications', 'slack-agent', 'teams-agent', 'chat-bot-commands', 'gitlab-review', 'azure-devops-review', 'bitbucket-review', 'multi-code-host-review'], 'llm_providers': provider_status(), 'auth': auth_status()}
+    return {'ok': True, 'phase': 'phase-r', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'sonarqube-issue-ingestion', 'sonarqube-quality-gate', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'scanner-mesh', 'scanner-depth', 'semgrep-multi-config', 'codeql-query-depth', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run', 'ide-cli-parity', 'vscode-extension-parity', 'ide-evidence-export', 'issue-planning', 'jira-planning', 'linear-planning', 'issue-plan-dry-run', 'slack-teams-agent', 'chat-notifications', 'slack-agent', 'teams-agent', 'chat-bot-commands', 'gitlab-review', 'azure-devops-review', 'bitbucket-review', 'multi-code-host-review', 'team-learning-dashboard', 'security-campaigns', 'learning-recommendations', 'risk-trend-dashboard'], 'llm_providers': provider_status(), 'auth': auth_status()}
 
 
 
@@ -626,6 +627,45 @@ def memory_repository(repo_key: str, user: AuthUser = Depends(require_permission
     except KeyError:
         raise HTTPException(status_code=404, detail='repository memory not found')
 
+
+@app.get('/api/team-learning/dashboard')
+def team_learning_dashboard_endpoint(limit: int = 100, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = team_learning_dashboard(limit=limit)
+    audit(user.username, 'team_learning.dashboard_reported', 'team-learning', {'status': report['status'], 'scans': str(report['scan_count'])})
+    return report
+
+
+@app.get('/api/team-learning/campaigns')
+def team_learning_campaigns(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    return load_campaigns()
+
+
+@app.post('/api/team-learning/campaigns')
+def team_learning_campaign_create(request: TeamCampaignRequest, user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    campaign = create_campaign(
+        title=request.title,
+        focus_area=request.focus_area,
+        owner=request.owner,
+        due_date=request.due_date,
+        description=request.description,
+        status=request.status,
+        scan_id=request.scan_id,
+        rule_ids=request.rule_ids,
+        repository_keys=request.repository_keys,
+        target_reduction_percent=request.target_reduction_percent,
+    )
+    audit(user.username, 'team_learning.campaign_created', campaign['id'], {'focus_area': campaign['focus_area'], 'status': campaign['status']})
+    return campaign
+
+
+@app.get('/api/scans/{scan_id}/team-learning')
+def scan_team_learning(scan_id: str, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        report = scan_learning_brief_by_id(scan_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    audit(user.username, 'team_learning.scan_brief_reported', scan_id, {'status': report['status']})
+    return report
 
 @app.get('/api/scans/{scan_id}/memory-context')
 def scan_memory_context(scan_id: str, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:

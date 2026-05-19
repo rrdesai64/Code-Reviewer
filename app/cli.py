@@ -26,6 +26,7 @@ from .scanner_depth import scanner_depth_report
 from .sonarqube import sonarqube_quality_report
 from .secrets import secret_policy_report
 from .storage import load_baseline, load_scan, save_baseline, save_scan
+from .team_learning import team_learning_dashboard
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -80,6 +81,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--issue-plan-min-priority', choices=['P0', 'P1', 'P2', 'P3', 'P4'], default='P2')
     parser.add_argument('--issue-plan-publish', action='store_true', help='publish planned remediation issues when Jira/Linear credentials and dry-run gates allow it')
     parser.add_argument('--chat-notification-out')
+    parser.add_argument('--team-learning-out')
+    parser.add_argument('--team-learning-limit', type=int, default=100)
     parser.add_argument('--chat-provider', choices=['all', 'slack', 'teams'], default='all')
     parser.add_argument('--chat-include-findings', type=int, default=10)
     parser.add_argument('--chat-publish', action='store_true', help='publish the prepared Slack/Teams notification when credentials and dry-run gates allow it')
@@ -225,6 +228,11 @@ def main(argv: list[str] | None = None) -> int:
             return 10
         if args.issue_plan_out:
             Path(args.issue_plan_out).write_text(json.dumps(issue_plan, indent=2), encoding='utf-8')
+    if args.team_learning_out:
+        Path(args.team_learning_out).write_text(
+            json.dumps(team_learning_dashboard(limit=args.team_learning_limit), indent=2),
+            encoding='utf-8',
+        )
     chat_notification = None
     if args.chat_notification_out or args.chat_publish:
         try:

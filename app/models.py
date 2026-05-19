@@ -222,6 +222,19 @@ class CodeHostReviewRequest(BaseModel):
     include_findings: int = 25
 
 
+class TeamCampaignRequest(BaseModel):
+    title: str
+    focus_area: str
+    owner: str | None = None
+    due_date: str | None = None
+    description: str | None = None
+    status: Literal['planned', 'active', 'paused', 'completed'] = 'planned'
+    scan_id: str | None = None
+    rule_ids: list[str] = Field(default_factory=list)
+    repository_keys: list[str] = Field(default_factory=list)
+    target_reduction_percent: int = 80
+
+
 class Role(BaseModel):
     name: str
     permissions: list[str] = Field(default_factory=list)

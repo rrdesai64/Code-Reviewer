@@ -60,6 +60,8 @@ function renderScan(scan) {
     <button class="ghost" onclick="showRemediationPlan('${scan.scan_id}')">Remediation</button>
     <button class="ghost" onclick="showIssuePlan('${scan.scan_id}')">Issue Plan</button>
     <button class="ghost" onclick="showChatNotification('${scan.scan_id}')">Chat Agent</button>
+    <button class="ghost" onclick="showTeamLearning()">Team Learning</button>
+    <button class="ghost" onclick="showTeamLearningBrief('${scan.scan_id}')">Learning Brief</button>
     <button class="ghost" onclick="showMemory()">Memory</button>
     <button class="ghost" onclick="showMemoryBrief('${scan.scan_id}')">Memory Brief</button>
     <button class="ghost" onclick="showRagStats()">Knowledge</button>
@@ -287,6 +289,23 @@ async function showRagContext(findingId) {
 async function showRagStats() {
   const response = await fetch('/api/rag/stats');
   showJsonPanel('Knowledge Index', await response.json());
+}
+async function showTeamLearning() {
+  const response = await fetch('/api/team-learning/dashboard');
+  if (!response.ok) {
+    statusEl.textContent = 'Could not load team learning dashboard.';
+    return;
+  }
+  showJsonPanel('Team Learning Dashboard', await response.json());
+}
+
+async function showTeamLearningBrief(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/team-learning`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not load scan learning brief.';
+    return;
+  }
+  showJsonPanel('Scan Learning Brief', await response.json());
 }
 async function showMemory() {
   const response = await fetch('/api/memory');

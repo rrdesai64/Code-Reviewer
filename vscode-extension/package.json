@@ -41,6 +41,7 @@
     "onCommand:secureCodeReview.showRemediationPlan",
     "onCommand:secureCodeReview.showIssuePlan",
     "onCommand:secureCodeReview.showChatNotification",
+    "onCommand:secureCodeReview.showTeamLearning",
     "onCommand:secureCodeReview.showMemoryContext",
     "onCommand:secureCodeReview.showAdvancedAiReport",
     "onCommand:secureCodeReview.proposeFix",
@@ -205,6 +206,10 @@
       {
         "command": "secureCodeReview.showChatNotification",
         "title": "Secure Review: Show Slack/Teams Agent"
+      },
+      {
+        "command": "secureCodeReview.showTeamLearning",
+        "title": "Secure Review: Show Team Learning Dashboard"
       },
       {
         "command": "secureCodeReview.showMemoryContext",

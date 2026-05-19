@@ -127,18 +127,35 @@ Implemented:
 
 - Built-in Python AST analysis using the standard `ast` parser
 - Expanded language-specific Semgrep rules for Python, JavaScript/TypeScript, Java, Go, Rust, YAML, and Dockerfile
-- CodeQL adapter that activates only when `CODEQL_ENABLED=true` and the CodeQL CLI is installed
-- SonarQube adapter that activates only when `SONAR_ENABLED=true`, `sonar-scanner` is installed, and server credentials are configured
-- Tool status reporting for `python-ast`, `codeql`, and `sonarqube`
+- Semgrep multi-config support with `SEMGREP_CONFIGS` for organization rules or Semgrep registry packs
+- CodeQL adapter with language detection, configurable query suites, extra query packs, and resource tuning
+- SonarQube adapter that imports issues and quality gate failures when `SONAR_ENABLED=true`, `sonar-scanner` is installed, and server credentials are configured
+- Tool status reporting for `python-ast`, `semgrep`, `codeql`, and `sonarqube`
+- Dedicated SonarQube quality gate and scanner-depth reports in API, CLI, web UI, and CI artifacts
+
+### Tune Semgrep
+
+Semgrep uses the local `rules/semgrep-security.yml` file by default. Add extra configs or registry packs with semicolon-separated values:
+
+```powershell
+$env:SEMGREP_EXE="C:\path\to\semgrep.exe" # optional if semgrep is on PATH or in .venv
+$env:SEMGREP_CONFIGS="p/security-audit;G:\security-rules\org-semgrep.yml"
+$env:SEMGREP_TIMEOUT_SECONDS="300"
+```
 
 ### Enable CodeQL
 
-CodeQL CLI has been installed locally under `tools/codeql/`. To override or disable it, set:
+CodeQL CLI has been installed locally under `tools/codeql/`. To override, tune, or disable it, set:
 
 ```powershell
 $env:CODEQL_ENABLED="auto" # auto, true, or false
 $env:CODEQL_EXE="C:\path\to\codeql.exe" # optional if codeql is on PATH
-$env:CODEQL_QUERY_SUITE="codeql-suites/code-scanning.qls"
+$env:CODEQL_QUERY_SUITE="" # optional global override; defaults are language-specific
+$env:CODEQL_QUERY_SUITE_PYTHON="" # optional per-language override
+$env:CODEQL_EXTRA_QUERY_SUITES="codeql/python-queries:codeql-suites/python-security-and-quality.qls"
+$env:CODEQL_THREADS="0" # 0 lets CodeQL choose; set a number for CI
+$env:CODEQL_RAM="4096"
+$env:CODEQL_BUILD_MODE="none" # optional; useful for some compiled-language scans
 $env:CODEQL_TIMEOUT_SECONDS="900"
 ```
 
@@ -154,10 +171,16 @@ $env:SONAR_SCANNER_EXE="C:\path\to\sonar-scanner.bat" # optional if on PATH
 $env:SONAR_HOST_URL="https://sonarqube.example.com"
 $env:SONAR_TOKEN="your-token"
 $env:SONAR_PROJECT_KEY="secure-review-project"
+$env:SONAR_QUALITY_GATE_ENABLED="true"
+$env:SONAR_QUALITY_GATE_WAIT="false" # set true in CI if you want sonar-scanner to wait for gate completion
+$env:SONAR_QUALITY_GATE_TIMEOUT="300"
+$env:SONAR_ISSUE_TYPES="VULNERABILITY,SECURITY_HOTSPOT,BUG,CODE_SMELL"
+$env:SONAR_SEVERITIES="BLOCKER,CRITICAL,MAJOR" # optional
+$env:SONAR_ISSUE_PAGE_SIZE="500"
 $env:SONAR_TIMEOUT_SECONDS="600"
 ```
 
-When disabled or unavailable, CodeQL and SonarQube report their status without failing the rest of the scan.
+When disabled or unavailable, CodeQL and SonarQube report their status without failing the rest of the scan. Use `--sonarqube-out sonarqube-quality-gate.json` and `--scanner-depth-out scanner-depth.json` for standalone CLI artifacts, or open `/api/scans/{scan_id}/sonarqube/report` and `/api/scans/{scan_id}/scanner-depth` after a scan.
 
 ## Production SSO Enforcement
 
@@ -623,9 +646,60 @@ PowerShell wrapper:
 
 `scan.ps1` now emits `dependency-review.json` by default. Reachability is heuristic and conservative: source import evidence is high confidence, direct runtime manifests are medium confidence, and lockfile-only/transitive packages remain review items until the parent dependency path is known.
 
-## Roadmap Point 5: Secure One-Click Fix Workflow
+## Roadmap Point 5: SonarQube Issue And Quality Gate Ingestion
 
-Point 5 turns fix proposals into a controlled one-click workflow while keeping the app security-first. The default path is still dry-run and review-first; real source edits require explicit approval and the `FIX_APPLY_ENABLED=true` runtime gate.
+Point 5 makes SonarQube a first-class governance signal instead of a passive external scan. Issues and failing quality gate conditions are normalized into findings, and the scan keeps an auditable quality gate report.
+
+Implemented:
+
+- SonarQube issue ingestion for vulnerabilities, security hotspots, bugs, and optional code smells
+- Quality gate retrieval from `/api/qualitygates/project_status` after scanner execution
+- Failing quality gate conditions converted into normalized `sonarqube` findings with `scanner_metadata.sonar_kind=quality_gate`
+- Per-scan SonarQube report with issue counts, quality gate status, failing conditions, policy blockers, and recommended action
+- CLI export with `--sonarqube-out` and optional `--fail-on-sonarqube-gate`
+- API endpoint and web UI button for the SonarQube quality gate report
+- `scan.ps1` and GitHub Actions artifact output for `sonarqube-quality-gate.json`
+
+Useful endpoint:
+
+- `GET /api/scans/{scan_id}/sonarqube/report`
+
+CLI export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --sonarqube-out sonarqube-quality-gate.json --fail-on-sonarqube-gate
+```
+
+`SONAR_HOST_URL`, `SONAR_TOKEN`, and `SONAR_PROJECT_KEY` must match the SonarQube/SonarCloud project that receives the scanner upload. If SonarQube is unavailable, the app records the adapter status and continues the local scan.
+
+## Roadmap Point 6: Semgrep/CodeQL Depth Improvements
+
+Point 6 deepens local and semantic scanner coverage while preserving the app's local-first center of gravity. Semgrep can run multiple configs, CodeQL can run tuned query suites, and the app reports scanner coverage gaps explicitly.
+
+Implemented:
+
+- Semgrep execution now supports `SEMGREP_EXE`, `SEMGREP_CONFIGS`, `SEMGREP_TIMEOUT_SECONDS`, and metrics-off local scans
+- CodeQL execution now supports per-language defaults, extra query suites, thread/RAM tuning, optional build mode, and richer per-language status
+- Scanner-depth report with Semgrep rule inventory, severity counts, top rules, CodeQL language coverage, and coverage gaps
+- CLI export with `--scanner-depth-out`
+- API endpoint and web UI button for scanner-depth reports
+- `scan.ps1` and GitHub Actions artifact output for `scanner-depth.json`
+
+Useful endpoint:
+
+- `GET /api/scans/{scan_id}/scanner-depth`
+
+CLI export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --scanner-depth-out scanner-depth.json
+```
+
+Treat scanner-depth `partial` status as a coverage warning: it means the scan ran, but one or more configured scanner layers did not complete for the detected languages.
+
+## Roadmap Point 7: Safe One-Click Fix Workflow
+
+Point 7 turns fix proposals into a controlled one-click workflow while keeping the app security-first. The default path is still dry-run and review-first; real source edits require explicit approval and the `FIX_APPLY_ENABLED=true` runtime gate.
 
 Implemented:
 

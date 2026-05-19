@@ -30,7 +30,7 @@ SUPPORTED_SOURCES = [
     {'source': 'bandit', 'status': 'implemented', 'input': 'Bandit JSON'},
     {'source': 'pip-audit', 'status': 'implemented', 'input': 'pip-audit JSON'},
     {'source': 'codeql', 'status': 'implemented', 'input': 'SARIF 2.1.0'},
-    {'source': 'sonarqube', 'status': 'implemented', 'input': 'Sonar issues API'},
+    {'source': 'sonarqube', 'status': 'implemented', 'input': 'Sonar issues and quality gate APIs'},
     {'source': 'secret-scan', 'status': 'implemented', 'input': 'Built-in secret scanner'},
     {'source': 'gitleaks', 'status': 'implemented', 'input': 'Gitleaks JSON'},
     {'source': 'trufflehog', 'status': 'implemented', 'input': 'TruffleHog JSON lines'},

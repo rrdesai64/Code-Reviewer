@@ -51,6 +51,8 @@ function renderScan(scan) {
     <button class="ghost" onclick="showSecretPolicy('${scan.scan_id}')">Push Protection</button>
     <button class="ghost" onclick="showGithubPrReview('${scan.scan_id}')">GitHub PR</button>
     <button class="ghost" onclick="showScannerMesh('${scan.scan_id}')">Scanner Mesh</button>
+    <button class="ghost" onclick="showSonarQubeReport('${scan.scan_id}')">SonarQube</button>
+    <button class="ghost" onclick="showScannerDepth('${scan.scan_id}')">Scanner Depth</button>
     <button class="ghost" onclick="showDependencyReview('${scan.scan_id}')">Dependencies</button>
     <button class="ghost" onclick="showFixBundle('${scan.scan_id}')">Fix Bundle</button>
     <button class="ghost" onclick="dryRunFixApply('${scan.scan_id}')">Fix Dry Run</button>
@@ -226,6 +228,24 @@ async function showScannerMesh(scanId) {
     return;
   }
   showJsonPanel('Scanner Mesh', await response.json());
+}
+
+async function showSonarQubeReport(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/sonarqube/report`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not load SonarQube report.';
+    return;
+  }
+  showJsonPanel('SonarQube Quality Gate', await response.json());
+}
+
+async function showScannerDepth(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/scanner-depth`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not load scanner depth report.';
+    return;
+  }
+  showJsonPanel('Scanner Depth', await response.json());
 }
 async function showRagContext(findingId) {
   const response = await fetch(`/api/scans/${currentScan.scan_id}/findings/${findingId}/rag-context`);

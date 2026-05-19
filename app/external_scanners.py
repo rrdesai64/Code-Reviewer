@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import shutil
@@ -10,7 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .ingestion import finding_from_sonar_issue, findings_from_sarif_file
+from .ingestion import finding_from_sonar_issue, findings_from_sarif_file, normalize_finding
 from .models import Finding
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +31,7 @@ CODEQL_QUERY_SUITE_BY_LANGUAGE = {
     'csharp': 'codeql/csharp-queries:codeql-suites/csharp-code-scanning.qls',
     'go': 'codeql/go-queries:codeql-suites/go-code-scanning.qls',
     'ruby': 'codeql/ruby-queries:codeql-suites/ruby-code-scanning.qls',
+    'swift': 'codeql/swift-queries:codeql-suites/swift-code-scanning.qls',
 }
 
 
@@ -56,16 +58,26 @@ def run_codeql_language(codeql: Path, target: Path, language: str) -> tuple[list
     work = ROOT / 'data' / 'codeql' / f'{target.name}-{language}-{uuid.uuid4().hex[:8]}'
     db = work / 'db'
     sarif = work / 'results.sarif'
-    query_suite = os.getenv('CODEQL_QUERY_SUITE') or CODEQL_QUERY_SUITE_BY_LANGUAGE.get(language, '')
+    query_suites = codeql_query_suites(language)
+    if not query_suites:
+        return [], 'skipped: no query suite configured'
     timeout = int(os.getenv('CODEQL_TIMEOUT_SECONDS', '900'))
     work.mkdir(parents=True, exist_ok=True)
-    code, stdout, stderr = run_tool([str(codeql), 'database', 'create', str(db), '--source-root', str(target), '--language', language, '--overwrite'], ROOT, timeout=timeout)
+    create_command = [str(codeql), 'database', 'create', str(db), '--source-root', str(target), '--language', language, '--overwrite']
+    create_command.extend(codeql_resource_args())
+    build_mode = os.getenv('CODEQL_BUILD_MODE')
+    if build_mode:
+        create_command.append(f'--build-mode={build_mode}')
+    code, stdout, stderr = run_tool(create_command, ROOT, timeout=timeout)
     if code != 0:
         return [], f'database create failed: {clean_error(stderr or stdout)}'
-    code, stdout, stderr = run_tool([str(codeql), 'database', 'analyze', str(db), query_suite, '--format=sarifv2.1.0', f'--output={sarif}'], ROOT, timeout=timeout)
+    analyze_command = [str(codeql), 'database', 'analyze', str(db), *query_suites, '--format=sarifv2.1.0', f'--output={sarif}']
+    analyze_command.extend(codeql_resource_args())
+    code, stdout, stderr = run_tool(analyze_command, ROOT, timeout=timeout)
     if code not in (0, 2) or not sarif.exists():
         return [], f'analyze failed: {clean_error(stderr or stdout)}'
-    return findings_from_sarif(sarif, 'codeql'), 'ok'
+    findings = findings_from_sarif(sarif, 'codeql')
+    return findings, f'ok findings={len(findings)} queries={len(query_suites)}'
 
 
 def run_sonarqube(target: Path, files: list[Path]) -> tuple[list[Finding], str]:
@@ -82,18 +94,46 @@ def run_sonarqube(target: Path, files: list[Path]) -> tuple[list[Finding], str]:
         return [], 'installed, not configured: SONAR_HOST_URL and SONAR_TOKEN required'
     timeout = int(os.getenv('SONAR_TIMEOUT_SECONDS', '600'))
     command = [scanner, f'-Dsonar.projectKey={project_key}', f'-Dsonar.projectBaseDir={target}', '-Dsonar.sources=.', f'-Dsonar.host.url={host}', f'-Dsonar.token={token}']
+    if os.getenv('SONAR_QUALITY_GATE_WAIT', 'false').lower() == 'true':
+        command.extend(['-Dsonar.qualitygate.wait=true', f'-Dsonar.qualitygate.timeout={os.getenv("SONAR_QUALITY_GATE_TIMEOUT", "300")}'])
     code, stdout, stderr = run_tool(command, target, timeout=timeout, env=sonar_env())
     if code != 0:
         return [], f'scanner failed: {clean_error(stderr or stdout)}'
+
+    findings: list[Finding] = []
+    status_parts = ['scan=ok']
     try:
         issues = fetch_sonar_issues(host, token, project_key)
+        issue_findings = [finding_from_sonar(issue) for issue in issues]
+        findings.extend(issue_findings)
+        status_parts.append(f'issues={len(issue_findings)}')
     except Exception as exc:
-        return [], f'scan ok, issue fetch failed: {exc}'
-    return [finding_from_sonar(issue) for issue in issues], 'ok'
+        status_parts.append(f'issue_fetch_failed={clean_error(str(exc))}')
+
+    if os.getenv('SONAR_QUALITY_GATE_ENABLED', 'true').lower() != 'false':
+        try:
+            gate = fetch_sonar_quality_gate(host, token, project_key)
+            gate_findings = findings_from_sonar_quality_gate(project_key, gate)
+            findings.extend(gate_findings)
+            status_parts.append(f'quality_gate={quality_gate_status(gate)}')
+            status_parts.append(f'gate_findings={len(gate_findings)}')
+        except Exception as exc:
+            status_parts.append(f'quality_gate_fetch_failed={clean_error(str(exc))}')
+    else:
+        status_parts.append('quality_gate=disabled')
+    return findings, ', '.join(status_parts)
 
 
 def fetch_sonar_issues(host: str, token: str, project_key: str) -> list[dict[str, Any]]:
-    query = urllib.parse.urlencode({'componentKeys': project_key, 'types': 'VULNERABILITY,SECURITY_HOTSPOT,BUG', 'ps': 500})
+    params = {
+        'componentKeys': project_key,
+        'types': os.getenv('SONAR_ISSUE_TYPES', 'VULNERABILITY,SECURITY_HOTSPOT,BUG,CODE_SMELL'),
+        'ps': os.getenv('SONAR_ISSUE_PAGE_SIZE', '500'),
+    }
+    severities = os.getenv('SONAR_SEVERITIES')
+    if severities:
+        params['severities'] = severities
+    query = urllib.parse.urlencode(params)
     req = urllib.request.Request(f'{host.rstrip("/")}/api/issues/search?{query}')
     req.add_header('Authorization', 'Basic ' + basic_token(token))
     with urllib.request.urlopen(req, timeout=45) as response:
@@ -101,8 +141,72 @@ def fetch_sonar_issues(host: str, token: str, project_key: str) -> list[dict[str
     return payload.get('issues', [])
 
 
+def fetch_sonar_quality_gate(host: str, token: str, project_key: str) -> dict[str, Any]:
+    query = urllib.parse.urlencode({'projectKey': project_key})
+    req = urllib.request.Request(f'{host.rstrip("/")}/api/qualitygates/project_status?{query}')
+    req.add_header('Authorization', 'Basic ' + basic_token(token))
+    with urllib.request.urlopen(req, timeout=45) as response:
+        payload = json.loads(response.read().decode('utf-8'))
+    return payload.get('projectStatus', {}) or {}
+
+
+def findings_from_sonar_quality_gate(project_key: str, gate: dict[str, Any]) -> list[Finding]:
+    if not gate:
+        return []
+    gate_status = quality_gate_status(gate)
+    raw_conditions = gate.get('conditions') if isinstance(gate.get('conditions'), list) else []
+    failing = [condition for condition in raw_conditions if str(condition.get('status') or '').upper() not in ('OK', 'PASS', '')]
+    if gate_status not in ('OK', 'PASS', 'NONE', 'UNKNOWN', 'DISABLED') and not failing:
+        failing = [{'metricKey': 'quality_gate', 'status': gate_status, 'actualValue': gate_status, 'errorThreshold': 'OK'}]
+    return [finding_from_sonar_quality_gate_condition(project_key, gate, condition) for condition in failing]
+
+
+def finding_from_sonar_quality_gate_condition(project_key: str, gate: dict[str, Any], condition: dict[str, Any]) -> Finding:
+    gate_status = quality_gate_status(gate)
+    metric = str(condition.get('metricKey') or condition.get('metric') or 'quality_gate')
+    condition_status = str(condition.get('status') or gate_status or 'ERROR').upper()
+    severity = 'CRITICAL' if condition_status == 'ERROR' else 'HIGH' if condition_status == 'WARN' else 'MEDIUM'
+    actual = str(condition.get('actualValue') or condition.get('actual') or '')
+    threshold = str(condition.get('errorThreshold') or condition.get('threshold') or '')
+    comparator = str(condition.get('comparator') or '')
+    metric_label = metric.replace('_', ' ')
+    details = ', '.join(part for part in [f'actual={actual}' if actual else '', f'comparator={comparator}' if comparator else '', f'threshold={threshold}' if threshold else ''] if part)
+    message = f'SonarQube quality gate condition {metric} is {condition_status}' + (f' ({details}).' if details else '.')
+    return normalize_finding(
+        source='sonarqube',
+        rule_id=f'sonarqube-quality-gate:{metric}',
+        title=f'SonarQube quality gate failed: {metric_label}',
+        severity=severity,
+        confidence='HIGH',
+        path=f'sonarqube/{safe_project_key(project_key)}',
+        line=1,
+        message=message,
+        owasp=['A05:2021-Security Misconfiguration'],
+        raw=condition,
+        raw_severity=condition_status,
+        metadata={
+            'engine': 'sonarqube',
+            'sonar_kind': 'quality_gate',
+            'project_key': project_key,
+            'quality_gate_status': gate_status,
+            'quality_gate_condition_status': condition_status,
+            'metric_key': metric,
+            'metric_name': metric_label,
+            'actual_value': actual,
+            'error_threshold': threshold,
+            'comparator': comparator,
+            'period_index': str(condition.get('periodIndex') or ''),
+            'ignored_conditions': str(gate.get('ignoredConditions') or ''),
+            'cayc_status': str(gate.get('caycStatus') or ''),
+        },
+    )
+
+
+def quality_gate_status(gate: dict[str, Any]) -> str:
+    return str(gate.get('status') or gate.get('projectStatus') or 'UNKNOWN').upper()
+
+
 def basic_token(token: str) -> str:
-    import base64
     return base64.b64encode(f'{token}:'.encode('utf-8')).decode('ascii')
 
 
@@ -140,3 +244,41 @@ def sonar_env() -> dict[str, str]:
     elif DEFAULT_JAVA_HOME.exists():
         env['JAVA_HOME'] = str(DEFAULT_JAVA_HOME)
     return env
+
+
+def codeql_query_suites(language: str) -> list[str]:
+    env_name = f'CODEQL_QUERY_SUITE_{language.upper().replace("-", "_")}'
+    global_suite = os.getenv('CODEQL_QUERY_SUITE', '').strip()
+    if global_suite == 'codeql-suites/code-scanning.qls':
+        global_suite = ''
+    base = os.getenv(env_name) or global_suite or CODEQL_QUERY_SUITE_BY_LANGUAGE.get(language, '')
+    suites = [base] if base else []
+    suites.extend(split_semicolon_env('CODEQL_EXTRA_QUERY_SUITES'))
+    return unique_nonempty(suites)
+
+
+def codeql_resource_args() -> list[str]:
+    args: list[str] = []
+    threads = os.getenv('CODEQL_THREADS')
+    ram = os.getenv('CODEQL_RAM')
+    if threads:
+        args.append(f'--threads={threads}')
+    if ram:
+        args.append(f'--ram={ram}')
+    return args
+
+
+def split_semicolon_env(name: str) -> list[str]:
+    raw = os.getenv(name, '')
+    return [part.strip() for part in raw.split(';') if part.strip()]
+
+
+def unique_nonempty(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        value = str(value or '').strip()
+        if value and value not in seen:
+            result.append(value)
+            seen.add(value)
+    return result

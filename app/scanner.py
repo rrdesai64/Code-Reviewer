@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import uuid
 from collections import Counter
@@ -139,19 +140,46 @@ def run_tool(command: list[str], cwd: Path, timeout: int = 180) -> tuple[int, st
 
 
 def run_semgrep(target: Path) -> tuple[list[Finding], str]:
-    if not SEMGREP_EXE.exists():
+    configured = os.getenv('SEMGREP_EXE')
+    semgrep = configured or (str(SEMGREP_EXE) if SEMGREP_EXE.exists() else None) or shutil.which('semgrep')
+    if not semgrep:
         return [], 'not installed'
-    command = [str(SEMGREP_EXE), 'scan', '--config', str(RULES_PATH), '--json', '--quiet', '--disable-version-check', str(target)]
-    code, stdout, stderr = run_tool(command, ROOT)
+    configs = unique_nonempty([str(RULES_PATH), *split_semicolon_env('SEMGREP_CONFIGS')])
+    command = [semgrep, 'scan', '--json', '--quiet', '--disable-version-check', '--metrics=off']
+    for config in configs:
+        command.extend(['--config', config])
+    command.append(str(target))
+    timeout = int(os.getenv('SEMGREP_TIMEOUT_SECONDS', '300'))
+    code, stdout, stderr = run_tool(command, ROOT, timeout=timeout)
     if not stdout.strip():
-        return [], f'error: {stderr.strip() or code}' if code not in (0, 1) else 'ok'
+        status = f'error: {stderr.strip() or code}' if code not in (0, 1) else f'ok findings=0 configs={len(configs)}'
+        return [], status
     try:
         payload = json.loads(stdout)
     except json.JSONDecodeError:
         return [], 'error: invalid semgrep json'
     findings = [finding_from_semgrep(item, target) for item in payload.get('results', [])]
-    status = 'ok' if code in (0, 1) else f'partial: {stderr.strip() or code}'
+    if code in (0, 1):
+        status = f'ok findings={len(findings)} configs={len(configs)}'
+    else:
+        status = f'partial findings={len(findings)} configs={len(configs)}: {stderr.strip() or code}'
     return findings, status
+
+
+def split_semicolon_env(name: str) -> list[str]:
+    raw = os.getenv(name, '')
+    return [part.strip() for part in raw.split(';') if part.strip()]
+
+
+def unique_nonempty(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        value = str(value or '').strip()
+        if value and value not in seen:
+            result.append(value)
+            seen.add(value)
+    return result
 
 
 def normalize_semgrep(item: dict[str, Any], target: Path) -> Finding:

@@ -17,7 +17,7 @@ jobs:
           python -m pip install -r requirements.txt
       - name: Run secure review
         run: |
-          python -m app.cli --path . --sarif-out secure-review.sarif --report-out secure-review.md --pr-comment-out pr-comment.md --fix-bundle-out fix-bundle.json --fix-apply-out fix-apply-dry-run.json --fail-on high
+          python -m app.cli --path . --sarif-out secure-review.sarif --report-out secure-review.md --pr-comment-out pr-comment.md --sonarqube-out sonarqube-quality-gate.json --scanner-depth-out scanner-depth.json --fix-bundle-out fix-bundle.json --fix-apply-out fix-apply-dry-run.json --fail-on high
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
         with:
@@ -31,6 +31,8 @@ jobs:
             secure-review.sarif
             secure-review.md
             pr-comment.md
+            sonarqube-quality-gate.json
+            scanner-depth.json
             fix-bundle.json
             fix-apply-dry-run.json
         if: always()

@@ -63,6 +63,10 @@ def score_finding(finding: Finding, is_new: bool = False) -> RiskScore:
     if finding.source in {'pip-audit', 'codeql', 'sonarqube', 'secret-scan', 'gitleaks', 'trufflehog'}:
         add_factor(factors, 'source', 'High-value scanner source', 5, finding.source)
 
+    metadata = finding.scanner_metadata or {}
+    if metadata.get('sonar_kind') == 'quality_gate':
+        add_factor(factors, 'quality-gate', 'SonarQube quality gate failure', 15, metadata.get('quality_gate_status', 'quality gate failed'))
+
     if finding.source in DEPENDENCY_SOURCES:
         add_dependency_factors(finding, factors)
 

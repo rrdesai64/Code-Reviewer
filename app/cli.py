@@ -19,6 +19,8 @@ from .reporting import github_pr_comment, markdown_report
 from .sarif import build_sarif
 from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report, spdx_compliance_report
 from .scanner import SEVERITY_ORDER, run_scan
+from .scanner_depth import scanner_depth_report
+from .sonarqube import sonarqube_quality_report
 from .secrets import secret_policy_report
 from .storage import load_baseline, load_scan, save_baseline, save_scan
 
@@ -33,6 +35,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--sarif-in', action='append', default=[], help='import an external SARIF file into the normalized scanner mesh')
     parser.add_argument('--scanner-mesh-out')
     parser.add_argument('--dependency-review-out')
+    parser.add_argument('--sonarqube-out')
+    parser.add_argument('--scanner-depth-out')
     parser.add_argument('--advanced-ai-out')
     parser.add_argument('--agent-review-out')
     parser.add_argument('--finetune-experiment-out')
@@ -78,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--fail-on', choices=['critical', 'high', 'medium', 'low', 'info'], default=None)
     parser.add_argument('--fail-on-sbom-policy', action='store_true', help='exit with code 3 when SBOM policy checks fail')
     parser.add_argument('--fail-on-dependency-policy', action='store_true', help='exit with code 7 when dependency reachability policy fails')
+    parser.add_argument('--fail-on-sonarqube-gate', action='store_true', help='exit with code 9 when SonarQube quality gate fails')
     parser.add_argument('--fail-on-spdx-compliance', action='store_true', help='exit with code 4 when SPDX compliance is not procurement-ready')
     parser.add_argument('--fail-on-secrets', action='store_true', help='exit with code 5 when push protection blocks open secret findings')
     args = parser.parse_args(argv)
@@ -96,6 +101,10 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.scanner_mesh_out).write_text(json.dumps(scanner_mesh_report(scan), indent=2), encoding='utf-8')
     if args.dependency_review_out:
         Path(args.dependency_review_out).write_text(json.dumps(dependency_review_report(scan), indent=2), encoding='utf-8')
+    if args.sonarqube_out:
+        Path(args.sonarqube_out).write_text(json.dumps(sonarqube_quality_report(scan), indent=2), encoding='utf-8')
+    if args.scanner_depth_out:
+        Path(args.scanner_depth_out).write_text(json.dumps(scanner_depth_report(scan), indent=2), encoding='utf-8')
     if args.embedding_index_out:
         payload = build_embedding_index(provider=args.embedding_provider, model=args.embedding_model, force=True)
         Path(args.embedding_index_out).write_text(json.dumps({key: value for key, value in payload.items() if key != 'items'}, indent=2), encoding='utf-8')
@@ -197,6 +206,8 @@ def main(argv: list[str] | None = None) -> int:
         return 3
     if args.fail_on_dependency_policy and dependency_review_report(scan)['status'] == 'failed':
         return 7
+    if args.fail_on_sonarqube_gate and sonarqube_quality_report(scan)['status'] == 'failed':
+        return 9
     if args.fail_on_spdx_compliance and spdx_compliance_report(scan)['status'] != 'ready':
         return 4
     if args.fail_on_secrets and secret_policy_report(scan)['status'] == 'blocked':

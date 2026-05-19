@@ -56,3 +56,4 @@ fix-apply.json
 .secure-review-backups/
 sonarqube-quality-gate.json
 scanner-depth.json
+.secure-review-artifacts/

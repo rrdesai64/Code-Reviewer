@@ -737,3 +737,27 @@ PowerShell wrapper:
 ```
 
 `scan.ps1` now emits `fix-bundle.json` and `fix-apply-dry-run.json` by default. Treat the dry-run report as the review artifact; approved apply should be reserved for local branches or disposable worktrees where backups and validation commands can be reviewed immediately.
+
+
+## Roadmap Point 8: IDE/CLI Parity
+
+Point 8 makes the VS Code extension a practical peer to the CLI for developer review work. The IDE now exposes scan execution, finding triage, report viewing, safe fix workflows, and evidence export without forcing developers to leave the editor for routine tasks.
+
+Implemented:
+
+- VS Code command palette and activity-bar commands for workspace scans, health checks, refresh, baseline save, and web app launch
+- Finding tree with source navigation, RAG context, fix proposals, and finding decision updates
+- Report picker for scanner mesh, dependency review, SonarQube quality gate, scanner depth, secret policy, push protection, CycloneDX, SPDX, SPDX compliance, SBOM policy, SBOM comparison, GitHub PR review, PR comment, remediation plan, memory context, advanced AI report, compliance, SARIF, Markdown, and HTML
+- Safe fix workflow parity through IDE-accessible fix proposals, fix bundles, and dry-run fix apply reports
+- Evidence bundle export to `.secure-review-artifacts/{scan_id}` using the same core artifacts emitted by `scan.ps1` and `app.cli`
+- Extension settings for backend URL, optional bearer token, extra request headers, default fix provider, and fix bundle limit
+- Backend health metadata now advertises `ide-cli-parity`, `vscode-extension-parity`, and `ide-evidence-export`
+
+Development check:
+
+```powershell
+cd vscode-extension
+npm run check
+```
+
+The IDE path intentionally keeps real source modification out of the default workflow. The extension can request fix proposals and dry-run apply reports, while non-dry-run apply remains guarded by backend permissions and `FIX_APPLY_ENABLED=true`.

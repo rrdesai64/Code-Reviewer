@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .enterprise import audit, compliance_report
+from .dependency_review import dependency_review_report
 from .advanced_ai import build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, phase_g_report, run_multi_agent_review, semantic_search
 from .github_pr import GitHubIntegrationError, build_github_pr_review
 from .ingestion import scanner_mesh_report
@@ -28,6 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--sarif-out')
     parser.add_argument('--sarif-in', action='append', default=[], help='import an external SARIF file into the normalized scanner mesh')
     parser.add_argument('--scanner-mesh-out')
+    parser.add_argument('--dependency-review-out')
     parser.add_argument('--advanced-ai-out')
     parser.add_argument('--agent-review-out')
     parser.add_argument('--finetune-experiment-out')
@@ -65,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--save-baseline', action='store_true')
     parser.add_argument('--fail-on', choices=['critical', 'high', 'medium', 'low', 'info'], default=None)
     parser.add_argument('--fail-on-sbom-policy', action='store_true', help='exit with code 3 when SBOM policy checks fail')
+    parser.add_argument('--fail-on-dependency-policy', action='store_true', help='exit with code 7 when dependency reachability policy fails')
     parser.add_argument('--fail-on-spdx-compliance', action='store_true', help='exit with code 4 when SPDX compliance is not procurement-ready')
     parser.add_argument('--fail-on-secrets', action='store_true', help='exit with code 5 when push protection blocks open secret findings')
     args = parser.parse_args(argv)
@@ -81,6 +84,8 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.sarif_out).write_text(json.dumps(build_sarif(scan), indent=2), encoding='utf-8')
     if args.scanner_mesh_out:
         Path(args.scanner_mesh_out).write_text(json.dumps(scanner_mesh_report(scan), indent=2), encoding='utf-8')
+    if args.dependency_review_out:
+        Path(args.dependency_review_out).write_text(json.dumps(dependency_review_report(scan), indent=2), encoding='utf-8')
     if args.embedding_index_out:
         payload = build_embedding_index(provider=args.embedding_provider, model=args.embedding_model, force=True)
         Path(args.embedding_index_out).write_text(json.dumps({key: value for key, value in payload.items() if key != 'items'}, indent=2), encoding='utf-8')
@@ -164,6 +169,8 @@ def main(argv: list[str] | None = None) -> int:
             return 2
     if args.fail_on_sbom_policy and sbom_policy_report(scan)['status'] == 'failed':
         return 3
+    if args.fail_on_dependency_policy and dependency_review_report(scan)['status'] == 'failed':
+        return 7
     if args.fail_on_spdx_compliance and spdx_compliance_report(scan)['status'] != 'ready':
         return 4
     if args.fail_on_secrets and secret_policy_report(scan)['status'] == 'blocked':

@@ -19,6 +19,9 @@ EXPLOITABLE_KEYWORDS = (
     'hardcoded password', 'hardcoded secret', 'private key', 'token', 'credential', 'subprocess',
     'shell=true', 'eval', 'exec', 'insecure random', 'verify=false', 'known vulnerability',
 )
+DEPENDENCY_SOURCES = {'pip-audit', 'dependency-manifest', 'snyk'}
+RUNTIME_DEPENDENCY_REACHABILITY = {'reachable-source-import', 'direct-manifest'}
+LOWER_RISK_DEPENDENCY_REACHABILITY = {'dev-or-optional', 'transitive-unknown'}
 EXPOSURE_PATTERNS = (
     re.compile(r'(^|/)(api|routes|controllers|views|handlers|auth|login|admin)(/|\.|$)', re.I),
     re.compile(r'(^|/)(Dockerfile|docker-compose\.ya?ml|kubernetes|helm|terraform|\.github/workflows)(/|$)', re.I),
@@ -60,6 +63,9 @@ def score_finding(finding: Finding, is_new: bool = False) -> RiskScore:
     if finding.source in {'pip-audit', 'codeql', 'sonarqube', 'secret-scan', 'gitleaks', 'trufflehog'}:
         add_factor(factors, 'source', 'High-value scanner source', 5, finding.source)
 
+    if finding.source in DEPENDENCY_SOURCES:
+        add_dependency_factors(finding, factors)
+
     path = finding.location.path.replace('\\', '/')
     if any(pattern.search(path) for pattern in EXPOSURE_PATTERNS):
         add_factor(factors, 'exposure', 'Sensitive or exposed file path', 7, path)
@@ -70,8 +76,34 @@ def score_finding(finding: Finding, is_new: bool = False) -> RiskScore:
     return RiskScore(score=score, tier=tier, priority=priority_for_score(score), recommended_action=action_for_tier(tier), factors=factors)
 
 
+def add_dependency_factors(finding: Finding, factors: list[RiskFactor]) -> None:
+    metadata = finding.scanner_metadata or {}
+    reachability = metadata.get('dependency_reachability') or finding.reachability
+    scope = metadata.get('dependency_scope', '')
+    dep_type = metadata.get('dependency_type', '')
+    fix_versions = metadata.get('fix_versions', '')
+    if reachability == 'reachable-source-import':
+        add_factor(factors, 'dependency-reachability', 'Reachable dependency usage', 12, metadata.get('dependency_evidence') or reachability)
+    elif reachability == 'direct-manifest':
+        add_factor(factors, 'dependency-reachability', 'Direct runtime dependency', 7, 'Declared directly in a runtime dependency manifest.')
+    elif reachability in LOWER_RISK_DEPENDENCY_REACHABILITY:
+        add_factor(factors, 'dependency-reachability', 'Lower reachability signal', -8, reachability)
+    elif reachability in {'manifest-only', 'package-level', 'unknown'}:
+        add_factor(factors, 'dependency-reachability', 'Unproven dependency reachability', -4, reachability)
+    if scope == 'optional':
+        add_factor(factors, 'dependency-scope', 'Dev or optional dependency scope', -6, 'Dependency is marked optional/dev in the manifest.')
+    elif scope == 'required':
+        add_factor(factors, 'dependency-scope', 'Runtime dependency scope', 4, 'Dependency is required at runtime.')
+    if dep_type == 'direct':
+        add_factor(factors, 'dependency-type', 'Direct dependency', 4, metadata.get('dependency_name', 'direct manifest dependency'))
+    elif dep_type == 'lockfile':
+        add_factor(factors, 'dependency-type', 'Lockfile or transitive dependency', -5, metadata.get('dependency_name', 'lockfile dependency'))
+    if finding.source in {'pip-audit', 'snyk'} and not fix_versions:
+        add_factor(factors, 'dependency-fix', 'No fixed version in scanner output', 5, 'Manual remediation or parent upgrade may be required.')
+
+
 def add_factor(factors: list[RiskFactor], name: str, label: str, points: int, detail: str) -> None:
-    if points > 0:
+    if points != 0:
         factors.append(RiskFactor(name=name, label=label, points=points, detail=detail))
 
 

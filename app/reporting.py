@@ -19,7 +19,7 @@ def markdown_report(scan: ScanResult) -> str:
     if not scan.findings:
         lines.append('No findings were reported by the configured scanners.')
     for finding in scan.findings:
-        factors = ', '.join(f'{factor.label} +{factor.points}' for factor in finding.risk.factors) or 'n/a'
+        factors = ', '.join(f'{factor.label} {format_points(factor.points)}' for factor in finding.risk.factors) or 'n/a'
         lines.extend(['', f'### [{finding.risk.priority} / {finding.risk.score}] {finding.title}', f'- ID: `{finding.id}`',
             f'- Tool: `{finding.source}` / `{finding.rule_id}`', f'- Location: `{finding.location.path}:{finding.location.line}`',
             f'- Severity: {finding.severity}', f'- Risk tier: {finding.risk.tier}', f'- Recommended action: {finding.risk.recommended_action}',
@@ -49,6 +49,9 @@ def github_pr_comment(scan: ScanResult) -> str:
         lines.append(f'\nShowing 25 of {len(scan.findings)} findings. See SARIF/report artifact for the full result.')
     return '\n'.join(lines) + '\n'
 
+
+def format_points(points: int) -> str:
+    return f'+{points}' if points > 0 else str(points)
 
 def format_counts(values: dict[str, int]) -> str:
     return ', '.join(f'{key}={value}' for key, value in values.items()) if values else 'none'

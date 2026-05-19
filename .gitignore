@@ -49,3 +49,4 @@ tools/downloads/
 vscode-extension/node_modules/
 vscode-extension/*.vsix
 scanner-mesh.json
+dependency-review.json

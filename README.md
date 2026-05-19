@@ -590,3 +590,35 @@ PowerShell wrapper:
 ```
 
 The scanner mesh is the integration point for future Snyk/GitHub code-scanning/Semgrep Platform ingestion. New adapters should convert into `Finding` through `app.ingestion.normalize_finding()` so policy, risk scoring, SBOM, PR review, and enterprise reporting see one consistent contract.
+
+## Roadmap Point 4: Dependency Review With Reachability And Risk Scoring
+
+Point 4 adds dependency-aware triage on top of SBOM and scanner findings. The app now reviews package inventory, vulnerability findings, source usage evidence, fix availability, and dependency scope together.
+
+Implemented:
+
+- Dependency review report for Python and Node components discovered from `requirements*.txt`, `pyproject.toml`, `package.json`, and `package-lock.json`
+- Source-level reachability evidence for Python imports and JavaScript/TypeScript `import` / `require()` usage
+- Component risk scoring with vulnerability severity, direct/transitive status, runtime/dev scope, source reachability, fix availability, and license review signals
+- Dependency finding enrichment so `pip-audit`, Snyk-ready, and dependency manifest findings carry `dependency_*` metadata into scanner mesh, reports, PR review, and enterprise policy outputs
+- Risk scoring adjustments for reachable runtime dependencies and lower-priority transitive/dev-only dependency signals
+- Dependency policy gates for reachable critical vulnerabilities, reachable high vulnerabilities, unknown reachability, and missing fix versions
+- CLI, API, PowerShell wrapper, and web UI access to dependency review results
+
+Useful endpoint:
+
+- `GET /api/scans/{scan_id}/dependencies/review`
+
+CLI export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --dependency-review-out dependency-review.json --fail-on-dependency-policy
+```
+
+PowerShell wrapper:
+
+```powershell
+.\scan.ps1 -Path "G:\Path\To\Repo"
+```
+
+`scan.ps1` now emits `dependency-review.json` by default. Reachability is heuristic and conservative: source import evidence is high confidence, direct runtime manifests are medium confidence, and lockfile-only/transitive packages remain review items until the parent dependency path is known.

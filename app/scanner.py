@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .ai import explain, suggest_fix
+from .dependency_review import enrich_dependency_findings
 from .ingestion import enrich_finding, finding_from_bandit, finding_from_pip_audit, finding_from_semgrep, findings_from_sarif_file
 from .ast_scanner import run_ast_analysis
 from .external_scanners import run_codeql, run_sonarqube
@@ -81,6 +82,7 @@ def run_scan(target_path: Path, project_name: str | None = None, extra_sarif_pat
     tools.update(sarif_status)
 
     findings = [enrich_finding(finding) for finding in dedupe_findings(findings)]
+    findings = enrich_dependency_findings(target, findings)
     scan = ScanResult(
         scan_id=scan_id,
         project_name=project_name or target.name,
@@ -282,6 +284,7 @@ def check_unpinned_python_requirements(target: Path) -> list[Finding]:
                     message=message, cwe=[], owasp=['A06:2021-Vulnerable and Outdated Components'], references=[],
                     explanation=explain('unpinned dependency', message, [], ['A06:2021-Vulnerable and Outdated Components']),
                     fix=suggest_fix('unpinned dependency', message), fingerprint=fingerprint,
+                    scanner_metadata={'engine': 'dependency-manifest', 'ecosystem': 'pypi', 'package': clean.split('==', 1)[0].split('>=', 1)[0].split('<=', 1)[0].split('~=', 1)[0].split('>', 1)[0].split('<', 1)[0].strip(), 'version_spec': clean},
                 ))
     return findings
 
@@ -307,6 +310,7 @@ def check_unpinned_package_json(target: Path) -> list[Finding]:
                     message=message, cwe=[], owasp=['A06:2021-Vulnerable and Outdated Components'], references=[],
                     explanation=explain('unpinned dependency', message, [], ['A06:2021-Vulnerable and Outdated Components']),
                     fix=suggest_fix('unpinned dependency', message), fingerprint=fingerprint,
+                    scanner_metadata={'engine': 'dependency-manifest', 'ecosystem': 'npm', 'package': name, 'version_spec': spec},
                 ))
     return findings
 

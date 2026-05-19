@@ -51,6 +51,7 @@ function renderScan(scan) {
     <button class="ghost" onclick="showSecretPolicy('${scan.scan_id}')">Push Protection</button>
     <button class="ghost" onclick="showGithubPrReview('${scan.scan_id}')">GitHub PR</button>
     <button class="ghost" onclick="showScannerMesh('${scan.scan_id}')">Scanner Mesh</button>
+    <button class="ghost" onclick="showDependencyReview('${scan.scan_id}')">Dependencies</button>
     <button class="ghost" onclick="showRemediationPlan('${scan.scan_id}')">Remediation</button>
     <button class="ghost" onclick="showMemory()">Memory</button>
     <button class="ghost" onclick="showMemoryBrief('${scan.scan_id}')">Memory Brief</button>
@@ -59,6 +60,10 @@ function renderScan(scan) {
   findingsEl.innerHTML = scan.findings.map(renderFinding).join('') || '<section class="panel">No findings reported.</section>';
 }
 
+function formatRiskPoints(points) {
+  const value = Number(points || 0);
+  return value > 0 ? `+${value}` : String(value);
+}
 function metric(label, value) {
   return `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`;
 }
@@ -70,7 +75,7 @@ function priorityCount(summary, priority) {
 function renderFinding(f) {
   const tags = [...(f.cwe || []), ...(f.owasp || [])].map(t => `<span class="badge">${escapeHtml(t)}</span>`).join('');
   const guidance = (f.fix.guidance || []).map(item => `<li>${escapeHtml(item)}</li>`).join('');
-  const riskFactors = ((f.risk && f.risk.factors) || []).map(item => `<li>${escapeHtml(item.label)} +${item.points}: ${escapeHtml(item.detail)}</li>`).join('');
+  const riskFactors = ((f.risk && f.risk.factors) || []).map(item => `<li>${escapeHtml(item.label)} ${formatRiskPoints(item.points)}: ${escapeHtml(item.detail)}</li>`).join('');
   const risk = f.risk || { score: 0, tier: 'INFO', priority: 'P4', recommended_action: 'Review and triage.' };
   return `<article class="finding ${risk.tier.toLowerCase()}">
     <div class="finding-head"><h3>[${risk.priority} / ${risk.score}] ${escapeHtml(f.title)}</h3><span class="risk-pill">${escapeHtml(risk.tier)}</span></div>
@@ -181,6 +186,15 @@ async function showGithubPrReview(scanId) {
 }
 
 
+
+async function showDependencyReview(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/dependencies/review`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not load dependency review.';
+    return;
+  }
+  showJsonPanel('Dependency Review', await response.json());
+}
 async function showScannerMesh(scanId) {
   const response = await fetch(`/api/scans/${scanId}/scanner-mesh`);
   if (!response.ok) {

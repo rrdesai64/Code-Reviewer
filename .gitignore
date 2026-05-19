@@ -48,3 +48,4 @@ tools/downloads/
 # VS Code extension packaging
 vscode-extension/node_modules/
 vscode-extension/*.vsix
+scanner-mesh.json

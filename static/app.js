@@ -50,6 +50,7 @@ function renderScan(scan) {
     <button class="ghost" onclick="showCompliance('${scan.scan_id}')">Compliance</button>
     <button class="ghost" onclick="showSecretPolicy('${scan.scan_id}')">Push Protection</button>
     <button class="ghost" onclick="showGithubPrReview('${scan.scan_id}')">GitHub PR</button>
+    <button class="ghost" onclick="showScannerMesh('${scan.scan_id}')">Scanner Mesh</button>
     <button class="ghost" onclick="showRemediationPlan('${scan.scan_id}')">Remediation</button>
     <button class="ghost" onclick="showMemory()">Memory</button>
     <button class="ghost" onclick="showMemoryBrief('${scan.scan_id}')">Memory Brief</button>
@@ -179,6 +180,15 @@ async function showGithubPrReview(scanId) {
   showJsonPanel('GitHub PR Review', await response.json());
 }
 
+
+async function showScannerMesh(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/scanner-mesh`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not load scanner mesh report.';
+    return;
+  }
+  showJsonPanel('Scanner Mesh', await response.json());
+}
 async function showRagContext(findingId) {
   const response = await fetch(`/api/scans/${currentScan.scan_id}/findings/${findingId}/rag-context`);
   if (!response.ok) {

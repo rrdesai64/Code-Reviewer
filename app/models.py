@@ -54,6 +54,11 @@ class Finding(BaseModel):
     explanation: str
     fix: FixSuggestion
     fingerprint: str
+    scanner_metadata: dict[str, str] = Field(default_factory=dict)
+    exploitability: str = 'unknown'
+    reachability: str = 'unknown'
+    policy_impact: list[str] = Field(default_factory=list)
+    remediation: list[str] = Field(default_factory=list)
     risk: RiskScore = Field(default_factory=RiskScore)
     decision: DecisionState = 'open'
     decision_reason: str | None = None

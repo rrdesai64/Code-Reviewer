@@ -16,6 +16,7 @@ from .auth import AuthEnforcementMiddleware, AuthUser, auth_config, auth_status,
 from .enterprise import audit, audit_events, compliance_report, load_enterprise
 from .llm import generate, provider_status
 from .github_pr import GitHubIntegrationError, build_github_pr_review, github_integration_status, handle_github_webhook, verify_github_webhook_signature
+from .ingestion import scanner_mesh_report, scanner_mesh_status
 from .memory import load_memory, memory_summary, repository_memory, repository_memory_for_scan, update_repository_memory
 from .rag import add_knowledge_document, build_index, finding_context, index_stats, retrieve_response
 from .refactor import build_fix_proposal, build_remediation_plan
@@ -26,7 +27,7 @@ from .scanner import ROOT, run_scan
 from .secrets import secret_policy_report
 from .storage import apply_decisions, load_baseline, load_scan, save_baseline, save_decision, save_scan, list_scans
 
-app = FastAPI(title='Secure Code Review Assistant', version='0.16.0')
+app = FastAPI(title='Secure Code Review Assistant', version='0.17.0')
 oauth = make_oauth()
 STATIC_DIR = ROOT / 'static'
 UPLOAD_DIR = ROOT / 'data' / 'uploads'
@@ -43,8 +44,13 @@ def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
 
 @app.get('/api/health')
 def health() -> dict:
-    return {'ok': True, 'phase': 'phase-i', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands'], 'llm_providers': provider_status(), 'auth': auth_status()}
+    return {'ok': True, 'phase': 'phase-j', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'scanner-mesh', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment'], 'llm_providers': provider_status(), 'auth': auth_status()}
 
+
+
+@app.get('/api/scanner-mesh/status')
+def scanner_mesh_status_endpoint(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    return scanner_mesh_status()
 
 @app.get('/auth/me')
 def auth_me(user: AuthUser = Depends(require_user)) -> dict:
@@ -132,6 +138,17 @@ def get_scan(scan_id: str, user: AuthUser = Depends(require_permission('scan:rea
         raise HTTPException(status_code=404, detail='scan not found')
     return scan.model_dump(mode='json')
 
+
+
+@app.get('/api/scans/{scan_id}/scanner-mesh')
+def scan_scanner_mesh(scan_id: str, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    report = scanner_mesh_report(scan)
+    audit(user.username, 'scanner_mesh.reported', scan_id, {'sources': str(len(report['sources'])), 'findings': str(report['findings'])})
+    return report
 
 @app.get('/api/scans/{scan_id}/sarif')
 def sarif(scan_id: str, user: AuthUser = Depends(require_permission('scan:read'))) -> JSONResponse:

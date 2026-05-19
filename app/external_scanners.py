@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
@@ -11,14 +10,13 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .ai import explain, suggest_fix
-from .models import Finding, Location
+from .ingestion import finding_from_sonar_issue, findings_from_sarif_file
+from .models import Finding
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_CODEQL_EXE = ROOT / 'tools' / 'codeql' / 'codeql.exe'
 LOCAL_SONAR_SCANNER = ROOT / 'node_modules' / 'sonar-scanner' / 'bin' / 'sonar-scanner.bat'
 DEFAULT_JAVA_HOME = Path('C:/Program Files/Eclipse Adoptium/jre-17.0.19.10-hotspot')
-SEVERITY_MAP = {'BLOCKER': 'CRITICAL', 'CRITICAL': 'CRITICAL', 'MAJOR': 'HIGH', 'MINOR': 'MEDIUM', 'INFO': 'INFO'}
 CODEQL_LANG_BY_EXT = {
     '.py': 'python', '.js': 'javascript', '.jsx': 'javascript', '.ts': 'javascript', '.tsx': 'javascript',
     '.java': 'java-kotlin', '.kt': 'java-kotlin', '.c': 'cpp', '.h': 'cpp', '.cpp': 'cpp', '.cc': 'cpp',
@@ -109,61 +107,11 @@ def basic_token(token: str) -> str:
 
 
 def finding_from_sonar(issue: dict[str, Any]) -> Finding:
-    component = str(issue.get('component', ''))
-    path = component.split(':', 1)[-1] if ':' in component else component
-    line = int(issue.get('line') or issue.get('textRange', {}).get('startLine') or 1)
-    rule = issue.get('rule', 'sonarqube-rule')
-    message = issue.get('message', rule)
-    severity = SEVERITY_MAP.get(str(issue.get('severity', 'INFO')).upper(), 'MEDIUM')
-    fingerprint = make_fingerprint('sonarqube', rule, path, line, message)
-    return Finding(
-        id=fingerprint[:16], source='sonarqube', rule_id=rule, title=title_from_rule(rule), severity=severity,
-        confidence='MEDIUM', location=Location(path=path, line=line), message=message, cwe=[], owasp=[], references=[],
-        explanation=explain(rule, message, [], []), fix=suggest_fix(rule, message), fingerprint=fingerprint,
-    )
+    return finding_from_sonar_issue(issue)
 
 
 def findings_from_sarif(path: Path, source: str) -> list[Finding]:
-    payload = json.loads(path.read_text(encoding='utf-8'))
-    rules = {}
-    for run in payload.get('runs', []):
-        for rule in run.get('tool', {}).get('driver', {}).get('rules', []):
-            rules[rule.get('id')] = rule
-    findings: list[Finding] = []
-    for run in payload.get('runs', []):
-        for result in run.get('results', []):
-            rule_id = result.get('ruleId', 'codeql-rule')
-            rule = rules.get(rule_id, {})
-            location = first_location(result)
-            file_path = location.get('uri', '')
-            region = location.get('region', {})
-            line = int(region.get('startLine') or 1)
-            message = result.get('message', {}).get('text') or rule.get('shortDescription', {}).get('text') or rule_id
-            severity = sarif_level_to_severity(result.get('level'))
-            fingerprint = make_fingerprint(source, rule_id, file_path, line, message)
-            tags = rule.get('properties', {}).get('tags', []) or []
-            cwe = [str(tag).upper() for tag in tags if str(tag).lower().startswith('cwe')]
-            owasp = [str(tag) for tag in tags if 'owasp' in str(tag).lower()]
-            findings.append(Finding(
-                id=fingerprint[:16], source=source, rule_id=rule_id, title=rule.get('name') or title_from_rule(rule_id),
-                severity=severity, confidence=str(rule.get('properties', {}).get('precision', 'MEDIUM')).upper(),
-                location=Location(path=file_path, line=line, column=int(region.get('startColumn') or 1)), message=message,
-                cwe=cwe, owasp=owasp, references=[], explanation=explain(rule_id, message, cwe, owasp),
-                fix=suggest_fix(rule_id, message), fingerprint=fingerprint,
-            ))
-    return findings
-
-
-def first_location(result: dict[str, Any]) -> dict[str, Any]:
-    locations = result.get('locations') or []
-    if not locations:
-        return {'uri': '', 'region': {}}
-    physical = locations[0].get('physicalLocation', {})
-    return {'uri': physical.get('artifactLocation', {}).get('uri', ''), 'region': physical.get('region', {})}
-
-
-def sarif_level_to_severity(level: str | None) -> str:
-    return {'error': 'HIGH', 'warning': 'MEDIUM', 'note': 'LOW', 'none': 'INFO'}.get(str(level or '').lower(), 'MEDIUM')
+    return findings_from_sarif_file(path, source=source)
 
 
 def run_tool(command: list[str], cwd: Path, timeout: int, env: dict[str, str] | None = None) -> tuple[int, str, str]:
@@ -176,22 +124,12 @@ def run_tool(command: list[str], cwd: Path, timeout: int, env: dict[str, str] | 
         return 124, exc.stdout or '', exc.stderr or 'tool timed out'
 
 
-def make_fingerprint(source: str, rule_id: str, path: str, line: int, message: str) -> str:
-    raw = f'{source}|{rule_id}|{path}|{line}|{message}'
-    return hashlib.sha256(raw.encode('utf-8')).hexdigest()
-
-
-def title_from_rule(rule_id: str) -> str:
-    return rule_id.replace('_', '-').replace('.', '-').split(':')[-1].replace('-', ' ').title()
-
-
 def safe_project_key(name: str) -> str:
     return ''.join(ch if ch.isalnum() or ch in '._:-' else '-' for ch in name)
 
 
 def clean_error(text: str) -> str:
     return ' '.join((text or '').split())[:500]
-
 
 
 def sonar_env() -> dict[str, str]:

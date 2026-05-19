@@ -557,3 +557,36 @@ $env:GITHUB_WEBHOOK_SECRET="long-random-webhook-secret"
 ```
 
 For production, keep `GITHUB_WEBHOOK_ALLOW_UNSIGNED=false`, configure a GitHub webhook secret, and start with dry-run artifacts before enabling `--github-pr-publish`. GitHub inline review comments require mapping findings to positions in the PR diff, so findings outside changed lines remain in the review summary.
+
+## Roadmap Point 3: Unified Scanner Ingestion Layer
+
+Point 3 adds a scanner mesh so each analyzer feeds one normalized finding schema instead of keeping separate per-tool shapes.
+
+Implemented:
+
+- Shared ingestion module for Semgrep, Bandit, pip-audit, CodeQL SARIF, SonarQube issues, external SARIF, and Snyk-ready JSON payloads
+- Preserved scanner identity through `source`, `scanner_metadata.scanner_source`, `scanner_metadata.scanner_family`, raw severity, tool name, and normalization version
+- Enriched finding fields for `exploitability`, `reachability`, `policy_impact`, and `remediation`
+- Post-dedupe enrichment for built-in AST, dependency manifest, and secret findings so all findings expose the same metadata surface
+- External SARIF import through the CLI with repeatable `--sarif-in` flags
+- Scanner mesh status and per-scan coverage reports in API, CLI, and web UI
+- `scan.ps1` now emits `scanner-mesh.json` by default and accepts optional SARIF imports with `-SarifIn`
+
+Useful endpoints:
+
+- `GET /api/scanner-mesh/status`
+- `GET /api/scans/{scan_id}/scanner-mesh`
+
+CLI export and SARIF import:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --sarif-in codeql.sarif --scanner-mesh-out scanner-mesh.json
+```
+
+PowerShell wrapper:
+
+```powershell
+.\scan.ps1 -Path "G:\Path\To\Repo" -SarifIn @("codeql.sarif", "third-party.sarif")
+```
+
+The scanner mesh is the integration point for future Snyk/GitHub code-scanning/Semgrep Platform ingestion. New adapters should convert into `Finding` through `app.ingestion.normalize_finding()` so policy, risk scoring, SBOM, PR review, and enterprise reporting see one consistent contract.

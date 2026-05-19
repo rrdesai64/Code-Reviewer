@@ -8,6 +8,7 @@ from pathlib import Path
 from .enterprise import audit, compliance_report
 from .advanced_ai import build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, phase_g_report, run_multi_agent_review, semantic_search
 from .github_pr import GitHubIntegrationError, build_github_pr_review
+from .ingestion import scanner_mesh_report
 from .memory import update_repository_memory
 from .refactor import build_fix_proposal, build_remediation_plan
 from .reporting import github_pr_comment, markdown_report
@@ -25,6 +26,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--project-name', default=None)
     parser.add_argument('--json-out')
     parser.add_argument('--sarif-out')
+    parser.add_argument('--sarif-in', action='append', default=[], help='import an external SARIF file into the normalized scanner mesh')
+    parser.add_argument('--scanner-mesh-out')
     parser.add_argument('--advanced-ai-out')
     parser.add_argument('--agent-review-out')
     parser.add_argument('--finetune-experiment-out')
@@ -66,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--fail-on-secrets', action='store_true', help='exit with code 5 when push protection blocks open secret findings')
     args = parser.parse_args(argv)
 
-    scan = run_scan(Path(args.path), project_name=args.project_name)
+    scan = run_scan(Path(args.path), project_name=args.project_name, extra_sarif_paths=[Path(item) for item in args.sarif_in])
     save_scan(scan)
     update_repository_memory(scan)
     audit('cli', 'scan.created', scan.scan_id, {'project': scan.project_name})
@@ -76,6 +79,8 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.json_out).write_text(scan.model_dump_json(indent=2), encoding='utf-8')
     if args.sarif_out:
         Path(args.sarif_out).write_text(json.dumps(build_sarif(scan), indent=2), encoding='utf-8')
+    if args.scanner_mesh_out:
+        Path(args.scanner_mesh_out).write_text(json.dumps(scanner_mesh_report(scan), indent=2), encoding='utf-8')
     if args.embedding_index_out:
         payload = build_embedding_index(provider=args.embedding_provider, model=args.embedding_model, force=True)
         Path(args.embedding_index_out).write_text(json.dumps({key: value for key, value in payload.items() if key != 'items'}, indent=2), encoding='utf-8')

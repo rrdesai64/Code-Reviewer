@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .ai import explain, suggest_fix
+from .ingestion import enrich_finding, finding_from_bandit, finding_from_pip_audit, finding_from_semgrep, findings_from_sarif_file
 from .ast_scanner import run_ast_analysis
 from .external_scanners import run_codeql, run_sonarqube
 from .models import Finding, Location, ScanResult, ScanSummary
@@ -40,7 +41,7 @@ LANG_BY_NAME = {
 SEVERITY_ORDER = {'CRITICAL': 4, 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1, 'INFO': 0}
 
 
-def run_scan(target_path: Path, project_name: str | None = None) -> ScanResult:
+def run_scan(target_path: Path, project_name: str | None = None, extra_sarif_paths: list[Path] | None = None) -> ScanResult:
     target = target_path.resolve()
     scan_id = uuid.uuid4().hex[:12]
     files = list(iter_source_files(target))
@@ -75,7 +76,11 @@ def run_scan(target_path: Path, project_name: str | None = None) -> ScanResult:
     findings.extend(dependency_findings)
     tools.update(dependency_status)
 
-    findings = dedupe_findings(findings)
+    sarif_findings, sarif_status = run_sarif_imports(extra_sarif_paths or [])
+    findings.extend(sarif_findings)
+    tools.update(sarif_status)
+
+    findings = [enrich_finding(finding) for finding in dedupe_findings(findings)]
     scan = ScanResult(
         scan_id=scan_id,
         project_name=project_name or target.name,
@@ -142,7 +147,7 @@ def run_semgrep(target: Path) -> tuple[list[Finding], str]:
         payload = json.loads(stdout)
     except json.JSONDecodeError:
         return [], 'error: invalid semgrep json'
-    findings = [normalize_semgrep(item, target) for item in payload.get('results', [])]
+    findings = [finding_from_semgrep(item, target) for item in payload.get('results', [])]
     status = 'ok' if code in (0, 1) else f'partial: {stderr.strip() or code}'
     return findings, status
 
@@ -180,7 +185,7 @@ def run_bandit(target: Path, files: list[Path]) -> tuple[list[Finding], str]:
         payload = json.loads(stdout)
     except json.JSONDecodeError:
         return [], 'error: invalid bandit json'
-    findings = [normalize_bandit(item, target) for item in payload.get('results', [])]
+    findings = [finding_from_bandit(item, target) for item in payload.get('results', [])]
     status = 'ok' if code in (0, 1) else f'partial: {stderr.strip() or code}'
     return findings, status
 
@@ -215,6 +220,25 @@ def run_dependency_checks(target: Path) -> tuple[list[Finding], dict[str, str]]:
     return findings, status
 
 
+def run_sarif_imports(paths: list[Path]) -> tuple[list[Finding], dict[str, str]]:
+    findings: list[Finding] = []
+    status: dict[str, str] = {}
+    for path in paths:
+        resolved = Path(path).expanduser().resolve()
+        key = f'sarif-import:{resolved.name}'
+        if not resolved.exists():
+            status[key] = 'not found'
+            continue
+        try:
+            imported = findings_from_sarif_file(resolved, source='sarif-import')
+        except Exception as exc:
+            status[key] = f'error: {str(exc)[:200]}'
+            continue
+        findings.extend(imported)
+        status[key] = f'ok: {len(imported)} findings'
+    return findings, status
+
+
 def run_pip_audit(target: Path) -> tuple[list[Finding], str]:
     if not PIP_AUDIT_EXE.exists():
         return [], 'not installed'
@@ -235,18 +259,7 @@ def run_pip_audit(target: Path) -> tuple[list[Finding], str]:
             return findings, 'partial: invalid pip-audit json'
         for dep in payload.get('dependencies', []):
             for vuln in dep.get('vulns', []):
-                package = dep.get('name', 'dependency')
-                vuln_id = vuln.get('id', 'known-vulnerability')
-                message = f"{package} {dep.get('version') or ''} is affected by {vuln_id}: {vuln.get('description') or 'known vulnerability'}"
-                path = relpath(str(req_file), target)
-                fingerprint = make_fingerprint('pip-audit', vuln_id, path, 1, package)
-                findings.append(Finding(
-                    id=fingerprint[:16], source='pip-audit', rule_id=vuln_id, title=f'Vulnerable dependency: {package}',
-                    severity='HIGH', confidence='HIGH', location=Location(path=path, line=1), message=message,
-                    cwe=[], owasp=['A06:2021-Vulnerable and Outdated Components'], references=normalize_list(vuln.get('aliases')),
-                    explanation=explain('dependency vulnerability', message, [], ['A06:2021-Vulnerable and Outdated Components']),
-                    fix=suggest_fix('dependency vulnerability', message), fingerprint=fingerprint,
-                ))
+                findings.append(finding_from_pip_audit(dep, vuln, req_file, target))
     return findings, 'ok'
 
 

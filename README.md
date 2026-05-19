@@ -883,3 +883,81 @@ $env:TEAMS_DRY_RUN="true"
 ```
 
 For Slack slash commands, point the Slack app command URL to `/api/integrations/slack/command` and set `SLACK_SIGNING_SECRET`. For Teams, use an Azure Bot, workflow, or secure relay that forwards command payloads to `/api/integrations/teams/command` with `x-secure-review-teams-secret`. Keep unsigned commands disabled in production.
+## Roadmap Point 11: GitLab, Azure DevOps, And Bitbucket
+
+Point 11 extends PR/MR review publishing beyond GitHub while keeping one common review artifact and provider-specific payloads for each code host. Publishing remains dry-run by default.
+
+Implemented:
+
+- GitLab merge request note payloads and optional commit status payloads
+- Azure DevOps pull request thread payloads and optional pull request status payloads
+- Bitbucket Cloud pull request comment payloads and optional build status payloads
+- Bitbucket Server/Data Center comment/status path support through `BITBUCKET_DEPLOYMENT=server`
+- Shared code-host review artifact with risk status, top findings, provider configuration status, and publish results
+- API status, preview, and publish endpoints with audit logging
+- CLI export with `--code-host-review-out` and optional `--code-host-publish`
+- Browser UI and VS Code report access for `code-host-review.json`
+- `scan.ps1` and GitHub Actions artifact output for `code-host-review.json`
+
+Useful endpoints:
+
+- `GET /api/integrations/code-hosts/status`
+- `GET /api/scans/{scan_id}/code-hosts/review`
+- `POST /api/scans/{scan_id}/code-hosts/review`
+
+CLI dry-run export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --code-host-review-out code-host-review.json --code-host-provider all --code-host-include-findings 25
+```
+
+CLI publish, once credentials are configured and provider dry-run is intentionally disabled:
+
+```powershell
+$env:GITLAB_DRY_RUN="false"
+$env:AZURE_DEVOPS_DRY_RUN="false"
+$env:BITBUCKET_DRY_RUN="false"
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --code-host-review-out code-host-review.json --code-host-provider gitlab --code-host-publish --code-host-publish-status
+```
+
+GitLab configuration:
+
+```powershell
+$env:GITLAB_ENABLED="auto"
+$env:GITLAB_API_URL="https://gitlab.com/api/v4"
+$env:GITLAB_TOKEN="gitlab-token"
+$env:GITLAB_PROJECT_ID="group/project-or-numeric-id"
+$env:GITLAB_MR_IID="123"
+$env:GITLAB_COMMIT_SHA="commit-sha"
+$env:GITLAB_DRY_RUN="true"
+$env:GITLAB_PUBLISH_STATUS="false"
+```
+
+Azure DevOps configuration:
+
+```powershell
+$env:AZURE_DEVOPS_ENABLED="auto"
+$env:AZURE_DEVOPS_ORG="your-org"
+$env:AZURE_DEVOPS_PROJECT="your-project"
+$env:AZURE_DEVOPS_REPOSITORY_ID="repo-id-or-name"
+$env:AZURE_DEVOPS_PR_ID="123"
+$env:AZURE_DEVOPS_PAT="azure-devops-pat"
+$env:AZURE_DEVOPS_DRY_RUN="true"
+$env:AZURE_DEVOPS_PUBLISH_STATUS="false"
+```
+
+Bitbucket Cloud configuration:
+
+```powershell
+$env:BITBUCKET_ENABLED="auto"
+$env:BITBUCKET_DEPLOYMENT="cloud"
+$env:BITBUCKET_TOKEN="bitbucket-access-token"
+$env:BITBUCKET_WORKSPACE="workspace"
+$env:BITBUCKET_REPO_SLUG="repo-slug"
+$env:BITBUCKET_PR_ID="123"
+$env:BITBUCKET_COMMIT_SHA="commit-sha"
+$env:BITBUCKET_DRY_RUN="true"
+$env:BITBUCKET_PUBLISH_STATUS="false"
+```
+
+For Bitbucket Server/Data Center, set `BITBUCKET_DEPLOYMENT=server`, `BITBUCKET_API_URL=https://bitbucket.example.com/rest/api/1.0`, `BITBUCKET_PROJECT_KEY`, and `BITBUCKET_REPO_SLUG`. Start with dry-run artifacts, then enable one provider at a time with a scoped service account token.

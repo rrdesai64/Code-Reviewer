@@ -34,6 +34,7 @@
     "onCommand:secureCodeReview.showSpdxCompliance",
     "onCommand:secureCodeReview.showCompliance",
     "onCommand:secureCodeReview.showGithubPrReview",
+    "onCommand:secureCodeReview.showCodeHostReview",
     "onCommand:secureCodeReview.showFixProposals",
     "onCommand:secureCodeReview.showFixBundle",
     "onCommand:secureCodeReview.dryRunFixApply",
@@ -176,6 +177,10 @@
       {
         "command": "secureCodeReview.showGithubPrReview",
         "title": "Secure Review: Show GitHub PR Review"
+      },
+      {
+        "command": "secureCodeReview.showCodeHostReview",
+        "title": "Secure Review: Show GitLab/Azure/Bitbucket Review"
       },
       {
         "command": "secureCodeReview.showFixProposals",

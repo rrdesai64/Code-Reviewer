@@ -59,3 +59,4 @@ scanner-depth.json
 .secure-review-artifacts/
 issue-plan.json
 chat-notification.json
+code-host-review.json

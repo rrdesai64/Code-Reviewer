@@ -215,6 +215,13 @@ class ChatNotificationRequest(BaseModel):
     include_findings: int = 10
 
 
+class CodeHostReviewRequest(BaseModel):
+    provider: Literal['all', 'gitlab', 'azure-devops', 'bitbucket'] = 'all'
+    publish: bool = False
+    publish_status: bool | None = None
+    include_findings: int = 25
+
+
 class Role(BaseModel):
     name: str
     permissions: list[str] = Field(default_factory=list)

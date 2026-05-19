@@ -17,7 +17,7 @@ This extension connects VS Code to the local Secure Code Review Assistant backen
   - secret policy and push protection
   - CycloneDX and SPDX SBOMs
   - SPDX compliance and SBOM policy
-  - GitHub PR review preview and PR comment
+  - GitHub PR review preview, GitLab/Azure DevOps/Bitbucket review preview, and PR comment
   - fix proposals, fix bundle, and dry-run fix apply
   - remediation plan, Jira/Linear issue plan, Slack/Teams chat agent, memory context, advanced AI report, and compliance report
 - Export an evidence bundle under `.secure-review-artifacts/{scan_id}` with the same core artifacts produced by `scan.ps1` and `app.cli`.

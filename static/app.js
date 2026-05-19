@@ -50,6 +50,7 @@ function renderScan(scan) {
     <button class="ghost" onclick="showCompliance('${scan.scan_id}')">Compliance</button>
     <button class="ghost" onclick="showSecretPolicy('${scan.scan_id}')">Push Protection</button>
     <button class="ghost" onclick="showGithubPrReview('${scan.scan_id}')">GitHub PR</button>
+    <button class="ghost" onclick="showCodeHostReview('${scan.scan_id}')">Code Hosts</button>
     <button class="ghost" onclick="showScannerMesh('${scan.scan_id}')">Scanner Mesh</button>
     <button class="ghost" onclick="showSonarQubeReport('${scan.scan_id}')">SonarQube</button>
     <button class="ghost" onclick="showScannerDepth('${scan.scan_id}')">Scanner Depth</button>
@@ -220,6 +221,14 @@ async function showSecretPolicy(scanId) {
   showJsonPanel('Push Protection', await response.json());
 }
 
+async function showCodeHostReview(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/code-hosts/review`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not build GitLab/Azure DevOps/Bitbucket review preview.';
+    return;
+  }
+  showJsonPanel('GitLab/Azure DevOps/Bitbucket Review', await response.json());
+}
 async function showGithubPrReview(scanId) {
   const response = await fetch(`/api/scans/${scanId}/github/pr-review`);
   if (!response.ok) {

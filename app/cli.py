@@ -10,6 +10,7 @@ from .models import FixApplyRequest
 from .enterprise import audit, compliance_report
 from .dependency_review import dependency_review_report
 from .chat_agents import ChatAgentError, build_chat_notification
+from .code_hosts import CodeHostIntegrationError, build_code_host_review
 from .advanced_ai import build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, phase_g_report, run_multi_agent_review, semantic_search
 from .github_pr import GitHubIntegrationError, build_github_pr_review
 from .fix_workflow import apply_fix_bundle, build_fix_bundle
@@ -64,6 +65,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--github-pr-min-risk', type=int)
     parser.add_argument('--github-pr-publish', action='store_true', help='publish the prepared PR review to GitHub')
     parser.add_argument('--github-pr-publish-status', action='store_true', help='publish a commit status for the PR head commit')
+    parser.add_argument('--code-host-review-out')
+    parser.add_argument('--code-host-provider', choices=['all', 'gitlab', 'azure-devops', 'bitbucket'], default='all')
+    parser.add_argument('--code-host-include-findings', type=int, default=25)
+    parser.add_argument('--code-host-publish', action='store_true', help='publish the prepared review to GitLab, Azure DevOps, or Bitbucket')
+    parser.add_argument('--code-host-publish-status', action='store_true', help='publish commit or pull-request status when supported and configured')
+    parser.add_argument('--fail-on-code-host-publish-failure', action='store_true', help='exit with code 12 when code-host review publishing fails')
     parser.add_argument('--compliance-out')
     parser.add_argument('--fix-proposals-out')
     parser.add_argument('--remediation-plan-out')
@@ -181,6 +188,21 @@ def main(argv: list[str] | None = None) -> int:
             return 6
         if args.github_pr_review_out:
             Path(args.github_pr_review_out).write_text(json.dumps(github_review, indent=2), encoding='utf-8')
+    code_host_review = None
+    if args.code_host_review_out or args.code_host_publish or args.code_host_publish_status:
+        try:
+            code_host_review = build_code_host_review(
+                scan,
+                provider=args.code_host_provider,
+                include_findings=args.code_host_include_findings,
+                publish=args.code_host_publish,
+                publish_status=args.code_host_publish_status,
+            )
+        except CodeHostIntegrationError as exc:
+            print(f'Code-host review failed: {exc}', file=sys.stderr)
+            return 12
+        if args.code_host_review_out:
+            Path(args.code_host_review_out).write_text(json.dumps(code_host_review, indent=2), encoding='utf-8')
     if args.compliance_out:
         Path(args.compliance_out).write_text(json.dumps(compliance_report(scan), indent=2), encoding='utf-8')
     if args.fix_proposals_out:
@@ -258,6 +280,8 @@ def main(argv: list[str] | None = None) -> int:
         return 10
     if args.fail_on_chat_publish_failure and chat_notification and chat_notification['status'] in {'failed', 'partial'}:
         return 11
+    if args.fail_on_code_host_publish_failure and code_host_review and code_host_review['status'] in {'failed', 'partial'}:
+        return 12
     return 0
 
 

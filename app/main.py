@@ -10,9 +10,10 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from .models import ChatNotificationRequest, DecisionRequest, FixApplyRequest, GitHubPrReviewRequest, IssuePlanRequest, LLMRequest
+from .models import ChatNotificationRequest, CodeHostReviewRequest, DecisionRequest, FixApplyRequest, GitHubPrReviewRequest, IssuePlanRequest, LLMRequest
 from .advanced_ai import advanced_ai_status, build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, gpu_profile, local_runtime_status, phase_g_report, run_multi_agent_review, semantic_search
 from .chat_agents import ChatAgentError, build_chat_notification, chat_agent_status, handle_slack_command, handle_teams_command, verify_slack_signature, verify_teams_command_secret
+from .code_hosts import CodeHostIntegrationError, build_code_host_review, code_host_status
 from .auth import AuthEnforcementMiddleware, AuthUser, auth_config, auth_status, login_user, logout_user, make_oauth, make_saml_auth, normalize_user, require_permission, require_user, saml_metadata_response
 from .enterprise import audit, audit_events, compliance_report, load_enterprise
 from .dependency_review import dependency_review_report
@@ -33,7 +34,7 @@ from .secrets import secret_policy_report
 from .sonarqube import sonarqube_quality_report
 from .storage import apply_decisions, load_baseline, load_scan, save_baseline, save_decision, save_scan, list_scans
 
-app = FastAPI(title='Secure Code Review Assistant', version='0.23.0')
+app = FastAPI(title='Secure Code Review Assistant', version='0.24.0')
 oauth = make_oauth()
 STATIC_DIR = ROOT / 'static'
 UPLOAD_DIR = ROOT / 'data' / 'uploads'
@@ -50,7 +51,7 @@ def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
 
 @app.get('/api/health')
 def health() -> dict:
-    return {'ok': True, 'phase': 'phase-p', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'sonarqube-issue-ingestion', 'sonarqube-quality-gate', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'scanner-mesh', 'scanner-depth', 'semgrep-multi-config', 'codeql-query-depth', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run', 'ide-cli-parity', 'vscode-extension-parity', 'ide-evidence-export', 'issue-planning', 'jira-planning', 'linear-planning', 'issue-plan-dry-run', 'slack-teams-agent', 'chat-notifications', 'slack-agent', 'teams-agent', 'chat-bot-commands'], 'llm_providers': provider_status(), 'auth': auth_status()}
+    return {'ok': True, 'phase': 'phase-q', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'sonarqube-issue-ingestion', 'sonarqube-quality-gate', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'scanner-mesh', 'scanner-depth', 'semgrep-multi-config', 'codeql-query-depth', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run', 'ide-cli-parity', 'vscode-extension-parity', 'ide-evidence-export', 'issue-planning', 'jira-planning', 'linear-planning', 'issue-plan-dry-run', 'slack-teams-agent', 'chat-notifications', 'slack-agent', 'teams-agent', 'chat-bot-commands', 'gitlab-review', 'azure-devops-review', 'bitbucket-review', 'multi-code-host-review'], 'llm_providers': provider_status(), 'auth': auth_status()}
 
 
 
@@ -308,6 +309,39 @@ def pr_comment(scan_id: str, user: AuthUser = Depends(require_permission('scan:r
 def github_status(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
     return github_integration_status()
 
+@app.get('/api/integrations/code-hosts/status')
+def code_host_integration_status(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    return code_host_status()
+
+
+@app.get('/api/scans/{scan_id}/code-hosts/review')
+def code_host_review_preview(scan_id: str, provider: str = 'all', include_findings: int = 25, publish_status: bool | None = None, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    try:
+        report = build_code_host_review(scan, provider=provider, include_findings=include_findings, publish_status=publish_status, publish=False)
+    except CodeHostIntegrationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'code_hosts.review_previewed', scan_id, {'provider': provider, 'findings': str(include_findings), 'status': report['status']})
+    return report
+
+
+@app.post('/api/scans/{scan_id}/code-hosts/review')
+def code_host_review_publish(scan_id: str, request: CodeHostReviewRequest, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    if request.publish and 'enterprise:write' not in user.permissions:
+        raise HTTPException(status_code=403, detail='Missing permission: enterprise:write')
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    try:
+        report = build_code_host_review(scan, provider=request.provider, include_findings=request.include_findings, publish_status=request.publish_status, publish=request.publish)
+    except CodeHostIntegrationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'code_hosts.review_published' if request.publish else 'code_hosts.review_prepared', scan_id, {'provider': request.provider, 'status': report['status'], 'published': str(request.publish)})
+    return report
 @app.get('/api/integrations/issues/status')
 def issue_planning_integration_status(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
     return issue_planning_status()

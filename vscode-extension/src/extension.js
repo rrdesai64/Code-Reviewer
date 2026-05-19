@@ -42,6 +42,7 @@ function activate(context) {
   register(context, 'secureCodeReview.showSpdxCompliance', () => showReportById(context, 'spdx-compliance'));
   register(context, 'secureCodeReview.showCompliance', () => showReportById(context, 'compliance'));
   register(context, 'secureCodeReview.showGithubPrReview', () => showReportById(context, 'github-pr-review'));
+  register(context, 'secureCodeReview.showCodeHostReview', () => showReportById(context, 'code-host-review'));
   register(context, 'secureCodeReview.showFixProposals', () => showReportById(context, 'fix-proposals'));
   register(context, 'secureCodeReview.showFixBundle', () => showReportById(context, 'fix-bundle'));
   register(context, 'secureCodeReview.dryRunFixApply', () => showReportById(context, 'fix-apply-dry-run'));
@@ -399,6 +400,7 @@ function reportDefinitions(scan) {
     jsonReport('sbom-policy', 'SBOM Policy', `/api/scans/${scanId}/sbom/policy`, 'sbom-policy.json', 'SBOM vulnerability and license policy checks.'),
     jsonReport('sbom-compare', 'SBOM Compare', `/api/scans/${scanId}/sbom/compare`, 'sbom-compare.json', 'Added and removed component comparison.'),
     jsonReport('github-pr-review', 'GitHub PR Review', `/api/scans/${scanId}/github/pr-review`, 'github-pr-review.json', 'Dry-run PR review payload.'),
+    jsonReport('code-host-review', 'GitLab/Azure/Bitbucket Review', `/api/scans/${scanId}/code-hosts/review`, 'code-host-review.json', 'Dry-run GitLab, Azure DevOps, and Bitbucket review payloads.'),
     textReport('pr-comment', 'GitHub PR Comment', `/api/scans/${scanId}/github-pr-comment`, 'pr-comment.md', 'markdown', 'Markdown PR comment summary.'),
     jsonReport('fix-proposals', 'Fix Proposals', null, 'fix-proposals.json', 'Top fix proposals generated through the same proposal API.', buildFixProposalsArtifact),
     jsonReport('fix-bundle', 'Fix Bundle', `/api/scans/${scanId}/fixes/bundle?limit=${fixBundleLimit()}&provider=${encodeURIComponent(defaultFixProvider())}`, 'fix-bundle.json', 'Safe one-click fix bundle.'),

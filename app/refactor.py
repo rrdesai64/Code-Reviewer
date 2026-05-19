@@ -114,6 +114,13 @@ def deterministic_patch(lines: list[str], finding: Finding) -> tuple[list[str], 
     lower = f'{finding.rule_id} {finding.message}'.lower()
     prefix = comment_prefix(finding.location.path)
 
+    if finding.source in {'dependency-manifest', 'pip-audit', 'snyk'} and finding.location.path.endswith('requirements.txt'):
+        patched, changed, detail = pin_python_requirement(lines, finding)
+        if changed:
+            return patched, detail, notes
+        if idx < len(patched):
+            patched[idx] = patched[idx].rstrip() + '  # TODO: upgrade to the nearest non-vulnerable pinned version\n'
+        return patched, 'Upgrade and pin the affected dependency to a non-vulnerable version.', notes
     if 'shell' in lower or 'subprocess' in lower or 'os.system' in lower or 'child_process' in lower:
         if idx < len(patched):
             indent = current[:len(current) - len(current.lstrip())]
@@ -136,13 +143,6 @@ def deterministic_patch(lines: list[str], finding: Finding) -> tuple[list[str], 
             patched[idx] = replace_secret_literal(patched[idx], finding.location.path)
         return patched, 'Move the hardcoded secret to an environment variable or vault reference.', notes + ['Rotate any secret that may already have been committed.']
 
-    if finding.source in {'dependency-manifest', 'pip-audit', 'snyk'} and finding.location.path.endswith('requirements.txt'):
-        patched, changed, detail = pin_python_requirement(lines, finding)
-        if changed:
-            return patched, detail, notes
-        if idx < len(patched):
-            patched[idx] = patched[idx].rstrip() + '  # TODO: upgrade to the nearest non-vulnerable pinned version\n'
-        return patched, 'Upgrade and pin the affected dependency to a non-vulnerable version.', notes
 
     if 'debug' in lower:
         if idx < len(patched):

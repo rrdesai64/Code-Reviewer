@@ -28,6 +28,7 @@ def build_fix_bundle(
     findings = select_findings(scan, finding_ids=finding_ids, limit=limit)
     proposals: list[dict[str, Any]] = []
     combined_patches: list[str] = []
+    seen_patches: set[str] = set()
     counts = {'selected': len(findings), 'eligible': 0, 'manual_review': 0, 'blocked': 0}
 
     for finding in findings:
@@ -65,8 +66,10 @@ def build_fix_bundle(
         proposals.append(payload)
         if workflow['status'] == 'eligible':
             counts['eligible'] += 1
-            if payload.get('patch'):
-                combined_patches.append(str(payload['patch']).strip())
+            patch_text = str(payload.get('patch') or '').strip()
+            if patch_text and patch_text not in seen_patches:
+                seen_patches.add(patch_text)
+                combined_patches.append(patch_text)
         elif workflow['status'] == 'blocked':
             counts['blocked'] += 1
         else:

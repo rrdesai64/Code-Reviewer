@@ -10,8 +10,9 @@ from .models import Finding, FixProposal, LLMRequest, RemediationPlan, Remediati
 from .rag import retrieve_for_finding
 
 GUARDRAILS = [
-    'Proposals are diffs only; the application does not apply source changes automatically.',
+    'Proposals are diffs first; source changes are applied only through the explicit approved fix workflow.',
     'Every proposal requires human review before merge or deployment.',
+    'Non-dry-run fix apply requires approved=true and FIX_APPLY_ENABLED=true.',
     'Run the listed validation commands and rerun the security scan after applying a patch.',
     'Rotate exposed credentials instead of relying only on code changes.',
 ]
@@ -135,7 +136,10 @@ def deterministic_patch(lines: list[str], finding: Finding) -> tuple[list[str], 
             patched[idx] = replace_secret_literal(patched[idx], finding.location.path)
         return patched, 'Move the hardcoded secret to an environment variable or vault reference.', notes + ['Rotate any secret that may already have been committed.']
 
-    if finding.source in {'dependency-manifest', 'pip-audit'} and finding.location.path.endswith('requirements.txt'):
+    if finding.source in {'dependency-manifest', 'pip-audit', 'snyk'} and finding.location.path.endswith('requirements.txt'):
+        patched, changed, detail = pin_python_requirement(lines, finding)
+        if changed:
+            return patched, detail, notes
         if idx < len(patched):
             patched[idx] = patched[idx].rstrip() + '  # TODO: upgrade to the nearest non-vulnerable pinned version\n'
         return patched, 'Upgrade and pin the affected dependency to a non-vulnerable version.', notes
@@ -147,6 +151,74 @@ def deterministic_patch(lines: list[str], finding: Finding) -> tuple[list[str], 
 
     return patched, finding.fix.summary, notes
 
+
+def pin_python_requirement(lines: list[str], finding: Finding) -> tuple[list[str], bool, str]:
+    package = dependency_package_name(finding)
+    fix_version = dependency_fix_version(finding)
+    if not package or not fix_version:
+        return list(lines), False, 'No scanner-provided fixed version was available.'
+    patched = list(lines)
+    for index, line in enumerate(patched):
+        parsed = parse_requirement_line(line)
+        if not parsed or parsed['name'].lower() != package.lower():
+            continue
+        ending = '\r\n' if line.endswith('\r\n') else '\n'
+        comment = parsed['comment']
+        requirement_name = parsed['requirement_name'] or package
+        patched[index] = f'{requirement_name}=={fix_version}{comment}{ending}'
+        return patched, True, f'Upgrade and pin {requirement_name} to {fix_version}.'
+    return patched, False, f'Could not find a requirements line for {package}.'
+
+
+def parse_requirement_line(line: str) -> dict[str, str] | None:
+    body = line.rstrip('\r\n')
+    clean = body.strip()
+    if not clean or clean.startswith(('#', '-')):
+        return None
+    comment = ''
+    if '#' in body:
+        body, raw_comment = body.split('#', 1)
+        comment = '  #' + raw_comment.rstrip()
+    requirement = body.strip()
+    if not requirement:
+        return None
+    requirement_name = requirement
+    for operator in ('===', '==', '~=', '>=', '<=', '!=', '>', '<'):
+        if operator in requirement:
+            requirement_name = requirement.split(operator, 1)[0].strip()
+            break
+    if ' @ ' in requirement_name:
+        requirement_name = requirement_name.split(' @ ', 1)[0].strip()
+    name = requirement_name.split('[', 1)[0].strip()
+    return {'name': name, 'requirement_name': requirement_name, 'comment': comment}
+
+
+def dependency_package_name(finding: Finding) -> str:
+    metadata = finding.scanner_metadata
+    for key in ('dependency_name', 'package', 'name'):
+        value = metadata.get(key)
+        if value:
+            return value.strip()
+    title = finding.title.lower().replace('vulnerable dependency:', '').strip()
+    return title.split()[0] if title else ''
+
+
+def dependency_fix_version(finding: Finding) -> str:
+    metadata = finding.scanner_metadata
+    if metadata.get('best_fix_version'):
+        return metadata['best_fix_version'].strip()
+    versions = [item.strip() for item in metadata.get('fix_versions', '').split(',') if item.strip()]
+    return choose_highest_version(versions)
+
+
+def choose_highest_version(versions: list[str]) -> str:
+    if not versions:
+        return ''
+    try:
+        from packaging.version import Version
+        return str(max(versions, key=Version))
+    except Exception:
+        return versions[-1]
 
 def validate_patch(source_path: Path, finding: Finding, patch: str, original: list[str], patched: list[str], mechanical: bool) -> list[ValidationCheck]:
     checks: list[ValidationCheck] = []
@@ -206,7 +278,7 @@ def plan_effort(steps: list[RemediationStep]) -> str:
 
 def is_mechanically_supported(finding: Finding) -> bool:
     lower = f'{finding.rule_id} {finding.message}'.lower()
-    return any(token in lower for token in ['shell', 'subprocess', 'os.system', 'child_process', 'eval', 'exec', 'dynamic', 'secret', 'password', 'token', 'api', 'debug']) or finding.source in {'dependency-manifest', 'pip-audit'}
+    return any(token in lower for token in ['shell', 'subprocess', 'os.system', 'child_process', 'eval', 'exec', 'dynamic', 'secret', 'password', 'token', 'api', 'debug']) or finding.source in {'dependency-manifest', 'pip-audit', 'snyk'}
 
 
 def has_blocking_check(checks: list[ValidationCheck]) -> bool:

@@ -10,13 +10,14 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from .models import DecisionRequest, GitHubPrReviewRequest, LLMRequest
+from .models import DecisionRequest, FixApplyRequest, GitHubPrReviewRequest, LLMRequest
 from .advanced_ai import advanced_ai_status, build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, gpu_profile, local_runtime_status, phase_g_report, run_multi_agent_review, semantic_search
 from .auth import AuthEnforcementMiddleware, AuthUser, auth_config, auth_status, login_user, logout_user, make_oauth, make_saml_auth, normalize_user, require_permission, require_user, saml_metadata_response
 from .enterprise import audit, audit_events, compliance_report, load_enterprise
 from .dependency_review import dependency_review_report
 from .llm import generate, provider_status
 from .github_pr import GitHubIntegrationError, build_github_pr_review, github_integration_status, handle_github_webhook, verify_github_webhook_signature
+from .fix_workflow import apply_fix_bundle, build_fix_bundle
 from .ingestion import scanner_mesh_report, scanner_mesh_status
 from .memory import load_memory, memory_summary, repository_memory, repository_memory_for_scan, update_repository_memory
 from .rag import add_knowledge_document, build_index, finding_context, index_stats, retrieve_response
@@ -28,7 +29,7 @@ from .scanner import ROOT, run_scan
 from .secrets import secret_policy_report
 from .storage import apply_decisions, load_baseline, load_scan, save_baseline, save_decision, save_scan, list_scans
 
-app = FastAPI(title='Secure Code Review Assistant', version='0.18.0')
+app = FastAPI(title='Secure Code Review Assistant', version='0.19.0')
 oauth = make_oauth()
 STATIC_DIR = ROOT / 'static'
 UPLOAD_DIR = ROOT / 'data' / 'uploads'
@@ -45,7 +46,7 @@ def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
 
 @app.get('/api/health')
 def health() -> dict:
-    return {'ok': True, 'phase': 'phase-k', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'scanner-mesh', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring'], 'llm_providers': provider_status(), 'auth': auth_status()}
+    return {'ok': True, 'phase': 'phase-l', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'scanner-mesh', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run'], 'llm_providers': provider_status(), 'auth': auth_status()}
 
 
 
@@ -506,6 +507,29 @@ def fix_proposal(scan_id: str, finding_id: str, provider: str = 'offline', model
         raise HTTPException(status_code=404, detail='finding not found')
     audit(user.username, 'fix.proposed', finding_id, {'scan_id': scan_id, 'provider': provider, 'priority': proposal.priority})
     return proposal.model_dump(mode='json')
+
+
+@app.get('/api/scans/{scan_id}/fixes/bundle')
+def scan_fix_bundle(scan_id: str, limit: int = 10, finding_ids: str | None = None, provider: str = 'offline', model: str | None = None, allow_placeholders: bool = False, user: AuthUser = Depends(require_permission('fix:propose'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    ids = [item.strip() for item in (finding_ids or '').split(',') if item.strip()]
+    report = build_fix_bundle(scan, finding_ids=ids or None, limit=limit, provider=provider, model=model, allow_placeholders=allow_placeholders)
+    audit(user.username, 'fix.bundle_built', scan_id, {'selected': str(report['summary']['selected']), 'eligible': str(report['summary']['eligible'])})
+    return report
+
+
+@app.post('/api/scans/{scan_id}/fixes/apply')
+def scan_fix_apply(scan_id: str, request: FixApplyRequest, user: AuthUser = Depends(require_permission('fix:apply'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    report = apply_fix_bundle(scan, request)
+    audit(user.username, 'fix.apply_requested', scan_id, {'status': report['status'], 'dry_run': str(report['dry_run']), 'applied': str(len(report['applied']))})
+    return report
 
 
 @app.get('/api/scans/{scan_id}/advanced-ai/report')

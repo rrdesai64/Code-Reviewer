@@ -191,6 +191,17 @@ class RemediationPlan(BaseModel):
     steps: list[RemediationStep] = Field(default_factory=list)
 
 
+class FixApplyRequest(BaseModel):
+    finding_ids: list[str] = Field(default_factory=list)
+    limit: int = 10
+    provider: str = 'offline'
+    model: str | None = None
+    dry_run: bool = True
+    approved: bool = False
+    allow_placeholders: bool = False
+    create_backups: bool = True
+
+
 class Role(BaseModel):
     name: str
     permissions: list[str] = Field(default_factory=list)

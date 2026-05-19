@@ -52,6 +52,8 @@ function renderScan(scan) {
     <button class="ghost" onclick="showGithubPrReview('${scan.scan_id}')">GitHub PR</button>
     <button class="ghost" onclick="showScannerMesh('${scan.scan_id}')">Scanner Mesh</button>
     <button class="ghost" onclick="showDependencyReview('${scan.scan_id}')">Dependencies</button>
+    <button class="ghost" onclick="showFixBundle('${scan.scan_id}')">Fix Bundle</button>
+    <button class="ghost" onclick="dryRunFixApply('${scan.scan_id}')">Fix Dry Run</button>
     <button class="ghost" onclick="showRemediationPlan('${scan.scan_id}')">Remediation</button>
     <button class="ghost" onclick="showMemory()">Memory</button>
     <button class="ghost" onclick="showMemoryBrief('${scan.scan_id}')">Memory Brief</button>
@@ -152,6 +154,28 @@ function formatProposal(proposal) {
     'Safety notes:',
     notes || '- human review required'
   ].join('\n');
+}
+
+async function showFixBundle(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/fixes/bundle?limit=10`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not build fix bundle.';
+    return;
+  }
+  showJsonPanel('Secure Fix Bundle', await response.json());
+}
+
+async function dryRunFixApply(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/fixes/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dry_run: true, approved: true, limit: 10 })
+  });
+  if (!response.ok) {
+    statusEl.textContent = 'Could not dry-run fix apply.';
+    return;
+  }
+  showJsonPanel('Fix Apply Dry Run', await response.json());
 }
 
 async function showRemediationPlan(scanId) {

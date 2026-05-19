@@ -13,8 +13,8 @@ ENTERPRISE_PATH = ROOT / 'data' / 'enterprise.json'
 AUDIT_PATH = ROOT / 'data' / 'audit.log'
 
 DEFAULT_ROLES = [
-    Role(name='admin', permissions=['scan:run', 'scan:read', 'baseline:write', 'decision:write', 'enterprise:read', 'enterprise:write', 'fix:propose']),
-    Role(name='security_reviewer', permissions=['scan:run', 'scan:read', 'baseline:write', 'decision:write', 'enterprise:read', 'fix:propose']),
+    Role(name='admin', permissions=['scan:run', 'scan:read', 'baseline:write', 'decision:write', 'enterprise:read', 'enterprise:write', 'fix:propose', 'fix:apply']),
+    Role(name='security_reviewer', permissions=['scan:run', 'scan:read', 'baseline:write', 'decision:write', 'enterprise:read', 'fix:propose', 'fix:apply']),
     Role(name='developer', permissions=['scan:run', 'scan:read', 'decision:write', 'fix:propose']),
     Role(name='auditor', permissions=['scan:read', 'enterprise:read']),
 ]
@@ -33,6 +33,15 @@ def load_enterprise() -> dict:
         if policy['id'] not in policy_ids:
             data.setdefault('policies', []).append(policy)
             changed = True
+    default_role_permissions = {role.name: set(role.permissions) for role in DEFAULT_ROLES}
+    for role in data.get('roles', []):
+        name = role.get('name')
+        if name in default_role_permissions:
+            current = set(role.get('permissions', []))
+            missing = default_role_permissions[name] - current
+            if missing:
+                role['permissions'] = sorted(current | missing)
+                changed = True
     if changed:
         save_enterprise(data)
     return data
@@ -49,6 +58,7 @@ def default_policies() -> list[dict]:
         {'id': 'block-p0-risk', 'description': 'P0 risk findings require release blocking review.', 'priority': ['P0'], 'action': 'block_release'},
         {'id': 'require-dependency-audit', 'description': 'Dependency audit must run for repositories with requirements files.', 'tool': 'pip-audit', 'action': 'audit_required'},
         {'id': 'require-human-fix-approval', 'description': 'Generated secure refactoring patches require human approval.', 'action': 'approval_required'},
+        {'id': 'require-controlled-fix-apply', 'description': 'One-click fixes require dry-run, explicit approval, audit logging, and runtime apply enablement.', 'action': 'approval_required'},
     ]
 
 

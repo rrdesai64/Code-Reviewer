@@ -622,3 +622,44 @@ PowerShell wrapper:
 ```
 
 `scan.ps1` now emits `dependency-review.json` by default. Reachability is heuristic and conservative: source import evidence is high confidence, direct runtime manifests are medium confidence, and lockfile-only/transitive packages remain review items until the parent dependency path is known.
+
+## Roadmap Point 5: Secure One-Click Fix Workflow
+
+Point 5 turns fix proposals into a controlled one-click workflow while keeping the app security-first. The default path is still dry-run and review-first; real source edits require explicit approval and the `FIX_APPLY_ENABLED=true` runtime gate.
+
+Implemented:
+
+- Scan-level secure fix bundle that collects prioritized fix proposals, validation checks, safety notes, and combined eligible patch text
+- Controlled apply workflow with dry-run output by default
+- Non-dry-run apply requires `approved=true`, `dry_run=false`, and `FIX_APPLY_ENABLED=true`
+- Apply eligibility gates for mechanical confidence, blocked validation checks, manual guidance stubs, TODO/placeholders, missing files, and overlapping same-file edits
+- Safe dependency upgrade patching for vulnerable Python requirements when scanner metadata includes a fixed version
+- File backups under `.secure-review-backups/{scan_id}/` before approved source writes
+- Enterprise permission `fix:apply` for admins and security reviewers, plus audit logging for bundle and apply requests
+- CLI, API, PowerShell wrapper, and web UI access to fix bundles and dry-run apply reports
+
+Useful endpoints:
+
+- `GET /api/scans/{scan_id}/fixes/bundle`
+- `POST /api/scans/{scan_id}/fixes/apply`
+
+CLI dry-run bundle and apply preview:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --fix-bundle-out fix-bundle.json --fix-apply-out fix-apply-dry-run.json
+```
+
+Approved local apply, only when you intentionally enable it:
+
+```powershell
+$env:FIX_APPLY_ENABLED="true"
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --apply-fixes --fix-apply-approved --fix-apply-out fix-apply.json
+```
+
+PowerShell wrapper:
+
+```powershell
+.\scan.ps1 -Path "G:\Path\To\Repo"
+```
+
+`scan.ps1` now emits `fix-bundle.json` and `fix-apply-dry-run.json` by default. Treat the dry-run report as the review artifact; approved apply should be reserved for local branches or disposable worktrees where backups and validation commands can be reviewed immediately.

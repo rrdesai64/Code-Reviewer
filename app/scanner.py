@@ -26,7 +26,7 @@ SEMGREP_EXE = ROOT / '.venv' / 'Scripts' / 'semgrep.exe'
 BANDIT_EXE = ROOT / '.venv' / 'Scripts' / 'bandit.exe'
 PIP_AUDIT_EXE = ROOT / '.venv' / 'Scripts' / 'pip-audit.exe'
 
-EXCLUDED_DIRS = {'.git', '.venv', 'venv', 'node_modules', 'dist', 'build', '__pycache__', '.mypy_cache', '.pytest_cache', 'data'}
+EXCLUDED_DIRS = {'.git', '.venv', 'venv', 'node_modules', 'dist', 'build', '__pycache__', '.mypy_cache', '.pytest_cache', '.secure-review-backups', 'data'}
 LANG_BY_EXT = {
     '.py': 'Python', '.js': 'JavaScript', '.jsx': 'JavaScript', '.ts': 'TypeScript', '.tsx': 'TypeScript',
     '.java': 'Java', '.c': 'C', '.h': 'C/C++', '.cpp': 'C++', '.cc': 'C++', '.cs': 'C#', '.go': 'Go',

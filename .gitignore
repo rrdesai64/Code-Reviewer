@@ -50,3 +50,7 @@ vscode-extension/node_modules/
 vscode-extension/*.vsix
 scanner-mesh.json
 dependency-review.json
+fix-bundle.json
+fix-apply-dry-run.json
+fix-apply.json
+.secure-review-backups/

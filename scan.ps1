@@ -15,7 +15,9 @@ param(
   [string]$ReportOut = "secure-review.md",
   [string]$ComplianceOut = "compliance.json",
   [string]$FixProposalsOut = "fix-proposals.json",
-  [string]$RemediationPlanOut = "remediation-plan.json"
+  [string]$RemediationPlanOut = "remediation-plan.json",
+  [string]$FixBundleOut = "fix-bundle.json",
+  [string]$FixApplyOut = "fix-apply-dry-run.json"
 )
 
 $argsList = @(
@@ -36,7 +38,9 @@ $argsList = @(
   '--pr-comment-out', 'pr-comment.md',
   '--compliance-out', $ComplianceOut,
   '--fix-proposals-out', $FixProposalsOut,
-  '--remediation-plan-out', $RemediationPlanOut
+  '--remediation-plan-out', $RemediationPlanOut,
+  '--fix-bundle-out', $FixBundleOut,
+  '--fix-apply-out', $FixApplyOut
 )
 
 foreach ($item in $SarifIn) {

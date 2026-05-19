@@ -5,10 +5,13 @@ import json
 import sys
 from pathlib import Path
 
+from .models import FixApplyRequest
+
 from .enterprise import audit, compliance_report
 from .dependency_review import dependency_review_report
 from .advanced_ai import build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, phase_g_report, run_multi_agent_review, semantic_search
 from .github_pr import GitHubIntegrationError, build_github_pr_review
+from .fix_workflow import apply_fix_bundle, build_fix_bundle
 from .ingestion import scanner_mesh_report
 from .memory import update_repository_memory
 from .refactor import build_fix_proposal, build_remediation_plan
@@ -58,6 +61,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--compliance-out')
     parser.add_argument('--fix-proposals-out')
     parser.add_argument('--remediation-plan-out')
+    parser.add_argument('--fix-bundle-out')
+    parser.add_argument('--fix-apply-out')
+    parser.add_argument('--fix-bundle-limit', type=int, default=10)
+    parser.add_argument('--fix-finding-id', action='append', default=[])
+    parser.add_argument('--apply-fixes', action='store_true', help='apply eligible fixes when FIX_APPLY_ENABLED=true and --fix-apply-approved is set')
+    parser.add_argument('--fix-apply-approved', action='store_true', help='confirm human approval for non-dry-run fix apply')
+    parser.add_argument('--allow-placeholder-fixes', action='store_true', help='allow TODO/placeholder proposals in fix apply')
     parser.add_argument('--fix-provider', default='offline')
     parser.add_argument('--advanced-ai-provider', default='offline')
     parser.add_argument('--advanced-ai-model')
@@ -156,6 +166,22 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.fix_proposals_out).write_text(json.dumps(proposals, indent=2), encoding='utf-8')
     if args.remediation_plan_out:
         Path(args.remediation_plan_out).write_text(json.dumps(build_remediation_plan(scan).model_dump(mode='json'), indent=2), encoding='utf-8')
+    if args.fix_bundle_out:
+        Path(args.fix_bundle_out).write_text(json.dumps(build_fix_bundle(scan, finding_ids=args.fix_finding_id or None, limit=args.fix_bundle_limit, provider=args.fix_provider, allow_placeholders=args.allow_placeholder_fixes), indent=2), encoding='utf-8')
+    if args.fix_apply_out or args.apply_fixes:
+        apply_report = apply_fix_bundle(scan, FixApplyRequest(
+            finding_ids=args.fix_finding_id or [],
+            limit=args.fix_bundle_limit,
+            provider=args.fix_provider,
+            dry_run=not args.apply_fixes,
+            approved=args.fix_apply_approved,
+            allow_placeholders=args.allow_placeholder_fixes,
+        ))
+        if args.fix_apply_out:
+            Path(args.fix_apply_out).write_text(json.dumps(apply_report, indent=2), encoding='utf-8')
+        if args.apply_fixes and apply_report['status'] == 'blocked':
+            print(f"Fix apply blocked: {', '.join(apply_report['blocked_reasons'])}", file=sys.stderr)
+            return 8
 
     print(f'Scan {scan.scan_id}: {scan.summary.total_findings} findings across {scan.summary.files_scanned} files')
     print(f'Risk: max={scan.summary.max_risk_score}, avg={scan.summary.avg_risk_score}, priorities={scan.summary.priorities}')

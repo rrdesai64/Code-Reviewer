@@ -39,6 +39,7 @@
     "onCommand:secureCodeReview.dryRunFixApply",
     "onCommand:secureCodeReview.showRemediationPlan",
     "onCommand:secureCodeReview.showIssuePlan",
+    "onCommand:secureCodeReview.showChatNotification",
     "onCommand:secureCodeReview.showMemoryContext",
     "onCommand:secureCodeReview.showAdvancedAiReport",
     "onCommand:secureCodeReview.proposeFix",
@@ -195,6 +196,10 @@
       {
         "command": "secureCodeReview.showIssuePlan",
         "title": "Secure Review: Show Jira/Linear Issue Plan"
+      },
+      {
+        "command": "secureCodeReview.showChatNotification",
+        "title": "Secure Review: Show Slack/Teams Agent"
       },
       {
         "command": "secureCodeReview.showMemoryContext",

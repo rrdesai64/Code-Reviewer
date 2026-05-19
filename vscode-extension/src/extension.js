@@ -47,6 +47,7 @@ function activate(context) {
   register(context, 'secureCodeReview.dryRunFixApply', () => showReportById(context, 'fix-apply-dry-run'));
   register(context, 'secureCodeReview.showRemediationPlan', () => showReportById(context, 'remediation-plan'));
   register(context, 'secureCodeReview.showIssuePlan', () => showReportById(context, 'issue-plan'));
+  register(context, 'secureCodeReview.showChatNotification', () => showReportById(context, 'chat-notification'));
   register(context, 'secureCodeReview.showMemoryContext', () => showReportById(context, 'memory-context'));
   register(context, 'secureCodeReview.showAdvancedAiReport', () => showReportById(context, 'advanced-ai'));
   register(context, 'secureCodeReview.proposeFix', item => proposeFix(context, item));
@@ -404,6 +405,7 @@ function reportDefinitions(scan) {
     jsonPostReport('fix-apply-dry-run', 'Fix Apply Dry Run', `/api/scans/${scanId}/fixes/apply`, 'fix-apply-dry-run.json', 'Dry-run safe apply workflow.', JSON.stringify({ dry_run: true, approved: true, limit: fixBundleLimit(), provider: defaultFixProvider() })),
     jsonReport('remediation-plan', 'Remediation Plan', `/api/scans/${scanId}/remediation-plan`, 'remediation-plan.json', 'Prioritized remediation plan.'),
     jsonReport('issue-plan', 'Jira/Linear Issue Plan', `/api/scans/${scanId}/issue-plan`, 'issue-plan.json', 'Dry-run Jira and Linear work item payloads.'),
+    jsonReport('chat-notification', 'Slack/Teams Agent', `/api/scans/${scanId}/chat/notification`, 'chat-notification.json', 'Dry-run Slack and Teams notification payloads.'),
     jsonReport('memory-context', 'Repository Memory Brief', `/api/scans/${scanId}/memory-context`, 'memory-context.json', 'Repository memory attached to this scan.'),
     jsonReport('advanced-ai', 'Advanced AI Report', `/api/scans/${scanId}/advanced-ai/report`, 'advanced-ai.json', 'Embeddings, multi-agent, local runtime, and GPU report.'),
     jsonReport('compliance', 'Enterprise Compliance', `/api/scans/${scanId}/compliance`, 'compliance.json', 'Enterprise compliance evidence.'),

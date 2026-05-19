@@ -19,6 +19,7 @@ param(
   [string]$FixProposalsOut = "fix-proposals.json",
   [string]$RemediationPlanOut = "remediation-plan.json",
   [string]$IssuePlanOut = "issue-plan.json",
+  [string]$ChatNotificationOut = "chat-notification.json",
   [string]$FixBundleOut = "fix-bundle.json",
   [string]$FixApplyOut = "fix-apply-dry-run.json"
 )
@@ -45,6 +46,7 @@ $argsList = @(
   '--fix-proposals-out', $FixProposalsOut,
   '--remediation-plan-out', $RemediationPlanOut,
   '--issue-plan-out', $IssuePlanOut,
+  '--chat-notification-out', $ChatNotificationOut,
   '--fix-bundle-out', $FixBundleOut,
   '--fix-apply-out', $FixApplyOut
 )

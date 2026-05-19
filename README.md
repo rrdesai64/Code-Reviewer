@@ -821,3 +821,65 @@ $env:LINEAR_DRY_RUN="true"
 ```
 
 For production, keep provider dry-run enabled until teams have reviewed the generated payload shape. Publishing requires `enterprise:write` through the API and should run from a controlled service account whose Jira/Linear permissions are scoped to the target project or team.
+## Roadmap Point 10: Slack/Teams Agent
+
+Point 10 adds a controlled chat-ops layer for secure review notifications and lightweight agent commands. The implementation keeps the same local-first posture as the rest of the app: generate inspectable chat payloads by default, then publish only when credentials and dry-run gates are intentionally configured.
+
+Implemented:
+
+- Slack Block Kit notification payloads for scan summaries and top findings
+- Microsoft Teams Adaptive Card notification payloads for scan summaries and top findings
+- Dry-run by default for Slack and Teams webhook publishing
+- Slack slash-command endpoint with `X-Slack-Signature` verification
+- Teams command endpoint with a shared secret header for bot/proxy integrations
+- Shared command parser for `help`, `status`, `latest`, `review`, and `plan`
+- API status, preview, publish, and command endpoints with audit logging
+- CLI export with `--chat-notification-out` and optional `--chat-publish`
+- Browser UI and VS Code report access for `chat-notification.json`
+- `scan.ps1` and GitHub Actions artifact output for `chat-notification.json`
+
+Useful endpoints:
+
+- `GET /api/integrations/chat/status`
+- `GET /api/scans/{scan_id}/chat/notification`
+- `POST /api/scans/{scan_id}/chat/notification`
+- `POST /api/integrations/slack/command`
+- `POST /api/integrations/teams/command`
+
+CLI dry-run export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --chat-notification-out chat-notification.json --chat-provider all --chat-include-findings 10
+```
+
+CLI publish, once webhooks are configured and you intentionally disable provider dry-run:
+
+```powershell
+$env:SLACK_DRY_RUN="false"
+$env:TEAMS_DRY_RUN="false"
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --chat-notification-out chat-notification.json --chat-publish
+```
+
+Slack configuration:
+
+```powershell
+$env:SLACK_ENABLED="auto"
+$env:SLACK_WEBHOOK_URL="https://hooks.slack.com/services/..."
+$env:SLACK_SIGNING_SECRET="slack-signing-secret"
+$env:SLACK_ALLOW_UNSIGNED="false"
+$env:SLACK_DRY_RUN="true"
+$env:SLACK_CHANNEL="#security-review"
+$env:SLACK_USERNAME="Secure Review"
+```
+
+Teams configuration:
+
+```powershell
+$env:TEAMS_ENABLED="auto"
+$env:TEAMS_WEBHOOK_URL="https://your-teams-webhook-url"
+$env:TEAMS_COMMAND_SECRET="long-random-shared-secret"
+$env:TEAMS_ALLOW_UNSIGNED="false"
+$env:TEAMS_DRY_RUN="true"
+```
+
+For Slack slash commands, point the Slack app command URL to `/api/integrations/slack/command` and set `SLACK_SIGNING_SECRET`. For Teams, use an Azure Bot, workflow, or secure relay that forwards command payloads to `/api/integrations/teams/command` with `x-secure-review-teams-secret`. Keep unsigned commands disabled in production.

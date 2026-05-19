@@ -58,6 +58,7 @@ function renderScan(scan) {
     <button class="ghost" onclick="dryRunFixApply('${scan.scan_id}')">Fix Dry Run</button>
     <button class="ghost" onclick="showRemediationPlan('${scan.scan_id}')">Remediation</button>
     <button class="ghost" onclick="showIssuePlan('${scan.scan_id}')">Issue Plan</button>
+    <button class="ghost" onclick="showChatNotification('${scan.scan_id}')">Chat Agent</button>
     <button class="ghost" onclick="showMemory()">Memory</button>
     <button class="ghost" onclick="showMemoryBrief('${scan.scan_id}')">Memory Brief</button>
     <button class="ghost" onclick="showRagStats()">Knowledge</button>
@@ -196,6 +197,14 @@ async function showIssuePlan(scanId) {
     return;
   }
   showJsonPanel('Jira/Linear Issue Plan', await response.json());
+}
+async function showChatNotification(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/chat/notification`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not load Slack/Teams chat notification.';
+    return;
+  }
+  showJsonPanel('Slack/Teams Chat Agent', await response.json());
 }
 async function showCompliance(scanId) {
   const response = await fetch(`/api/scans/${scanId}/compliance`);

@@ -209,6 +209,12 @@ class IssuePlanRequest(BaseModel):
     min_priority: Priority = 'P2'
 
 
+class ChatNotificationRequest(BaseModel):
+    provider: Literal['all', 'slack', 'teams'] = 'all'
+    publish: bool = False
+    include_findings: int = 10
+
+
 class Role(BaseModel):
     name: str
     permissions: list[str] = Field(default_factory=list)

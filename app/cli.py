@@ -9,6 +9,7 @@ from .models import FixApplyRequest
 
 from .enterprise import audit, compliance_report
 from .dependency_review import dependency_review_report
+from .chat_agents import ChatAgentError, build_chat_notification
 from .advanced_ai import build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, phase_g_report, run_multi_agent_review, semantic_search
 from .github_pr import GitHubIntegrationError, build_github_pr_review
 from .fix_workflow import apply_fix_bundle, build_fix_bundle
@@ -71,6 +72,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--issue-plan-limit', type=int, default=25)
     parser.add_argument('--issue-plan-min-priority', choices=['P0', 'P1', 'P2', 'P3', 'P4'], default='P2')
     parser.add_argument('--issue-plan-publish', action='store_true', help='publish planned remediation issues when Jira/Linear credentials and dry-run gates allow it')
+    parser.add_argument('--chat-notification-out')
+    parser.add_argument('--chat-provider', choices=['all', 'slack', 'teams'], default='all')
+    parser.add_argument('--chat-include-findings', type=int, default=10)
+    parser.add_argument('--chat-publish', action='store_true', help='publish the prepared Slack/Teams notification when credentials and dry-run gates allow it')
+    parser.add_argument('--fail-on-chat-publish-failure', action='store_true', help='exit with code 11 when Slack/Teams notification publishing fails')
     parser.add_argument('--fail-on-issue-plan-publish-failure', action='store_true', help='exit with code 10 when issue planning publish fails')
     parser.add_argument('--fix-bundle-out')
     parser.add_argument('--fix-apply-out')
@@ -197,6 +203,20 @@ def main(argv: list[str] | None = None) -> int:
             return 10
         if args.issue_plan_out:
             Path(args.issue_plan_out).write_text(json.dumps(issue_plan, indent=2), encoding='utf-8')
+    chat_notification = None
+    if args.chat_notification_out or args.chat_publish:
+        try:
+            chat_notification = build_chat_notification(
+                scan,
+                provider=args.chat_provider,
+                include_findings=args.chat_include_findings,
+                publish=args.chat_publish,
+            )
+        except ChatAgentError as exc:
+            print(f'Chat notification failed: {exc}', file=sys.stderr)
+            return 11
+        if args.chat_notification_out:
+            Path(args.chat_notification_out).write_text(json.dumps(chat_notification, indent=2), encoding='utf-8')
     if args.fix_bundle_out:
         Path(args.fix_bundle_out).write_text(json.dumps(build_fix_bundle(scan, finding_ids=args.fix_finding_id or None, limit=args.fix_bundle_limit, provider=args.fix_provider, allow_placeholders=args.allow_placeholder_fixes), indent=2), encoding='utf-8')
     if args.fix_apply_out or args.apply_fixes:
@@ -236,6 +256,8 @@ def main(argv: list[str] | None = None) -> int:
         return 5
     if args.fail_on_issue_plan_publish_failure and issue_plan and issue_plan['status'] in {'failed', 'partial'}:
         return 10
+    if args.fail_on_chat_publish_failure and chat_notification and chat_notification['status'] in {'failed', 'partial'}:
+        return 11
     return 0
 
 

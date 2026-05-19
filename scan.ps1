@@ -18,6 +18,7 @@ param(
   [string]$ComplianceOut = "compliance.json",
   [string]$FixProposalsOut = "fix-proposals.json",
   [string]$RemediationPlanOut = "remediation-plan.json",
+  [string]$IssuePlanOut = "issue-plan.json",
   [string]$FixBundleOut = "fix-bundle.json",
   [string]$FixApplyOut = "fix-apply-dry-run.json"
 )
@@ -43,6 +44,7 @@ $argsList = @(
   '--compliance-out', $ComplianceOut,
   '--fix-proposals-out', $FixProposalsOut,
   '--remediation-plan-out', $RemediationPlanOut,
+  '--issue-plan-out', $IssuePlanOut,
   '--fix-bundle-out', $FixBundleOut,
   '--fix-apply-out', $FixApplyOut
 )

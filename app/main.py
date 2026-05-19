@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from .models import DecisionRequest, FixApplyRequest, GitHubPrReviewRequest, LLMRequest
+from .models import DecisionRequest, FixApplyRequest, GitHubPrReviewRequest, IssuePlanRequest, LLMRequest
 from .advanced_ai import advanced_ai_status, build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, gpu_profile, local_runtime_status, phase_g_report, run_multi_agent_review, semantic_search
 from .auth import AuthEnforcementMiddleware, AuthUser, auth_config, auth_status, login_user, logout_user, make_oauth, make_saml_auth, normalize_user, require_permission, require_user, saml_metadata_response
 from .enterprise import audit, audit_events, compliance_report, load_enterprise
@@ -19,6 +19,7 @@ from .llm import generate, provider_status
 from .github_pr import GitHubIntegrationError, build_github_pr_review, github_integration_status, handle_github_webhook, verify_github_webhook_signature
 from .fix_workflow import apply_fix_bundle, build_fix_bundle
 from .ingestion import scanner_mesh_report, scanner_mesh_status
+from .issue_planning import IssuePlanningError, build_issue_plan, issue_planning_status
 from .memory import load_memory, memory_summary, repository_memory, repository_memory_for_scan, update_repository_memory
 from .rag import add_knowledge_document, build_index, finding_context, index_stats, retrieve_response
 from .refactor import build_fix_proposal, build_remediation_plan
@@ -31,7 +32,7 @@ from .secrets import secret_policy_report
 from .sonarqube import sonarqube_quality_report
 from .storage import apply_decisions, load_baseline, load_scan, save_baseline, save_decision, save_scan, list_scans
 
-app = FastAPI(title='Secure Code Review Assistant', version='0.21.0')
+app = FastAPI(title='Secure Code Review Assistant', version='0.22.0')
 oauth = make_oauth()
 STATIC_DIR = ROOT / 'static'
 UPLOAD_DIR = ROOT / 'data' / 'uploads'
@@ -48,7 +49,7 @@ def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
 
 @app.get('/api/health')
 def health() -> dict:
-    return {'ok': True, 'phase': 'phase-n', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'sonarqube-issue-ingestion', 'sonarqube-quality-gate', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'scanner-mesh', 'scanner-depth', 'semgrep-multi-config', 'codeql-query-depth', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run', 'ide-cli-parity', 'vscode-extension-parity', 'ide-evidence-export'], 'llm_providers': provider_status(), 'auth': auth_status()}
+    return {'ok': True, 'phase': 'phase-o', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'sonarqube-issue-ingestion', 'sonarqube-quality-gate', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'scanner-mesh', 'scanner-depth', 'semgrep-multi-config', 'codeql-query-depth', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run', 'ide-cli-parity', 'vscode-extension-parity', 'ide-evidence-export', 'issue-planning', 'jira-planning', 'linear-planning', 'issue-plan-dry-run'], 'llm_providers': provider_status(), 'auth': auth_status()}
 
 
 
@@ -306,6 +307,39 @@ def pr_comment(scan_id: str, user: AuthUser = Depends(require_permission('scan:r
 def github_status(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
     return github_integration_status()
 
+@app.get('/api/integrations/issues/status')
+def issue_planning_integration_status(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    return issue_planning_status()
+
+
+@app.get('/api/scans/{scan_id}/issue-plan')
+def issue_plan_preview(scan_id: str, provider: str = 'all', limit: int = 25, min_priority: str = 'P2', user: AuthUser = Depends(require_permission('fix:propose'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    try:
+        report = build_issue_plan(scan, provider=provider, limit=limit, min_priority=min_priority, publish=False)
+    except IssuePlanningError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'issues.plan_previewed', scan_id, {'provider': provider, 'items': str(report['summary']['selected_findings']), 'min_priority': min_priority})
+    return report
+
+
+@app.post('/api/scans/{scan_id}/issue-plan')
+def issue_plan_publish(scan_id: str, request: IssuePlanRequest, user: AuthUser = Depends(require_permission('fix:propose'))) -> dict:
+    if request.publish and 'enterprise:write' not in user.permissions:
+        raise HTTPException(status_code=403, detail='Missing permission: enterprise:write')
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    try:
+        report = build_issue_plan(scan, provider=request.provider, limit=request.limit, min_priority=request.min_priority, publish=request.publish)
+    except IssuePlanningError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'issues.plan_published' if request.publish else 'issues.plan_prepared', scan_id, {'provider': request.provider, 'items': str(report['summary']['selected_findings']), 'status': report['status'], 'published': str(request.publish)})
+    return report
 
 @app.get('/api/scans/{scan_id}/github/pr-review')
 def github_pr_review_preview(

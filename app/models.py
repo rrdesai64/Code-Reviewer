@@ -202,6 +202,13 @@ class FixApplyRequest(BaseModel):
     create_backups: bool = True
 
 
+class IssuePlanRequest(BaseModel):
+    provider: Literal['all', 'jira', 'linear'] = 'all'
+    publish: bool = False
+    limit: int = 25
+    min_priority: Priority = 'P2'
+
+
 class Role(BaseModel):
     name: str
     permissions: list[str] = Field(default_factory=list)

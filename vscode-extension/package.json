@@ -38,6 +38,7 @@
     "onCommand:secureCodeReview.showFixBundle",
     "onCommand:secureCodeReview.dryRunFixApply",
     "onCommand:secureCodeReview.showRemediationPlan",
+    "onCommand:secureCodeReview.showIssuePlan",
     "onCommand:secureCodeReview.showMemoryContext",
     "onCommand:secureCodeReview.showAdvancedAiReport",
     "onCommand:secureCodeReview.proposeFix",
@@ -190,6 +191,10 @@
       {
         "command": "secureCodeReview.showRemediationPlan",
         "title": "Secure Review: Show Remediation Plan"
+      },
+      {
+        "command": "secureCodeReview.showIssuePlan",
+        "title": "Secure Review: Show Jira/Linear Issue Plan"
       },
       {
         "command": "secureCodeReview.showMemoryContext",

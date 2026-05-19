@@ -761,3 +761,63 @@ npm run check
 ```
 
 The IDE path intentionally keeps real source modification out of the default workflow. The extension can request fix proposals and dry-run apply reports, while non-dry-run apply remains guarded by backend permissions and `FIX_APPLY_ENABLED=true`.
+## Roadmap Point 9: Issue Planning With Jira/Linear
+
+Point 9 turns prioritized remediation into issue-tracker work items while preserving the app's security-first default: dry-run artifacts first, real publishing only after credentials and explicit publish controls are enabled.
+
+Implemented:
+
+- Jira Cloud issue payload generation for prioritized open findings
+- Linear issue payload generation through the Linear GraphQL API
+- Shared issue plan artifact with finding context, risk, validation commands, labels, dedupe key, and provider payloads
+- Dry-run by default for both providers, with real creation gated by `publish=true` plus provider dry-run disabled
+- API status, preview, and publish endpoints with audit logging
+- CLI export with `--issue-plan-out` and optional `--issue-plan-publish`
+- Browser UI and VS Code report access for `issue-plan.json`
+- `scan.ps1` and GitHub Actions artifact output for `issue-plan.json`
+
+Useful endpoints:
+
+- `GET /api/integrations/issues/status`
+- `GET /api/scans/{scan_id}/issue-plan`
+- `POST /api/scans/{scan_id}/issue-plan`
+
+CLI dry-run export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --issue-plan-out issue-plan.json --issue-plan-provider all --issue-plan-min-priority P2
+```
+
+CLI publish, once credentials are configured and you intentionally disable provider dry-run:
+
+```powershell
+$env:JIRA_DRY_RUN="false"
+$env:LINEAR_DRY_RUN="false"
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --issue-plan-out issue-plan.json --issue-plan-publish
+```
+
+Jira configuration:
+
+```powershell
+$env:JIRA_ENABLED="auto"
+$env:JIRA_BASE_URL="https://your-company.atlassian.net"
+$env:JIRA_EMAIL="you@example.com"
+$env:JIRA_API_TOKEN="jira-api-token"
+$env:JIRA_PROJECT_KEY="SEC"
+$env:JIRA_ISSUE_TYPE="Task"
+$env:JIRA_LABELS="secure-review,security"
+$env:JIRA_DRY_RUN="true"
+```
+
+Linear configuration:
+
+```powershell
+$env:LINEAR_ENABLED="auto"
+$env:LINEAR_API_KEY="lin_api_key"
+$env:LINEAR_TEAM_ID="team-uuid"
+$env:LINEAR_LABEL_IDS="label-uuid-1,label-uuid-2"
+$env:LINEAR_PROJECT_ID="project-uuid"
+$env:LINEAR_DRY_RUN="true"
+```
+
+For production, keep provider dry-run enabled until teams have reviewed the generated payload shape. Publishing requires `enterprise:write` through the API and should run from a controlled service account whose Jira/Linear permissions are scoped to the target project or team.

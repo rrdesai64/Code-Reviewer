@@ -13,6 +13,7 @@ from .advanced_ai import build_embedding_index, fine_tune_dataset_jsonl, fine_tu
 from .github_pr import GitHubIntegrationError, build_github_pr_review
 from .fix_workflow import apply_fix_bundle, build_fix_bundle
 from .ingestion import scanner_mesh_report
+from .issue_planning import IssuePlanningError, build_issue_plan
 from .memory import update_repository_memory
 from .refactor import build_fix_proposal, build_remediation_plan
 from .reporting import github_pr_comment, markdown_report
@@ -65,6 +66,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--compliance-out')
     parser.add_argument('--fix-proposals-out')
     parser.add_argument('--remediation-plan-out')
+    parser.add_argument('--issue-plan-out')
+    parser.add_argument('--issue-plan-provider', choices=['all', 'jira', 'linear'], default='all')
+    parser.add_argument('--issue-plan-limit', type=int, default=25)
+    parser.add_argument('--issue-plan-min-priority', choices=['P0', 'P1', 'P2', 'P3', 'P4'], default='P2')
+    parser.add_argument('--issue-plan-publish', action='store_true', help='publish planned remediation issues when Jira/Linear credentials and dry-run gates allow it')
+    parser.add_argument('--fail-on-issue-plan-publish-failure', action='store_true', help='exit with code 10 when issue planning publish fails')
     parser.add_argument('--fix-bundle-out')
     parser.add_argument('--fix-apply-out')
     parser.add_argument('--fix-bundle-limit', type=int, default=10)
@@ -175,6 +182,21 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.fix_proposals_out).write_text(json.dumps(proposals, indent=2), encoding='utf-8')
     if args.remediation_plan_out:
         Path(args.remediation_plan_out).write_text(json.dumps(build_remediation_plan(scan).model_dump(mode='json'), indent=2), encoding='utf-8')
+    issue_plan = None
+    if args.issue_plan_out or args.issue_plan_publish:
+        try:
+            issue_plan = build_issue_plan(
+                scan,
+                provider=args.issue_plan_provider,
+                limit=args.issue_plan_limit,
+                min_priority=args.issue_plan_min_priority,
+                publish=args.issue_plan_publish,
+            )
+        except IssuePlanningError as exc:
+            print(f'Issue planning failed: {exc}', file=sys.stderr)
+            return 10
+        if args.issue_plan_out:
+            Path(args.issue_plan_out).write_text(json.dumps(issue_plan, indent=2), encoding='utf-8')
     if args.fix_bundle_out:
         Path(args.fix_bundle_out).write_text(json.dumps(build_fix_bundle(scan, finding_ids=args.fix_finding_id or None, limit=args.fix_bundle_limit, provider=args.fix_provider, allow_placeholders=args.allow_placeholder_fixes), indent=2), encoding='utf-8')
     if args.fix_apply_out or args.apply_fixes:
@@ -212,6 +234,8 @@ def main(argv: list[str] | None = None) -> int:
         return 4
     if args.fail_on_secrets and secret_policy_report(scan)['status'] == 'blocked':
         return 5
+    if args.fail_on_issue_plan_publish_failure and issue_plan and issue_plan['status'] in {'failed', 'partial'}:
+        return 10
     return 0
 
 

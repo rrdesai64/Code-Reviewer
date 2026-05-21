@@ -1032,3 +1032,18 @@ CLI export:
 ```
 
 Provider options match the existing LLM layer: `offline`, `ollama`, `openai`, and `openai_compatible`. Keep `offline` for sensitive repositories unless an external provider is explicitly approved.
+## Web Scan Report Bundles
+
+Dashboard scans now write a human-shareable report bundle automatically after each completed scan. The default folder layout is:
+
+```text
+reports\<repo-name>\<scan-id>\
+```
+
+Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `dependency-review.json`, `ai-review.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, and safe fix dry-run artifacts.
+
+The dashboard shows the saved bundle path after the scan and includes a `Report Bundle` action that opens the manifest. Set `REPORT_BUNDLE_DIR` in `.env` to place bundles somewhere else, for example:
+
+```env
+REPORT_BUNDLE_DIR=G:\Secure Review Reports
+```

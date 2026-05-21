@@ -36,7 +36,10 @@ form.addEventListener('submit', async (event) => {
     return;
   }
   currentScan = await response.json();
-  statusEl.textContent = `Scan ${currentScan.scan_id} finished.`;
+  const bundlePath = currentScan.report_bundle && currentScan.report_bundle.bundle_dir;
+  statusEl.textContent = bundlePath
+    ? `Scan ${currentScan.scan_id} finished. Report bundle saved to: ${bundlePath}`
+    : `Scan ${currentScan.scan_id} finished.`;
   renderScan(currentScan);
 });
 
@@ -50,6 +53,7 @@ function renderScan(scan) {
     <a class="link-button" href="/api/scans/${scan.scan_id}/sarif" target="_blank">SARIF</a>
     <a class="link-button secondary" href="/api/scans/${scan.scan_id}/report.html" target="_blank">HTML Report</a>
     <a class="link-button secondary" href="/api/scans/${scan.scan_id}/report.md" target="_blank">Markdown</a>
+    <button class="ghost" onclick="showReportBundle('${scan.scan_id}')">Report Bundle</button>
     <a class="link-button secondary" href="/api/scans/${scan.scan_id}/github-pr-comment" target="_blank">PR Comment</a>
     <button class="ghost" onclick="saveBaseline('${scan.scan_id}')">Save Baseline</button>
     <button class="ghost" onclick="showCompliance('${scan.scan_id}')">Compliance</button>
@@ -168,6 +172,17 @@ function formatProposal(proposal) {
     'Safety notes:',
     notes || '- human review required'
   ].join('\n');
+}
+
+async function showReportBundle(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/report-bundle`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not load report bundle manifest.';
+    return;
+  }
+  const manifest = await response.json();
+  statusEl.textContent = manifest.bundle_dir ? `Report bundle: ${manifest.bundle_dir}` : 'Report bundle manifest loaded.';
+  showJsonPanel('Report Bundle', manifest);
 }
 
 async function showAiScanReview(scanId) {

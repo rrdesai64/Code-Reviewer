@@ -27,6 +27,7 @@ from .memory import load_memory, memory_summary, repository_memory, repository_m
 from .rag import add_knowledge_document, build_index, finding_context, index_stats, retrieve_response
 from .refactor import build_fix_proposal, build_remediation_plan
 from .reporting import github_pr_comment, html_report, markdown_report
+from .report_bundle import build_report_bundle, report_bundle_metadata
 from .sarif import build_sarif
 from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report, spdx_compliance_report
 from .scanner import ROOT, run_scan
@@ -135,8 +136,12 @@ async def create_scan(project_name: str | None = Form(None), repo_path: str | No
     scan = run_scan(target, project_name=project_name)
     save_scan(scan)
     update_repository_memory(scan)
+    report_bundle = build_report_bundle(scan)
     audit(user.username, 'scan.created', scan.scan_id, {'project': scan.project_name})
-    return scan.model_dump(mode='json')
+    audit(user.username, 'reports.bundle_created', scan.scan_id, {'path': report_bundle['bundle_dir'], 'artifacts': str(report_bundle['artifact_count']), 'errors': str(report_bundle['error_count'])})
+    payload = scan.model_dump(mode='json')
+    payload['report_bundle'] = report_bundle
+    return payload
 
 
 @app.get('/api/scans/{scan_id}')
@@ -145,8 +150,22 @@ def get_scan(scan_id: str, user: AuthUser = Depends(require_permission('scan:rea
         scan = apply_decisions(load_scan(scan_id))
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail='scan not found')
-    return scan.model_dump(mode='json')
+    payload = scan.model_dump(mode='json')
+    payload['report_bundle'] = report_bundle_metadata(scan)
+    return payload
 
+
+@app.get('/api/scans/{scan_id}/report-bundle')
+def scan_report_bundle(scan_id: str, rebuild: bool = False, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    report = build_report_bundle(scan) if rebuild else report_bundle_metadata(scan)
+    if not report.get('exists'):
+        report = build_report_bundle(scan)
+    audit(user.username, 'reports.bundle_reported', scan_id, {'path': report['bundle_dir'], 'artifacts': str(report.get('artifact_count', 0)), 'rebuilt': str(rebuild)})
+    return report
 
 
 @app.get('/api/scans/{scan_id}/scanner-mesh')

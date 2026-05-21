@@ -22,6 +22,8 @@ env/
 
 # Runtime data and generated scan artifacts
 data/
+reports/
+test-repos/
 *.sarif
 *report.md
 *pr-comment.md

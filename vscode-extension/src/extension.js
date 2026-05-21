@@ -52,8 +52,10 @@ function activate(context) {
   register(context, 'secureCodeReview.showTeamLearning', () => showReportById(context, 'team-learning'));
   register(context, 'secureCodeReview.showMemoryContext', () => showReportById(context, 'memory-context'));
   register(context, 'secureCodeReview.showAdvancedAiReport', () => showReportById(context, 'advanced-ai'));
+  register(context, 'secureCodeReview.showAiReview', () => showReportById(context, 'ai-review'));
   register(context, 'secureCodeReview.proposeFix', item => proposeFix(context, item));
   register(context, 'secureCodeReview.showRagContext', item => showRagContext(context, item));
+  register(context, 'secureCodeReview.showAiFindingReview', item => showAiFindingReview(context, item));
   register(context, 'secureCodeReview.setDecision', item => setDecision(context, item));
   register(context, 'secureCodeReview.openFinding', item => openFinding(item));
   register(context, 'secureCodeReview.openWebApp', openWebApp);
@@ -283,6 +285,18 @@ async function showRagContext(context, item) {
   }
 }
 
+async function showAiFindingReview(context, item) {
+  const scan = await loadLastScan(context);
+  const finding = await resolveFinding(scan, item);
+  if (!scan || !finding) return;
+  try {
+    const params = new URLSearchParams({ provider: defaultFixProvider(), include_prompts: 'true' });
+    const review = await apiJson('GET', `/api/scans/${scan.scan_id}/findings/${finding.id}/ai-review?${params}`);
+    await showDocument(`secure-review-ai-${finding.id}.json`, JSON.stringify(review, null, 2), 'json');
+  } catch (error) {
+    showApiError('Could not build AI finding review', error);
+  }
+}
 async function setDecision(context, item) {
   const scan = await loadLastScan(context);
   const finding = await resolveFinding(scan, item);
@@ -412,6 +426,7 @@ function reportDefinitions(scan) {
     jsonReport('team-learning', 'Team Learning Dashboard', '/api/team-learning/dashboard', 'team-learning-dashboard.json', 'Team learning trends, campaign recommendations, and security behavior dashboard.'),
     jsonReport('memory-context', 'Repository Memory Brief', `/api/scans/${scanId}/memory-context`, 'memory-context.json', 'Repository memory attached to this scan.'),
     jsonReport('advanced-ai', 'Advanced AI Report', `/api/scans/${scanId}/advanced-ai/report`, 'advanced-ai.json', 'Embeddings, multi-agent, local runtime, and GPU report.'),
+    jsonReport('ai-review', 'AI Finding Review', `/api/scans/${scanId}/ai-review?provider=${encodeURIComponent(defaultFixProvider())}&limit=${fixBundleLimit()}`, 'ai-review.json', 'Dynamic prompt AI explanations and remediation suggestions.'),
     jsonReport('compliance', 'Enterprise Compliance', `/api/scans/${scanId}/compliance`, 'compliance.json', 'Enterprise compliance evidence.'),
     jsonReport('sarif', 'SARIF', `/api/scans/${scanId}/sarif`, 'secure-review.sarif', 'SARIF export for code scanning.'),
     textReport('markdown-report', 'Markdown Report', `/api/scans/${scanId}/report.md`, 'secure-review.md', 'markdown', 'Human-readable markdown report.'),

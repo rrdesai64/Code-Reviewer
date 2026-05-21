@@ -8,7 +8,7 @@ This extension connects VS Code to the local Secure Code Review Assistant backen
 - Run a scan for the current VS Code workspace folder.
 - View findings in a dedicated activity bar view and open findings at source line.
 - Set finding decisions: open, false positive, accepted fix, or risk accepted.
-- Request RAG context and human-reviewed fix proposals for a finding.
+- Request RAG context, AI-generated finding explanations, remediation suggestions, and human-reviewed fix proposals for a finding.
 - Open scan-level reports from the IDE:
   - scanner mesh
   - dependency review
@@ -19,7 +19,7 @@ This extension connects VS Code to the local Secure Code Review Assistant backen
   - SPDX compliance and SBOM policy
   - GitHub PR review preview, GitLab/Azure DevOps/Bitbucket review preview, and PR comment
   - fix proposals, fix bundle, and dry-run fix apply
-  - remediation plan, Jira/Linear issue plan, Slack/Teams chat agent, team learning dashboard, memory context, advanced AI report, and compliance report
+  - remediation plan, Jira/Linear issue plan, Slack/Teams chat agent, team learning dashboard, memory context, advanced AI report, AI finding review, and compliance report
 - Export an evidence bundle under `.secure-review-artifacts/{scan_id}` with the same core artifacts produced by `scan.ps1` and `app.cli`.
 - Save a scan as the baseline from inside VS Code.
 - Open the browser app for deeper review.

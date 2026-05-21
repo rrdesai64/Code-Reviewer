@@ -1005,3 +1005,30 @@ Create a campaign through the API:
 ```
 
 Use the dashboard as a security-management artifact, not only a scanner artifact. The intended workflow is scan, review recurring patterns, open a focused campaign, verify improvement with later scans, and keep accepted-risk decisions auditable.
+
+## AI Finding Review Layer
+
+The app already had local/cloud LLM plumbing, RAG, multi-agent reports, and fix proposals. This layer adds a first-class per-finding AI review artifact: each finding gets a dynamically generated vulnerability explanation prompt and remediation suggestion prompt based on the scanner source, CWE/OWASP tags, risk score, reachability, RAG context, repository memory, and detected vulnerability scenario.
+
+Implemented:
+
+- Dynamic prompt templates for vulnerability explanations and remediation suggestions
+- Scenario classification for secrets, vulnerable dependencies, command injection, SQL injection, XSS, path traversal, SSRF, deserialization, auth/access control, crypto, insecure transport, debug/configuration, IaC/container, CI/CD supply chain, and generic secure coding findings
+- Offline deterministic template fallback plus optional Ollama, OpenAI, and OpenAI-compatible LLM providers
+- Per-finding endpoint with prompt-template output for auditability
+- Scan-level AI review artifact for top open findings
+- Browser UI, CLI, VS Code, `scan.ps1`, and GitHub Actions artifact support for `ai-review.json`
+
+Useful endpoints:
+
+- `GET /api/finding-ai/status`
+- `GET /api/scans/{scan_id}/ai-review`
+- `GET /api/scans/{scan_id}/findings/{finding_id}/ai-review`
+
+CLI export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --ai-review-out ai-review.json --ai-review-provider offline --ai-review-limit 25 --ai-review-include-prompts
+```
+
+Provider options match the existing LLM layer: `offline`, `ollama`, `openai`, and `openai_compatible`. Keep `offline` for sensitive repositories unless an external provider is explicitly approved.

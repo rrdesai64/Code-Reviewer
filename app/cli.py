@@ -14,6 +14,7 @@ from .code_hosts import CodeHostIntegrationError, build_code_host_review
 from .advanced_ai import build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, phase_g_report, run_multi_agent_review, semantic_search
 from .github_pr import GitHubIntegrationError, build_github_pr_review
 from .fix_workflow import apply_fix_bundle, build_fix_bundle
+from .finding_ai import build_scan_ai_review
 from .ingestion import scanner_mesh_report
 from .issue_planning import IssuePlanningError, build_issue_plan
 from .memory import update_repository_memory
@@ -42,6 +43,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--sonarqube-out')
     parser.add_argument('--scanner-depth-out')
     parser.add_argument('--advanced-ai-out')
+    parser.add_argument('--ai-review-out')
+    parser.add_argument('--ai-review-limit', type=int, default=25)
+    parser.add_argument('--ai-review-provider', default='offline')
+    parser.add_argument('--ai-review-model')
+    parser.add_argument('--ai-review-include-prompts', action='store_true')
     parser.add_argument('--agent-review-out')
     parser.add_argument('--finetune-experiment-out')
     parser.add_argument('--finetune-dataset-out')
@@ -136,6 +142,8 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.semantic_search_out).write_text(json.dumps(semantic_search(query, provider=args.embedding_provider, model=args.embedding_model), indent=2), encoding='utf-8')
     if args.advanced_ai_out:
         Path(args.advanced_ai_out).write_text(json.dumps(phase_g_report(scan, provider=args.advanced_ai_provider, model=args.advanced_ai_model, embedding_provider=args.embedding_provider), indent=2), encoding='utf-8')
+    if args.ai_review_out:
+        Path(args.ai_review_out).write_text(json.dumps(build_scan_ai_review(scan, provider=args.ai_review_provider, model=args.ai_review_model, limit=args.ai_review_limit, include_prompts=args.ai_review_include_prompts), indent=2), encoding='utf-8')
     if args.agent_review_out:
         Path(args.agent_review_out).write_text(json.dumps(run_multi_agent_review(scan, provider=args.advanced_ai_provider, model=args.advanced_ai_model), indent=2), encoding='utf-8')
     if args.finetune_experiment_out:

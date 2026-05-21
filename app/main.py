@@ -16,6 +16,7 @@ from .chat_agents import ChatAgentError, build_chat_notification, chat_agent_sta
 from .code_hosts import CodeHostIntegrationError, build_code_host_review, code_host_status
 from .auth import AuthEnforcementMiddleware, AuthUser, auth_config, auth_status, login_user, logout_user, make_oauth, make_saml_auth, normalize_user, require_permission, require_user, saml_metadata_response
 from .enterprise import audit, audit_events, compliance_report, load_enterprise
+from .finding_ai import build_finding_ai_review, build_scan_ai_review, finding_ai_status
 from .dependency_review import dependency_review_report
 from .llm import generate, provider_status
 from .github_pr import GitHubIntegrationError, build_github_pr_review, github_integration_status, handle_github_webhook, verify_github_webhook_signature
@@ -35,7 +36,7 @@ from .sonarqube import sonarqube_quality_report
 from .storage import apply_decisions, load_baseline, load_scan, save_baseline, save_decision, save_scan, list_scans
 from .team_learning import create_campaign, load_campaigns, scan_learning_brief_by_id, team_learning_dashboard
 
-app = FastAPI(title='Secure Code Review Assistant', version='0.25.0')
+app = FastAPI(title='Secure Code Review Assistant', version='0.26.0')
 oauth = make_oauth()
 STATIC_DIR = ROOT / 'static'
 UPLOAD_DIR = ROOT / 'data' / 'uploads'
@@ -52,7 +53,7 @@ def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
 
 @app.get('/api/health')
 def health() -> dict:
-    return {'ok': True, 'phase': 'phase-r', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'sonarqube-issue-ingestion', 'sonarqube-quality-gate', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'scanner-mesh', 'scanner-depth', 'semgrep-multi-config', 'codeql-query-depth', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run', 'ide-cli-parity', 'vscode-extension-parity', 'ide-evidence-export', 'issue-planning', 'jira-planning', 'linear-planning', 'issue-plan-dry-run', 'slack-teams-agent', 'chat-notifications', 'slack-agent', 'teams-agent', 'chat-bot-commands', 'gitlab-review', 'azure-devops-review', 'bitbucket-review', 'multi-code-host-review', 'team-learning-dashboard', 'security-campaigns', 'learning-recommendations', 'risk-trend-dashboard'], 'llm_providers': provider_status(), 'auth': auth_status()}
+    return {'ok': True, 'phase': 'phase-s', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'sonarqube-issue-ingestion', 'sonarqube-quality-gate', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'scanner-mesh', 'scanner-depth', 'semgrep-multi-config', 'codeql-query-depth', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run', 'ide-cli-parity', 'vscode-extension-parity', 'ide-evidence-export', 'issue-planning', 'jira-planning', 'linear-planning', 'issue-plan-dry-run', 'slack-teams-agent', 'chat-notifications', 'slack-agent', 'teams-agent', 'chat-bot-commands', 'gitlab-review', 'azure-devops-review', 'bitbucket-review', 'multi-code-host-review', 'team-learning-dashboard', 'security-campaigns', 'learning-recommendations', 'risk-trend-dashboard', 'finding-ai-review', 'dynamic-prompt-templates', 'ai-vulnerability-explanations', 'ai-remediation-suggestions'], 'llm_providers': provider_status(), 'auth': auth_status()}
 
 
 
@@ -680,6 +681,35 @@ def scan_memory_context(scan_id: str, user: AuthUser = Depends(require_permissio
 def llm_providers(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
     return provider_status()
 
+
+@app.get('/api/finding-ai/status')
+def finding_ai_status_endpoint(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    return finding_ai_status()
+
+
+@app.get('/api/scans/{scan_id}/ai-review')
+def scan_ai_review(scan_id: str, provider: str = 'offline', model: str | None = None, limit: int = 25, include_prompts: bool = False, user: AuthUser = Depends(require_permission('fix:propose'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    report = build_scan_ai_review(scan, provider=provider, model=model, limit=limit, include_prompts=include_prompts)
+    audit(user.username, 'finding_ai.scan_review', scan_id, {'provider': provider, 'count': str(report['review_count'])})
+    return report
+
+
+@app.get('/api/scans/{scan_id}/findings/{finding_id}/ai-review')
+def finding_ai_review(scan_id: str, finding_id: str, provider: str = 'offline', model: str | None = None, include_prompts: bool = True, user: AuthUser = Depends(require_permission('fix:propose'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    try:
+        review = build_finding_ai_review(scan, finding_id, provider=provider, model=model, include_prompts=include_prompts)
+    except ValueError:
+        raise HTTPException(status_code=404, detail='finding not found')
+    audit(user.username, 'finding_ai.finding_review', finding_id, {'scan_id': scan_id, 'provider': provider})
+    return review
 
 @app.post('/api/llm/generate')
 def llm_generate(request: LLMRequest, user: AuthUser = Depends(require_permission('fix:propose'))) -> dict:

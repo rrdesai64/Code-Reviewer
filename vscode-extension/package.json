@@ -44,6 +44,8 @@
     "onCommand:secureCodeReview.showTeamLearning",
     "onCommand:secureCodeReview.showMemoryContext",
     "onCommand:secureCodeReview.showAdvancedAiReport",
+    "onCommand:secureCodeReview.showAiReview",
+    "onCommand:secureCodeReview.showAiFindingReview",
     "onCommand:secureCodeReview.proposeFix",
     "onCommand:secureCodeReview.showRagContext",
     "onCommand:secureCodeReview.setDecision",
@@ -220,6 +222,14 @@
         "title": "Secure Review: Show Advanced AI Report"
       },
       {
+        "command": "secureCodeReview.showAiReview",
+        "title": "Secure Review: Show AI Finding Review"
+      },
+      {
+        "command": "secureCodeReview.showAiFindingReview",
+        "title": "Secure Review: Explain Finding With AI"
+      },
+      {
         "command": "secureCodeReview.proposeFix",
         "title": "Secure Review: Propose Fix"
       },
@@ -297,9 +307,14 @@
           "group": "navigation@2"
         },
         {
-          "command": "secureCodeReview.setDecision",
+          "command": "secureCodeReview.showAiFindingReview",
           "when": "view == secureCodeReviewFindings && viewItem == finding",
           "group": "navigation@3"
+        },
+        {
+          "command": "secureCodeReview.setDecision",
+          "when": "view == secureCodeReviewFindings && viewItem == finding",
+          "group": "navigation@4"
         }
       ]
     }

@@ -58,6 +58,7 @@ function renderScan(scan) {
     <button class="ghost" onclick="showFixBundle('${scan.scan_id}')">Fix Bundle</button>
     <button class="ghost" onclick="dryRunFixApply('${scan.scan_id}')">Fix Dry Run</button>
     <button class="ghost" onclick="showRemediationPlan('${scan.scan_id}')">Remediation</button>
+    <button class="ghost" onclick="showAiScanReview('${scan.scan_id}')">AI Review</button>
     <button class="ghost" onclick="showIssuePlan('${scan.scan_id}')">Issue Plan</button>
     <button class="ghost" onclick="showChatNotification('${scan.scan_id}')">Chat Agent</button>
     <button class="ghost" onclick="showTeamLearning()">Team Learning</button>
@@ -108,6 +109,7 @@ function renderFinding(f) {
         <option value="openai_compatible">compatible</option>
       </select>
       <button class="ghost" onclick="showRagContext('${f.id}')">RAG</button>
+      <button class="ghost" onclick="showAiFindingReview('${f.id}')">AI Review</button>
       <button class="ghost" onclick="proposeFix('${f.id}')">Propose Fix</button>
     </div>
     <pre class="proposal" id="proposal-${f.id}"></pre>
@@ -163,6 +165,47 @@ function formatProposal(proposal) {
   ].join('\n');
 }
 
+async function showAiScanReview(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/ai-review?provider=offline&limit=25`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not load AI review.';
+    return;
+  }
+  showJsonPanel('AI Finding Review', await response.json());
+}
+
+async function showAiFindingReview(findingId) {
+  const provider = document.querySelector(`#provider-${findingId}`).value;
+  const target = document.querySelector(`#proposal-${findingId}`);
+  target.textContent = 'Generating AI review...';
+  const response = await fetch(`/api/scans/${currentScan.scan_id}/findings/${findingId}/ai-review?provider=${provider}&include_prompts=true`);
+  if (!response.ok) {
+    target.textContent = 'Could not generate AI review.';
+    return;
+  }
+  const review = await response.json();
+  target.textContent = formatAiReview(review);
+}
+
+function formatAiReview(review) {
+  const steps = ((review.remediation_suggestion && review.remediation_suggestion.steps) || []).map(item => `- ${item}`).join('\n');
+  const commands = ((review.remediation_suggestion && review.remediation_suggestion.validation_commands) || []).map(item => `- ${item}`).join('\n');
+  return [
+    `AI scenario: ${review.scenario.label} (${review.scenario.confidence})`,
+    '',
+    'Explanation:',
+    review.ai_explanation.text,
+    '',
+    'Remediation:',
+    review.remediation_suggestion.text,
+    '',
+    'Steps:',
+    steps || '- Review finding and apply the smallest safe change.',
+    '',
+    'Validation:',
+    commands || '- Rerun scan and project tests.',
+  ].join('\n');
+}
 async function showFixBundle(scanId) {
   const response = await fetch(`/api/scans/${scanId}/fixes/bundle?limit=10`);
   if (!response.ok) {

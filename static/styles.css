@@ -27,6 +27,9 @@ button.secondary, .link-button.secondary { background: #344054; }
 button.ghost { background: #edf2f7; color: var(--text); }
 .or { text-align: center; color: var(--muted); font-size: 12px; }
 .status, .health { color: var(--muted); font-size: 13px; }
+.health { display: flex; align-items: center; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.text-action { min-height: auto; padding: 0; border-radius: 0; background: transparent; color: var(--accent); font: inherit; font-weight: 700; }
+.text-action:hover { text-decoration: underline; }
 .status { margin-top: 14px; min-height: 20px; }
 .summary-grid { display: grid; grid-template-columns: repeat(6, minmax(92px, 1fr)); gap: 10px; }
 .metric { border: 1px solid var(--line); border-radius: 6px; padding: 12px; background: #fbfcfe; }

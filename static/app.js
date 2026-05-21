@@ -6,9 +6,14 @@ const actionsEl = document.querySelector('#actions');
 const healthEl = document.querySelector('#health');
 const authUserEl = document.querySelector('#auth-user');
 let currentScan = null;
+let serviceHealth = null;
 
 fetch('/api/health').then(r => r.json()).then(data => {
-  healthEl.textContent = data.ok ? `Service ready: ${data.features.join(', ')}` : 'Service unavailable';
+  serviceHealth = data;
+  const capabilityCount = (data.features || []).length;
+  healthEl.innerHTML = data.ok
+    ? `Service ready: ${capabilityCount} capabilities <button class="text-action" onclick="showSystemInfo()">System Info</button>`
+    : 'Service unavailable';
 }).catch(() => healthEl.textContent = 'Service unavailable');
 
 fetch('/auth/me').then(r => r.ok ? r.json() : null).then(user => {
@@ -366,6 +371,14 @@ async function showMemoryBrief(scanId) {
 async function showEnterprise() {
   const response = await fetch('/api/enterprise');
   showJsonPanel('Enterprise Configuration', await response.json());
+}
+
+async function showSystemInfo() {
+  if (!serviceHealth) {
+    const response = await fetch('/api/health');
+    serviceHealth = await response.json();
+  }
+  showJsonPanel('System Info', serviceHealth);
 }
 
 function showJsonPanel(title, data) {

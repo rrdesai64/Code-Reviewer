@@ -19,6 +19,7 @@ from .ingestion import scanner_mesh_report
 from .issue_planning import IssuePlanningError, build_issue_plan
 from .memory import update_repository_memory
 from .refactor import build_fix_proposal, build_remediation_plan
+from .recursive_learning import scan_recursive_learning_report
 from .reporting import github_pr_comment, markdown_report
 from .sarif import build_sarif
 from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report, spdx_compliance_report
@@ -90,6 +91,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--chat-notification-out')
     parser.add_argument('--team-learning-out')
     parser.add_argument('--team-learning-limit', type=int, default=100)
+    parser.add_argument('--recursive-learning-out')
+    parser.add_argument('--recursive-learning-limit', type=int, default=100)
     parser.add_argument('--chat-provider', choices=['all', 'slack', 'teams'], default='all')
     parser.add_argument('--chat-include-findings', type=int, default=10)
     parser.add_argument('--chat-publish', action='store_true', help='publish the prepared Slack/Teams notification when credentials and dry-run gates allow it')
@@ -240,6 +243,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.team_learning_out:
         Path(args.team_learning_out).write_text(
             json.dumps(team_learning_dashboard(limit=args.team_learning_limit), indent=2),
+            encoding='utf-8',
+        )
+    if args.recursive_learning_out:
+        Path(args.recursive_learning_out).write_text(
+            json.dumps(scan_recursive_learning_report(scan, limit=args.recursive_learning_limit), indent=2),
             encoding='utf-8',
         )
     chat_notification = None

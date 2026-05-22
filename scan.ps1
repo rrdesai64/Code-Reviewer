@@ -23,6 +23,7 @@ param(
   [string]$IssuePlanOut = "issue-plan.json",
   [string]$ChatNotificationOut = "chat-notification.json",
   [string]$TeamLearningOut = "team-learning-dashboard.json",
+  [string]$RecursiveLearningOut = "recursive-learning.json",
   [string]$FixBundleOut = "fix-bundle.json",
   [string]$FixApplyOut = "fix-apply-dry-run.json"
 )
@@ -53,6 +54,7 @@ $argsList = @(
   '--issue-plan-out', $IssuePlanOut,
   '--chat-notification-out', $ChatNotificationOut,
   '--team-learning-out', $TeamLearningOut,
+  '--recursive-learning-out', $RecursiveLearningOut,
   '--fix-bundle-out', $FixBundleOut,
   '--fix-apply-out', $FixApplyOut
 )

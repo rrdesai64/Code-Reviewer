@@ -50,6 +50,7 @@ function activate(context) {
   register(context, 'secureCodeReview.showIssuePlan', () => showReportById(context, 'issue-plan'));
   register(context, 'secureCodeReview.showChatNotification', () => showReportById(context, 'chat-notification'));
   register(context, 'secureCodeReview.showTeamLearning', () => showReportById(context, 'team-learning'));
+  register(context, 'secureCodeReview.showRecursiveLearning', () => showReportById(context, 'recursive-learning'));
   register(context, 'secureCodeReview.showMemoryContext', () => showReportById(context, 'memory-context'));
   register(context, 'secureCodeReview.showAdvancedAiReport', () => showReportById(context, 'advanced-ai'));
   register(context, 'secureCodeReview.showAiReview', () => showReportById(context, 'ai-review'));
@@ -424,6 +425,7 @@ function reportDefinitions(scan) {
     jsonReport('issue-plan', 'Jira/Linear Issue Plan', `/api/scans/${scanId}/issue-plan`, 'issue-plan.json', 'Dry-run Jira and Linear work item payloads.'),
     jsonReport('chat-notification', 'Slack/Teams Agent', `/api/scans/${scanId}/chat/notification`, 'chat-notification.json', 'Dry-run Slack and Teams notification payloads.'),
     jsonReport('team-learning', 'Team Learning Dashboard', '/api/team-learning/dashboard', 'team-learning-dashboard.json', 'Team learning trends, campaign recommendations, and security behavior dashboard.'),
+    jsonReport('recursive-learning', 'Recursive Scanner Learning', `/api/scans/${scanId}/recursive-learning`, 'recursive-learning.json', 'Controlled scanner improvement recommendations from scan evidence.'),
     jsonReport('memory-context', 'Repository Memory Brief', `/api/scans/${scanId}/memory-context`, 'memory-context.json', 'Repository memory attached to this scan.'),
     jsonReport('advanced-ai', 'Advanced AI Report', `/api/scans/${scanId}/advanced-ai/report`, 'advanced-ai.json', 'Embeddings, multi-agent, local runtime, and GPU report.'),
     jsonReport('ai-review', 'AI Finding Review', `/api/scans/${scanId}/ai-review?provider=${encodeURIComponent(defaultFixProvider())}&limit=${fixBundleLimit()}`, 'ai-review.json', 'Dynamic prompt AI explanations and remediation suggestions.'),

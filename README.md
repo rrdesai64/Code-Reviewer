@@ -786,7 +786,7 @@ Implemented:
 
 - VS Code command palette and activity-bar commands for workspace scans, health checks, refresh, baseline save, and web app launch
 - Finding tree with source navigation, RAG context, fix proposals, and finding decision updates
-- Report picker for scanner mesh, dependency review, SonarQube quality gate, scanner depth, secret policy, push protection, CycloneDX, SPDX, SPDX compliance, SBOM policy, SBOM comparison, GitHub PR review, PR comment, remediation plan, memory context, advanced AI report, compliance, SARIF, Markdown, and HTML
+- Report picker for scanner mesh, dependency review, SonarQube quality gate, scanner depth, secret policy, push protection, CycloneDX, SPDX, SPDX compliance, SBOM policy, SBOM comparison, GitHub PR review, PR comment, remediation plan, memory context, recursive scanner learning, advanced AI report, compliance, SARIF, Markdown, and HTML
 - Safe fix workflow parity through IDE-accessible fix proposals, fix bundles, and dry-run fix apply reports
 - Evidence bundle export to `.secure-review-artifacts/{scan_id}` using the same core artifacts emitted by `scan.ps1` and `app.cli`
 - Extension settings for backend URL, optional bearer token, extra request headers, default fix provider, and fix bundle limit
@@ -1045,6 +1045,39 @@ Create a campaign through the API:
 
 Use the dashboard as a security-management artifact, not only a scanner artifact. The intended workflow is scan, review recurring patterns, open a focused campaign, verify improvement with later scans, and keep accepted-risk decisions auditable.
 
+## Recursive Scanner Learning
+
+Recursive scanner learning turns stored scan evidence into proposed scanner improvement recommendations. It is intentionally read-only: the app does not rewrite Semgrep rules, parser code, CodeQL/Sonar configuration, or suppression settings automatically.
+
+Implemented:
+
+- Evidence collection for noisy rules, parser gaps, scope classification conflicts, scanner environment failures, false-positive patterns, recurring vulnerable dependency families, finding decisions, and report section usage
+- Scanner improvement recommendations with `status=proposed`, `requires_human_approval=true`, and `auto_apply=false`
+- Human approval workflow guidance for rule/config/parser changes
+- Benchmark promotion gates requiring before/after evidence, lower noise, and no loss of known true positives
+- API, CLI, browser UI, and report bundle artifact support through `recursive-learning.json`
+
+Useful endpoints:
+
+- `GET /api/recursive-learning/dashboard`
+- `GET /api/scans/{scan_id}/recursive-learning`
+
+CLI export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --recursive-learning-out recursive-learning.json --recursive-learning-limit 100
+```
+
+PowerShell wrapper:
+
+```powershell
+.\scan.ps1 -Path "G:\Path\To\Repo"
+```
+
+`scan.ps1` now emits `recursive-learning.json` by default with the other review artifacts.
+
+Recommended workflow: collect scan evidence, review generated scanner improvement recommendations, approve candidate changes manually, test them against benchmark repositories, and promote them into the main rule pack only if false-positive noise drops without losing true positives.
+
 ## AI Finding Review Layer
 
 The app already had local/cloud LLM plumbing, RAG, multi-agent reports, and fix proposals. This layer adds a first-class per-finding AI review artifact: each finding gets a dynamically generated vulnerability explanation prompt and remediation suggestion prompt based on the scanner source, CWE/OWASP tags, risk score, reachability, RAG context, repository memory, and detected vulnerability scenario.
@@ -1079,7 +1112,7 @@ Dashboard scans now write a human-shareable report bundle automatically after ea
 reports\<repo-name>\<scan-id>\
 ```
 
-Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `dependency-review.json`, `ai-review.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, and safe fix dry-run artifacts.
+Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, and safe fix dry-run artifacts.
 
 The dashboard shows the saved bundle path after the scan and includes a `Report Bundle` action that opens the manifest. Set `REPORT_BUNDLE_DIR` in `.env` to place bundles somewhere else, for example:
 

@@ -18,6 +18,7 @@ from .ingestion import scanner_mesh_report
 from .issue_planning import build_issue_plan
 from .models import FixApplyRequest, ScanResult
 from .refactor import build_remediation_plan
+from .recursive_learning import scan_recursive_learning_report
 from .reporting import github_pr_comment, html_report, markdown_report
 from .sarif import build_sarif
 from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report, spdx_compliance_report
@@ -68,6 +69,7 @@ def build_report_bundle(scan: ScanResult, base_dir: Path | None = None, ai_revie
     write_json_artifact('issue-plan.json', lambda: build_issue_plan(scan))
     write_json_artifact('chat-notification.json', lambda: build_chat_notification(scan))
     write_json_artifact('team-learning-dashboard.json', lambda: team_learning_dashboard())
+    write_json_artifact('recursive-learning.json', lambda: scan_recursive_learning_report(scan))
     write_json_artifact('fix-bundle.json', lambda: build_fix_bundle(scan, limit=DEFAULT_FIX_BUNDLE_LIMIT, provider='offline'))
     write_json_artifact('fix-apply-dry-run.json', lambda: apply_fix_bundle(scan, FixApplyRequest(dry_run=True, approved=True, limit=DEFAULT_FIX_BUNDLE_LIMIT, provider='offline')))
 

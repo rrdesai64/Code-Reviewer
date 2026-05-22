@@ -26,6 +26,7 @@ from .issue_planning import IssuePlanningError, build_issue_plan, issue_planning
 from .memory import load_memory, memory_summary, repository_memory, repository_memory_for_scan, update_repository_memory
 from .rag import add_knowledge_document, build_index, finding_context, index_stats, retrieve_response
 from .refactor import build_fix_proposal, build_remediation_plan
+from .recursive_learning import recursive_learning_report, scan_recursive_learning_report
 from .reporting import github_pr_comment, html_report, markdown_report
 from .report_bundle import build_report_bundle, report_bundle_metadata
 from .sarif import build_sarif
@@ -54,7 +55,7 @@ def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
 
 @app.get('/api/health')
 def health() -> dict:
-    return {'ok': True, 'phase': 'phase-s', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'sonarqube-issue-ingestion', 'sonarqube-quality-gate', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'local-gitleaks-tool', 'local-trufflehog-tool', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'scanner-mesh', 'scanner-depth', 'expanded-semgrep-rules', 'semgrep-multi-config', 'codeql-query-depth', 'codeql-no-build-defaults', 'codeql-go-local-toolchain', 'sonarcloud-organization-config', 'dashboard-scan-state', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'go-module-dependency-review', 'govulncheck-adapter', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run', 'ide-cli-parity', 'vscode-extension-parity', 'ide-evidence-export', 'issue-planning', 'jira-planning', 'linear-planning', 'issue-plan-dry-run', 'slack-teams-agent', 'chat-notifications', 'slack-agent', 'teams-agent', 'chat-bot-commands', 'gitlab-review', 'azure-devops-review', 'bitbucket-review', 'multi-code-host-review', 'team-learning-dashboard', 'security-campaigns', 'learning-recommendations', 'risk-trend-dashboard', 'finding-ai-review', 'dynamic-prompt-templates', 'ai-vulnerability-explanations', 'ai-remediation-suggestions'], 'llm_providers': provider_status(), 'auth': auth_status()}
+    return {'ok': True, 'phase': 'phase-s', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'sonarqube-issue-ingestion', 'sonarqube-quality-gate', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'local-gitleaks-tool', 'local-trufflehog-tool', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'scanner-mesh', 'scanner-depth', 'expanded-semgrep-rules', 'semgrep-multi-config', 'codeql-query-depth', 'codeql-no-build-defaults', 'codeql-go-local-toolchain', 'sonarcloud-organization-config', 'dashboard-scan-state', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'go-module-dependency-review', 'govulncheck-adapter', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run', 'ide-cli-parity', 'vscode-extension-parity', 'ide-evidence-export', 'issue-planning', 'jira-planning', 'linear-planning', 'issue-plan-dry-run', 'slack-teams-agent', 'chat-notifications', 'slack-agent', 'teams-agent', 'chat-bot-commands', 'gitlab-review', 'azure-devops-review', 'bitbucket-review', 'multi-code-host-review', 'team-learning-dashboard', 'security-campaigns', 'learning-recommendations', 'risk-trend-dashboard', 'recursive-learning', 'scanner-improvement-recommendations', 'human-approved-tuning-workflow', 'benchmark-promotion-gates', 'finding-ai-review', 'dynamic-prompt-templates', 'ai-vulnerability-explanations', 'ai-remediation-suggestions'], 'llm_providers': provider_status(), 'auth': auth_status()}
 
 
 
@@ -685,6 +686,22 @@ def scan_team_learning(scan_id: str, user: AuthUser = Depends(require_permission
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail='scan not found')
     audit(user.username, 'team_learning.scan_brief_reported', scan_id, {'status': report['status']})
+    return report
+
+@app.get('/api/recursive-learning/dashboard')
+def recursive_learning_dashboard_endpoint(limit: int = 100, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = recursive_learning_report(limit=limit)
+    audit(user.username, 'recursive_learning.dashboard_reported', 'recursive-learning', {'status': report['status'], 'scans': str(report['scan_count']), 'recommendations': str(len(report['scanner_improvement_recommendations']))})
+    return report
+
+
+@app.get('/api/scans/{scan_id}/recursive-learning')
+def scan_recursive_learning(scan_id: str, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        report = scan_recursive_learning_report(scan_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    audit(user.username, 'recursive_learning.scan_reported', scan_id, {'status': report['status'], 'recommendations': str(len(report['scanner_improvement_recommendations']))})
     return report
 
 @app.get('/api/scans/{scan_id}/memory-context')

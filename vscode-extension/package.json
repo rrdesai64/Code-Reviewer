@@ -42,6 +42,7 @@
     "onCommand:secureCodeReview.showIssuePlan",
     "onCommand:secureCodeReview.showChatNotification",
     "onCommand:secureCodeReview.showTeamLearning",
+    "onCommand:secureCodeReview.showRecursiveLearning",
     "onCommand:secureCodeReview.showMemoryContext",
     "onCommand:secureCodeReview.showAdvancedAiReport",
     "onCommand:secureCodeReview.showAiReview",
@@ -212,6 +213,10 @@
       {
         "command": "secureCodeReview.showTeamLearning",
         "title": "Secure Review: Show Team Learning Dashboard"
+      },
+      {
+        "command": "secureCodeReview.showRecursiveLearning",
+        "title": "Secure Review: Show Recursive Scanner Learning"
       },
       {
         "command": "secureCodeReview.showMemoryContext",

@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .go_tools import go_tool_env
 from .ingestion import finding_from_sonar_issue, findings_from_sarif_file, normalize_finding
 from .models import Finding
 
@@ -72,12 +73,13 @@ def run_codeql_language(codeql: Path, target: Path, language: str) -> tuple[list
         create_command.append(f'--command={build_command}')
     elif build_mode:
         create_command.append(f'--build-mode={build_mode}')
-    code, stdout, stderr = run_tool(create_command, ROOT, timeout=timeout)
+    tool_env = codeql_tool_env(language)
+    code, stdout, stderr = run_tool(create_command, ROOT, timeout=timeout, env=tool_env)
     if code != 0:
         return [], f'database create failed: {clean_error(stderr or stdout)}'
     analyze_command = [str(codeql), 'database', 'analyze', str(db), *query_suites, '--format=sarifv2.1.0', f'--output={sarif}']
     analyze_command.extend(codeql_resource_args())
-    code, stdout, stderr = run_tool(analyze_command, ROOT, timeout=timeout)
+    code, stdout, stderr = run_tool(analyze_command, ROOT, timeout=timeout, env=tool_env)
     if code not in (0, 2) or not sarif.exists():
         return [], f'analyze failed: {clean_error(stderr or stdout)}'
     findings = findings_from_sarif(sarif, 'codeql')
@@ -228,7 +230,7 @@ def findings_from_sarif(path: Path, source: str) -> list[Finding]:
 
 def run_tool(command: list[str], cwd: Path, timeout: int, env: dict[str, str] | None = None) -> tuple[int, str, str]:
     try:
-        completed = subprocess.run(command, cwd=str(cwd), text=True, capture_output=True, timeout=timeout, env=env)
+        completed = subprocess.run(command, cwd=str(cwd), text=True, encoding='utf-8', errors='replace', capture_output=True, timeout=timeout, env=env)
         return completed.returncode, completed.stdout, completed.stderr
     except FileNotFoundError as exc:
         return 127, '', str(exc)
@@ -303,6 +305,12 @@ def sonar_env() -> dict[str, str]:
     elif DEFAULT_JAVA_HOME.exists():
         env['JAVA_HOME'] = str(DEFAULT_JAVA_HOME)
     return env
+
+
+def codeql_tool_env(language: str) -> dict[str, str] | None:
+    if language == 'go':
+        return go_tool_env()
+    return None
 
 
 def codeql_query_suites(language: str) -> list[str]:

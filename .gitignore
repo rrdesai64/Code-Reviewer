@@ -66,3 +66,5 @@ team-learning-dashboard.json
 ai-review.json
 tools/gitleaks/
 tools/trufflehog/
+tools/go/
+tools/go-tools/

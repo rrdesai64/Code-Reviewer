@@ -306,6 +306,8 @@ def discover_components(scan: ScanResult | None) -> list[SbomComponent]:
     components.extend(read_pyproject(target))
     components.extend(read_package_json(target))
     components.extend(read_package_lock(target))
+    components.extend(read_go_mod(target))
+    components.extend(read_go_sum(target))
     return dedupe_components(components)
 
 
@@ -420,6 +422,89 @@ def read_package_lock(target: Path) -> list[SbomComponent]:
     return components
 
 
+def read_go_mod(target: Path) -> list[SbomComponent]:
+    components: list[SbomComponent] = []
+    for manifest in sorted(target.rglob('go.mod')):
+        if excluded(manifest):
+            continue
+        rel = relpath(manifest, target)
+        for name, version, indirect in parse_go_mod_requirements(manifest.read_text(encoding='utf-8', errors='ignore')):
+            source_info = 'indirect=true' if indirect else 'direct=true'
+            components.append(enrich_component(SbomComponent(
+                'golang', name, version=version, version_spec=version, scope=go_dependency_scope(rel),
+                manifest_path=rel, package_manager='go', homepage=f'https://pkg.go.dev/{name}',
+                download_location=f'https://pkg.go.dev/{name}', source_info=source_info,
+            )))
+    return components
+
+
+def read_go_sum(target: Path) -> list[SbomComponent]:
+    components: list[SbomComponent] = []
+    for manifest in sorted(target.rglob('go.sum')):
+        if excluded(manifest):
+            continue
+        rel = relpath(manifest, target)
+        seen: set[tuple[str, str]] = set()
+        for line in manifest.read_text(encoding='utf-8', errors='ignore').splitlines():
+            parts = line.strip().split()
+            if len(parts) < 2:
+                continue
+            name, version = parts[0], parts[1]
+            if version.endswith('/go.mod'):
+                version = version[:-7]
+            key = (name, version)
+            if not name or not version or key in seen:
+                continue
+            seen.add(key)
+            components.append(enrich_component(SbomComponent(
+                'golang', name, version=version, version_spec=version, scope=go_dependency_scope(rel),
+                manifest_path=rel, package_manager='go', homepage=f'https://pkg.go.dev/{name}',
+                download_location=f'https://pkg.go.dev/{name}', source_info='checksum-present=true',
+            )))
+    return components
+
+
+def parse_go_mod_requirements(text: str) -> list[tuple[str, str, bool]]:
+    requirements: list[tuple[str, str, bool]] = []
+    in_block = False
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith('//'):
+            continue
+        if line.startswith('require ('):
+            in_block = True
+            continue
+        if in_block and line == ')':
+            in_block = False
+            continue
+        candidate = line
+        if not in_block:
+            if not line.startswith('require '):
+                continue
+            candidate = line[len('require '):].strip()
+        parsed = parse_go_require_line(candidate)
+        if parsed:
+            requirements.append(parsed)
+    return requirements
+
+
+def parse_go_require_line(line: str) -> tuple[str, str, bool] | None:
+    indirect = '// indirect' in line
+    clean = line.split('//', 1)[0].strip()
+    parts = clean.split()
+    if len(parts) < 2:
+        return None
+    name, version = parts[0].strip(), parts[1].strip()
+    if not name or not version or name in {'module', 'go', 'toolchain', 'replace', 'exclude'}:
+        return None
+    return name, version, indirect
+
+
+def go_dependency_scope(path: str) -> str:
+    value = path.lower()
+    return 'optional' if any(marker in value for marker in ('dev', 'test', 'tests', 'doc', 'docs', 'example', 'sample')) else 'required'
+
+
 def parse_requirement_line(line: str) -> tuple[str, str, str] | None:
     clean = line.split('#', 1)[0].strip()
     if not clean or clean.startswith(('-', '--')):
@@ -452,7 +537,9 @@ def attach_missing_vulnerable_components(components: list[SbomComponent], findin
     by_identity = {component.identity: component for component in components}
     result = list(components)
     for item in extract_vulnerabilities(findings):
-        candidate = enrich_component(SbomComponent('pypi', item['package'], version=item['version'], version_spec=item['version'], manifest_path=item['path'], package_manager='pip'))
+        ecosystem = item.get('ecosystem', 'pypi')
+        package_manager = 'go' if ecosystem == 'golang' else 'pip'
+        candidate = enrich_component(SbomComponent(ecosystem, item['package'], version=item['version'], version_spec=item['version'], manifest_path=item['path'], package_manager=package_manager))
         if candidate.identity in by_identity or candidate.key in by_key:
             continue
         result.append(candidate)
@@ -494,7 +581,9 @@ def cyclonedx_vulnerabilities(findings: list[Finding], components: list[SbomComp
     components_by_key = component_map(components)
     components_by_identity = {component.identity: component for component in components}
     for item in extract_vulnerabilities(findings):
-        candidate = enrich_component(SbomComponent('pypi', item['package'], version=item['version'], version_spec=item['version'], manifest_path=item['path'], package_manager='pip'))
+        ecosystem = item.get('ecosystem', 'pypi')
+        package_manager = 'go' if ecosystem == 'golang' else 'pip'
+        candidate = enrich_component(SbomComponent(ecosystem, item['package'], version=item['version'], version_spec=item['version'], manifest_path=item['path'], package_manager=package_manager))
         component = components_by_identity.get(candidate.identity) or components_by_key.get(candidate.key) or candidate
         advisories = []
         for reference in item['references']:
@@ -505,7 +594,7 @@ def cyclonedx_vulnerabilities(findings: list[Finding], components: list[SbomComp
         vuln: dict[str, Any] = {
             'bom-ref': f'vulnerability:{item["id"]}:{item["finding_id"]}',
             'id': item['id'],
-            'source': {'name': 'pip-audit'},
+            'source': {'name': item.get('source', 'pip-audit')},
             'ratings': [{'severity': item['severity'].lower(), 'method': 'other'}],
             'description': item['description'],
             'recommendation': item['recommendation'],
@@ -513,6 +602,7 @@ def cyclonedx_vulnerabilities(findings: list[Finding], components: list[SbomComp
             'properties': [
                 {'name': 'secure-review:finding-id', 'value': item['finding_id']},
                 {'name': 'secure-review:package', 'value': item['package']},
+                {'name': 'secure-review:ecosystem', 'value': item.get('ecosystem', 'pypi')},
                 {'name': 'secure-review:manifest-path', 'value': item['path']},
             ],
         }
@@ -525,22 +615,44 @@ def cyclonedx_vulnerabilities(findings: list[Finding], components: list[SbomComp
 def extract_vulnerabilities(findings: list[Finding]) -> list[dict[str, Any]]:
     vulnerabilities: list[dict[str, Any]] = []
     for finding in findings:
-        if finding.source != 'pip-audit':
-            continue
-        package, version, description = parse_pip_audit_finding(finding)
-        vulnerabilities.append(
-            {
-                'id': finding.rule_id,
-                'finding_id': finding.id,
-                'package': package,
-                'version': version,
-                'severity': finding.severity,
-                'description': description,
-                'recommendation': finding.fix.summary or 'Upgrade the affected package to a non-vulnerable version.',
-                'path': finding.location.path,
-                'references': finding.references,
-            }
-        )
+        if finding.source == 'pip-audit':
+            package, version, description = parse_pip_audit_finding(finding)
+            vulnerabilities.append(
+                {
+                    'id': finding.rule_id,
+                    'finding_id': finding.id,
+                    'source': 'pip-audit',
+                    'ecosystem': 'pypi',
+                    'package': package,
+                    'version': version,
+                    'severity': finding.severity,
+                    'description': description,
+                    'recommendation': finding.fix.summary or 'Upgrade the affected package to a non-vulnerable version.',
+                    'path': finding.location.path,
+                    'references': finding.references,
+                }
+            )
+        elif finding.source == 'govulncheck':
+            metadata = finding.scanner_metadata or {}
+            package = metadata.get('package') or metadata.get('dependency_name') or finding.location.path or 'go-module'
+            version = metadata.get('version') or metadata.get('dependency_version') or ''
+            fix_versions = metadata.get('fix_versions') or metadata.get('fixed_version') or ''
+            recommendation = f'Upgrade {package} to {fix_versions} or later.' if fix_versions else (finding.fix.summary or 'Upgrade the affected Go module to a non-vulnerable version.')
+            vulnerabilities.append(
+                {
+                    'id': finding.rule_id,
+                    'finding_id': finding.id,
+                    'source': 'govulncheck',
+                    'ecosystem': 'golang',
+                    'package': package,
+                    'version': version,
+                    'severity': finding.severity,
+                    'description': finding.message,
+                    'recommendation': recommendation,
+                    'path': finding.location.path,
+                    'references': finding.references,
+                }
+            )
     return vulnerabilities
 
 
@@ -600,7 +712,7 @@ def spdx_vulnerability_annotations(findings: list[Finding], components: list[Sbo
     components_by_key = component_map(components)
     annotations: list[dict[str, Any]] = []
     for item in extract_vulnerabilities(findings):
-        component = components_by_key.get(SbomComponent('pypi', item['package']).key)
+        component = components_by_key.get(SbomComponent(item.get('ecosystem', 'pypi'), item['package']).key)
         if not component:
             continue
         annotations.append(
@@ -828,7 +940,7 @@ def spdx_overall_status(procurement_statuses: list[str], requirements: list[dict
 def vulnerabilities_by_component(findings: list[Finding]) -> dict[str, list[dict[str, Any]]]:
     result: dict[str, list[dict[str, Any]]] = {}
     for item in extract_vulnerabilities(findings):
-        key = SbomComponent('pypi', item['package']).key
+        key = SbomComponent(item.get('ecosystem', 'pypi'), item['package']).key
         result.setdefault(key, []).append(item)
     return result
 
@@ -1129,10 +1241,12 @@ def component_rank(component: SbomComponent) -> int:
         score += 10
     if component.version_spec and component.version_spec != component.version:
         score += 2
-    if component.manifest_path.endswith('package-lock.json'):
+    if component.manifest_path.endswith('package-lock.json') or component.manifest_path.endswith('go.sum'):
         score += 4
     if component.manifest_path.endswith('requirements.txt'):
         score += 3
+    if component.manifest_path.endswith('go.mod'):
+        score += 6
     if not is_unknown_license(component.license_expression):
         score += 5
     if component.supplier != 'NOASSERTION':
@@ -1194,7 +1308,7 @@ def make_purl(ecosystem: str, name: str, version: str = '') -> str:
     package_type = 'pypi' if ecosystem == 'pypi' else ecosystem
     if ecosystem == 'pypi':
         package_name = quote(canonical_name(ecosystem, name), safe='')
-    elif ecosystem == 'npm':
+    elif ecosystem in {'npm', 'golang'}:
         package_name = '/'.join(quote(part, safe='') for part in name.split('/'))
     else:
         package_name = quote(name, safe='')

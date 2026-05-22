@@ -93,14 +93,33 @@ rules:
       cwe: ["CWE-611"]
       owasp: ["A05:2021-Security Misconfiguration"]
     pattern: DocumentBuilderFactory.newInstance()
-  - id: go-command-exec
+  - id: go-shell-command-exec
     languages: [go]
     severity: ERROR
-    message: Review os/exec command construction for injection risks.
+    message: Avoid invoking shell interpreters through os/exec; pass fixed command arguments directly.
     metadata:
       cwe: ["CWE-78"]
       owasp: ["A03:2021-Injection"]
-    pattern: exec.Command(...)
+    pattern-either:
+      - pattern: exec.Command("sh", "-c", ...)
+      - pattern: exec.Command("bash", "-c", ...)
+      - pattern: exec.Command("cmd", "/C", ...)
+      - pattern: exec.CommandContext($CTX, "sh", "-c", ...)
+      - pattern: exec.CommandContext($CTX, "bash", "-c", ...)
+      - pattern: exec.CommandContext($CTX, "cmd", "/C", ...)
+  - id: go-dynamic-command-exec
+    languages: [go]
+    severity: WARNING
+    message: Review dynamic os/exec command names; use fixed allowlisted commands and argument arrays.
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021-Injection"]
+    patterns:
+      - pattern-either:
+          - pattern: exec.Command($CMD, ...)
+          - pattern: exec.CommandContext($CTX, $CMD, ...)
+      - pattern-not: exec.Command("...", ...)
+      - pattern-not: exec.CommandContext($CTX, "...", ...)
   - id: go-sql-string-format
     languages: [go]
     severity: WARNING
@@ -108,7 +127,11 @@ rules:
     metadata:
       cwe: ["CWE-89"]
       owasp: ["A03:2021-Injection"]
-    pattern: fmt.Sprintf("...", ...)
+    patterns:
+      - pattern: fmt.Sprintf($QUERY, ...)
+      - metavariable-regex:
+          metavariable: $QUERY
+          regex: (?i).*(select\s+.+\s+from|insert\s+into|update\s+.+\s+set|delete\s+from|drop\s+(table|database|index)|alter\s+table|create\s+(table|database|index|view)|replace\s+into)\b.*
   - id: rust-command-spawn
     languages: [rust]
     severity: WARNING

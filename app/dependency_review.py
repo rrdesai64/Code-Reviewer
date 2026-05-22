@@ -18,6 +18,8 @@ from .sbom import (
     dedupe_components,
     excluded,
     license_review_status,
+    read_go_mod,
+    read_go_sum,
     read_package_json,
     read_package_lock,
     read_pyproject,
@@ -25,7 +27,7 @@ from .sbom import (
     relpath,
 )
 
-DEPENDENCY_SOURCES = {'pip-audit', 'dependency-manifest', 'snyk'}
+DEPENDENCY_SOURCES = {'pip-audit', 'dependency-manifest', 'snyk', 'govulncheck'}
 RUNTIME_REACHABILITY = {'reachable-source-import', 'direct-manifest'}
 UNKNOWN_REACHABILITY = {'manifest-only', 'transitive-unknown', 'package-level', 'unknown'}
 SEVERITY_POINTS = {'CRITICAL': 72, 'HIGH': 56, 'MEDIUM': 34, 'LOW': 16, 'INFO': 4}
@@ -51,6 +53,8 @@ PYTHON_IMPORT_ALIASES = {
 PYTHON_FILE_EXTENSIONS = {'.py'}
 JAVASCRIPT_FILE_EXTENSIONS = {'.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'}
 JS_IMPORT_RE = re.compile(r'''(?:from\s*|require\(\s*|import\(\s*|import\s+)['"]([^'"]+)['"]''')
+GO_FILE_EXTENSIONS = {'.go'}
+GO_IMPORT_RE = re.compile(r'"([^"\n]+)"')
 
 
 @dataclass(frozen=True)
@@ -188,6 +192,8 @@ def discover_target_components(target: Path) -> list[SbomComponent]:
     components.extend(read_pyproject(target))
     components.extend(read_package_json(target))
     components.extend(read_package_lock(target))
+    components.extend(read_go_mod(target))
+    components.extend(read_go_sum(target))
     return dedupe_components(components)
 
 
@@ -233,7 +239,7 @@ def component_reachability(component: SbomComponent, evidence: list[DependencyUs
     elif component.scope == 'optional':
         status = 'dev-or-optional'
         confidence = 'medium'
-    elif dependency_type(component) == 'lockfile':
+    elif dependency_type(component) in {'lockfile', 'transitive'}:
         status = 'transitive-unknown'
         confidence = 'low'
     else:
@@ -325,7 +331,7 @@ def dependency_policy_item(item: dict[str, Any]) -> dict[str, Any]:
 def dependency_vulnerabilities(findings: list[Finding]) -> list[dict[str, Any]]:
     vulnerabilities: list[dict[str, Any]] = []
     for finding in findings:
-        if finding.source not in {'pip-audit', 'snyk'}:
+        if finding.source not in {'pip-audit', 'snyk', 'govulncheck'}:
             continue
         package = dependency_package_from_finding(finding)
         if not package:
@@ -356,15 +362,19 @@ def dependency_vulnerabilities(findings: list[Finding]) -> list[dict[str, Any]]:
 def collect_dependency_usage(target: Path, components: list[SbomComponent]) -> dict[str, list[DependencyUsage]]:
     python_aliases: dict[str, str] = {}
     npm_aliases: dict[str, str] = {}
+    go_aliases: dict[str, str] = {}
     for component in components:
         if component.ecosystem == 'pypi':
             for alias in python_aliases_for_package(component.name):
                 python_aliases[alias.lower()] = component.key
         elif component.ecosystem == 'npm':
             npm_aliases[canonical_name('npm', component.name)] = component.key
+        elif component.ecosystem == 'golang':
+            go_aliases[canonical_name('golang', component.name)] = component.key
     usage: dict[str, list[DependencyUsage]] = {}
     collect_python_usage(target, python_aliases, usage)
     collect_javascript_usage(target, npm_aliases, usage)
+    collect_go_usage(target, go_aliases, usage)
     return usage
 
 
@@ -408,6 +418,33 @@ def collect_javascript_usage(target: Path, aliases: dict[str, str], usage: dict[
                     usage.setdefault(key, []).append(DependencyUsage(rel, line_no, 'javascript-import', module))
 
 
+def collect_go_usage(target: Path, aliases: dict[str, str], usage: dict[str, list[DependencyUsage]]) -> None:
+    if not aliases:
+        return
+    for path in sorted(target.rglob('*')):
+        if excluded(path) or not path.is_file() or path.suffix.lower() not in GO_FILE_EXTENSIONS:
+            continue
+        rel = relpath(path, target)
+        for line_no, line in enumerate(path.read_text(encoding='utf-8', errors='ignore').splitlines(), 1):
+            for match in GO_IMPORT_RE.finditer(line):
+                module = match.group(1).strip()
+                key = go_module_key(module, aliases)
+                if key:
+                    usage.setdefault(key, []).append(DependencyUsage(rel, line_no, 'go-import', module))
+
+
+def go_module_key(import_path: str, aliases: dict[str, str]) -> str:
+    if not import_path or '.' not in import_path.split('/', 1)[0]:
+        return ''
+    parts = import_path.split('/')
+    for index in range(len(parts), 0, -1):
+        candidate = canonical_name('golang', '/'.join(parts[:index]))
+        key = aliases.get(candidate)
+        if key:
+            return key
+    return ''
+
+
 def python_aliases_for_package(package: str) -> set[str]:
     canonical = canonical_name('pypi', package)
     aliases = {canonical.replace('-', '_')}
@@ -432,7 +469,9 @@ def dependency_type(component: SbomComponent) -> str:
         return 'direct'
     if name in {'pyproject.toml', 'package.json'}:
         return 'direct'
-    if name in {'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'}:
+    if name == 'go.mod':
+        return 'transitive' if 'indirect=true' in component.source_info else 'direct'
+    if name in {'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'go.sum'}:
         return 'lockfile'
     if component.manifest_path:
         return 'manifest'
@@ -457,6 +496,8 @@ def dependency_ecosystem_from_finding(finding: Finding) -> str:
         return metadata['dependency_ecosystem']
     if metadata.get('ecosystem'):
         return metadata['ecosystem']
+    if finding.source == 'govulncheck' or finding.rule_id.startswith('GO-'):
+        return 'golang'
     if finding.rule_id.startswith('node-') or 'Node dependency' in finding.message:
         return 'npm'
     return 'pypi'

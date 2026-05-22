@@ -44,6 +44,21 @@ class ScopeAwareGateTests(unittest.TestCase):
         self.assertEqual(scan.summary.priorities, {'P0': 1})
         self.assertEqual(scan.summary.all_priorities.get(test.risk.priority), 1)
 
+    def test_go_test_files_are_hygiene(self):
+        finding = normalize_finding(
+            source='semgrep',
+            rule_id='go-dynamic-command-exec',
+            title='Dynamic Go command execution',
+            severity='MEDIUM',
+            confidence='HIGH',
+            path='internal/communicator/ssh/communicator_test.go',
+            line=33,
+            message='Review dynamic os/exec command names',
+            cwe=['CWE-78'],
+        )
+        self.assertEqual(finding_scope(finding), 'test')
+        self.assertFalse(is_production_impacting(finding))
+
     def test_high_confidence_secret_blocks_even_in_tests(self):
         secret = normalize_finding(
             source='secret-scan',

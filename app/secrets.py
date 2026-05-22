@@ -399,7 +399,7 @@ def position_for_index(text: str, index: int) -> tuple[int, int]:
 
 def run_tool(command: list[str], cwd: Path, timeout: int = 180) -> tuple[int, str, str]:
     try:
-        completed = subprocess.run(command, cwd=str(cwd), text=True, capture_output=True, timeout=timeout)
+        completed = subprocess.run(command, cwd=str(cwd), text=True, encoding='utf-8', errors='replace', capture_output=True, timeout=timeout)
         return completed.returncode, completed.stdout, completed.stderr
     except FileNotFoundError as exc:
         return 127, '', str(exc)

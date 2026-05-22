@@ -23,13 +23,14 @@ SEVERITY_ALIASES = {
 SARIF_LEVEL_SEVERITY = {'error': 'HIGH', 'warning': 'MEDIUM', 'note': 'LOW', 'none': 'INFO'}
 SOURCE_FAMILIES = {
     'semgrep': 'sast', 'bandit': 'sast', 'python-ast': 'sast', 'codeql': 'sast', 'sonarqube': 'quality-security',
-    'pip-audit': 'sca', 'dependency-manifest': 'sca', 'secret-scan': 'secrets', 'gitleaks': 'secrets',
+    'pip-audit': 'sca', 'govulncheck': 'sca', 'dependency-manifest': 'sca', 'secret-scan': 'secrets', 'gitleaks': 'secrets',
     'trufflehog': 'secrets', 'snyk': 'sca-sast', 'sarif-import': 'sarif',
 }
 SUPPORTED_SOURCES = [
     {'source': 'semgrep', 'status': 'implemented', 'input': 'Semgrep JSON'},
     {'source': 'bandit', 'status': 'implemented', 'input': 'Bandit JSON'},
     {'source': 'pip-audit', 'status': 'implemented', 'input': 'pip-audit JSON'},
+    {'source': 'govulncheck', 'status': 'implemented', 'input': 'govulncheck JSON lines'},
     {'source': 'codeql', 'status': 'implemented', 'input': 'SARIF 2.1.0'},
     {'source': 'sonarqube', 'status': 'implemented', 'input': 'Sonar issues and quality gate APIs'},
     {'source': 'secret-scan', 'status': 'implemented', 'input': 'Built-in secret scanner'},

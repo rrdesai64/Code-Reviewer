@@ -16,6 +16,7 @@ from .dependency_review import enrich_dependency_findings
 from .ingestion import enrich_finding, finding_from_bandit, finding_from_pip_audit, finding_from_semgrep, findings_from_sarif_file
 from .ast_scanner import run_ast_analysis
 from .external_scanners import run_codeql, run_sonarqube
+from .go_tools import govulncheck_executable, go_tool_env
 from .models import Finding, Location, ScanResult, ScanSummary
 from .risk import score_scan
 from .secrets import run_secret_scan
@@ -140,9 +141,9 @@ def build_summary(files: list[Path], findings: list[Finding], tools: dict[str, s
     )
 
 
-def run_tool(command: list[str], cwd: Path, timeout: int = 180) -> tuple[int, str, str]:
+def run_tool(command: list[str], cwd: Path, timeout: int = 180, env: dict[str, str] | None = None) -> tuple[int, str, str]:
     try:
-        completed = subprocess.run(command, cwd=str(cwd), text=True, capture_output=True, timeout=timeout)
+        completed = subprocess.run(command, cwd=str(cwd), text=True, encoding='utf-8', errors='replace', capture_output=True, timeout=timeout, env=env)
         return completed.returncode, completed.stdout, completed.stderr
     except FileNotFoundError as exc:
         return 127, '', str(exc)
@@ -256,8 +257,11 @@ def run_dependency_checks(target: Path) -> tuple[list[Finding], dict[str, str]]:
     findings.extend(check_unpinned_package_json(target))
     audit_findings, audit_status = run_pip_audit(target)
     findings.extend(audit_findings)
+    govuln_findings, govuln_status = run_govulncheck(target)
+    findings.extend(govuln_findings)
     status['dependency_manifest'] = 'ok'
     status['pip-audit'] = audit_status
+    status['govulncheck'] = govuln_status
     return findings, status
 
 
@@ -302,6 +306,134 @@ def run_pip_audit(target: Path) -> tuple[list[Finding], str]:
             for vuln in dep.get('vulns', []):
                 findings.append(finding_from_pip_audit(dep, vuln, req_file, target))
     return findings, 'ok'
+
+
+def run_govulncheck(target: Path) -> tuple[list[Finding], str]:
+    enabled = os.getenv('GOVULNCHECK_ENABLED', 'auto').lower()
+    if enabled in {'false', '0', 'no', 'off'}:
+        return [], 'disabled by GOVULNCHECK_ENABLED=false'
+    if not any(p.name == 'go.mod' for p in target.rglob('go.mod') if not any(part in EXCLUDED_DIRS for part in p.parts)):
+        return [], 'skipped: no go.mod files'
+    exe = govulncheck_executable()
+    if not exe:
+        return [], 'not installed'
+    timeout = int(os.getenv('GOVULNCHECK_TIMEOUT_SECONDS', '300'))
+    command = [exe, '-json', './...']
+    code, stdout, stderr = run_tool(command, target, timeout=timeout, env=go_tool_env())
+    findings = findings_from_govulncheck(stdout, target)
+    if code in (0, 1, 3):
+        return findings, f'ok findings={len(findings)}'
+    if findings:
+        return findings, f'partial findings={len(findings)}: {clean_error(stderr or stdout or str(code))}'
+    return [], f'error: {clean_error(stderr or stdout or str(code))}'
+
+
+def findings_from_govulncheck(stdout: str, target: Path) -> list[Finding]:
+    osv_index: dict[str, dict[str, Any]] = {}
+    raw_findings: list[dict[str, Any]] = []
+    for item in parse_json_lines(stdout):
+        if isinstance(item.get('osv'), dict):
+            osv = item['osv']
+            if osv.get('id'):
+                osv_index[str(osv['id'])] = osv
+        if isinstance(item.get('finding'), dict):
+            raw_findings.append(item['finding'])
+    return [finding_from_govulncheck(item, osv_index, target) for item in raw_findings]
+
+
+def finding_from_govulncheck(item: dict[str, Any], osv_index: dict[str, dict[str, Any]], target: Path) -> Finding:
+    vuln_id = str(item.get('osv') or item.get('osv_id') or item.get('id') or 'GO-VULN')
+    osv = osv_index.get(vuln_id, {})
+    trace = item.get('trace') if isinstance(item.get('trace'), list) else []
+    module = str(item.get('module') or first_trace_value(trace, 'module') or first_affected_module(osv) or first_trace_value(trace, 'package') or 'go-module')
+    version = str(item.get('version') or '')
+    fixed_version = str(item.get('fixed_version') or item.get('fixedVersion') or first_fixed_version(osv) or '')
+    path, line = first_trace_location(trace, target)
+    summary = str(osv.get('summary') or item.get('message') or f'Go vulnerability {vuln_id} affects {module}')
+    references = govuln_references(osv)
+    message = f'{module} {version or "unknown"} is affected by {vuln_id}: {summary}'
+    if fixed_version:
+        message += f' Fixed in {fixed_version}.'
+    fingerprint = make_fingerprint('govulncheck', vuln_id, path, line, message)
+    return Finding(
+        id=fingerprint[:16], source='govulncheck', rule_id=vuln_id, title=f'Go vulnerable dependency: {module}',
+        severity='HIGH', confidence='HIGH', location=Location(path=path, line=line), message=message,
+        cwe=[], owasp=['A06:2021-Vulnerable and Outdated Components'], references=references,
+        explanation=explain('go vulnerable dependency', message, [], ['A06:2021-Vulnerable and Outdated Components']),
+        fix=suggest_fix('go vulnerable dependency', message), fingerprint=fingerprint,
+        scanner_metadata={
+            'engine': 'govulncheck', 'ecosystem': 'golang', 'package': module, 'version': version,
+            'fix_versions': fixed_version, 'fixed_version': fixed_version,
+        },
+    )
+
+
+def parse_json_lines(stdout: str) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for line in (stdout or '').splitlines():
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            items.append(payload)
+    return items
+
+
+def first_trace_value(trace: list[dict[str, Any]], key: str) -> str:
+    for frame in trace:
+        value = frame.get(key)
+        if value:
+            return str(value)
+    return ''
+
+
+def first_trace_location(trace: list[dict[str, Any]], target: Path) -> tuple[str, int]:
+    for frame in trace:
+        position = frame.get('position') if isinstance(frame.get('position'), dict) else {}
+        filename = position.get('filename') or frame.get('filename') or frame.get('file')
+        if filename:
+            return relpath(str(filename), target), int(position.get('line') or frame.get('line') or 1)
+    return 'go.mod', 1
+
+
+def first_affected_module(osv: dict[str, Any]) -> str:
+    affected = osv.get('affected') if isinstance(osv.get('affected'), list) else []
+    for item in affected:
+        package = item.get('package') if isinstance(item, dict) else {}
+        name = package.get('name') if isinstance(package, dict) else ''
+        if name:
+            return str(name)
+    return ''
+
+
+def first_fixed_version(osv: dict[str, Any]) -> str:
+    affected = osv.get('affected') if isinstance(osv.get('affected'), list) else []
+    for item in affected:
+        ranges = item.get('ranges') if isinstance(item, dict) and isinstance(item.get('ranges'), list) else []
+        for range_item in ranges:
+            events = range_item.get('events') if isinstance(range_item, dict) and isinstance(range_item.get('events'), list) else []
+            for event in events:
+                fixed = event.get('fixed') if isinstance(event, dict) else ''
+                if fixed:
+                    return str(fixed)
+    return ''
+
+
+def govuln_references(osv: dict[str, Any]) -> list[str]:
+    refs = []
+    for ref in osv.get('references') or []:
+        if isinstance(ref, dict) and ref.get('url'):
+            refs.append(str(ref['url']))
+    if osv.get('id'):
+        refs.append(f'https://pkg.go.dev/vuln/{osv["id"]}')
+    return refs
+
+
+def clean_error(text: str) -> str:
+    return ' '.join((text or '').split())[:500]
 
 
 def check_unpinned_python_requirements(target: Path) -> list[Finding]:

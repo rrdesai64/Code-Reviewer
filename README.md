@@ -131,6 +131,7 @@ Implemented:
 - CodeQL adapter with language detection, configurable query suites, extra query packs, resource tuning, no-build defaults for interpreted languages, and optional per-language build commands
 - SonarQube/SonarCloud adapter that imports issues and quality gate failures when `SONAR_ENABLED=true`, `sonar-scanner` is installed, and server credentials are configured
 - Project-local Gitleaks and TruffleHog adapters under `tools/gitleaks/` and `tools/trufflehog/` for external secret-scanning depth
+- Project-local Go toolchain for CodeQL Go scans, Go module inventory from `go.mod`/`go.sum`, Go import reachability, and optional `govulncheck` vulnerability ingestion
 - Tool status reporting for `python-ast`, `semgrep`, `codeql`, and `sonarqube`
 - Dedicated SonarQube quality gate and scanner-depth reports in API, CLI, web UI, and CI artifacts
 
@@ -189,6 +190,19 @@ $env:SONAR_EXTRA_ARGS="-Dsonar.verbose=false" # optional semicolon-separated raw
 ```
 
 For SonarCloud, `SONAR_ORGANIZATION` must match the organization key shown in the SonarCloud organization URL/settings. The app now fails fast with a clear adapter status when that value is missing instead of running a doomed upload.
+
+### Go, CodeQL, And govulncheck
+
+Go is installed project-locally under `tools/go/` and is added only to scanner subprocess environments. This avoids changing the system PATH while allowing CodeQL Go autobuild and Go dependency tooling to run.
+
+```powershell
+$env:GO_EXE="G:\My Software Projects\Code Reviewer - Codex\tools\go\bin\go.exe" # optional override
+$env:GOVULNCHECK_ENABLED="auto" # auto, true, or false
+$env:GOVULNCHECK_EXE="G:\My Software Projects\Code Reviewer - Codex\tools\go-tools\bin\govulncheck.exe" # optional override
+$env:GOVULNCHECK_TIMEOUT_SECONDS="300"
+```
+
+Go dependency review now reads `go.mod` and `go.sum`, emits Go components into CycloneDX/SPDX, maps Go imports for reachability evidence, and ingests `govulncheck` findings as `golang` SCA vulnerabilities when the tool completes.
 
 ### External Secret Scanners
 

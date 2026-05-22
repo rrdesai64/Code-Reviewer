@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .models import Finding, ScanResult
+from .scope import finding_scope, is_production_impacting
 
 
 def build_sarif(scan: ScanResult) -> dict:
@@ -23,6 +24,8 @@ def build_sarif(scan: ScanResult) -> dict:
                 'source': finding.source,
                 'severity': finding.severity,
                 'confidence': finding.confidence,
+                'scope': finding_scope(finding),
+                'production_impacting': is_production_impacting(finding),
                 'risk_score': finding.risk.score,
                 'risk_tier': finding.risk.tier,
                 'priority': finding.risk.priority,
@@ -44,6 +47,11 @@ def build_sarif(scan: ScanResult) -> dict:
                 'avg_risk_score': scan.summary.avg_risk_score,
                 'risk_tiers': scan.summary.risk_tiers,
                 'priorities': scan.summary.priorities,
+                'scope_counts': scan.summary.scope_counts,
+                'production_findings': scan.summary.production_findings,
+                'hygiene_findings': scan.summary.hygiene_findings,
+                'all_max_risk_score': scan.summary.all_max_risk_score,
+                'all_priorities': scan.summary.all_priorities,
             },
         }],
     }

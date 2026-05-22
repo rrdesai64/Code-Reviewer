@@ -33,6 +33,7 @@ CODEQL_QUERY_SUITE_BY_LANGUAGE = {
     'ruby': 'codeql/ruby-queries:codeql-suites/ruby-code-scanning.qls',
     'swift': 'codeql/swift-queries:codeql-suites/swift-code-scanning.qls',
 }
+CODEQL_NO_BUILD_LANGUAGES = {'python', 'javascript', 'ruby'}
 
 
 def run_codeql(target: Path, files: list[Path]) -> tuple[list[Finding], str]:
@@ -65,8 +66,11 @@ def run_codeql_language(codeql: Path, target: Path, language: str) -> tuple[list
     work.mkdir(parents=True, exist_ok=True)
     create_command = [str(codeql), 'database', 'create', str(db), '--source-root', str(target), '--language', language, '--overwrite']
     create_command.extend(codeql_resource_args())
-    build_mode = os.getenv('CODEQL_BUILD_MODE')
-    if build_mode:
+    build_mode = codeql_build_mode(language)
+    build_command = codeql_build_command(language)
+    if build_command:
+        create_command.append(f'--command={build_command}')
+    elif build_mode:
         create_command.append(f'--build-mode={build_mode}')
     code, stdout, stderr = run_tool(create_command, ROOT, timeout=timeout)
     if code != 0:
@@ -77,7 +81,8 @@ def run_codeql_language(codeql: Path, target: Path, language: str) -> tuple[list
     if code not in (0, 2) or not sarif.exists():
         return [], f'analyze failed: {clean_error(stderr or stdout)}'
     findings = findings_from_sarif(sarif, 'codeql')
-    return findings, f'ok findings={len(findings)} queries={len(query_suites)}'
+    build_label = 'command' if build_command else (build_mode or 'autobuild')
+    return findings, f'ok findings={len(findings)} queries={len(query_suites)} build={build_label}'
 
 
 def run_sonarqube(target: Path, files: list[Path]) -> tuple[list[Finding], str]:
@@ -92,10 +97,10 @@ def run_sonarqube(target: Path, files: list[Path]) -> tuple[list[Finding], str]:
         return [], 'not installed'
     if not host or not token:
         return [], 'installed, not configured: SONAR_HOST_URL and SONAR_TOKEN required'
+    if sonarcloud_requires_organization(host) and not os.getenv('SONAR_ORGANIZATION', '').strip():
+        return [], 'installed, not configured: SONAR_ORGANIZATION required for SonarCloud'
     timeout = int(os.getenv('SONAR_TIMEOUT_SECONDS', '600'))
-    command = [scanner, f'-Dsonar.projectKey={project_key}', f'-Dsonar.projectBaseDir={target}', '-Dsonar.sources=.', f'-Dsonar.host.url={host}', f'-Dsonar.token={token}']
-    if os.getenv('SONAR_QUALITY_GATE_WAIT', 'false').lower() == 'true':
-        command.extend(['-Dsonar.qualitygate.wait=true', f'-Dsonar.qualitygate.timeout={os.getenv("SONAR_QUALITY_GATE_TIMEOUT", "300")}'])
+    command = sonar_scanner_command(scanner, target, host, token, project_key)
     code, stdout, stderr = run_tool(command, target, timeout=timeout, env=sonar_env())
     if code != 0:
         return [], f'scanner failed: {clean_error(stderr or stdout)}'
@@ -130,6 +135,7 @@ def fetch_sonar_issues(host: str, token: str, project_key: str) -> list[dict[str
         'types': os.getenv('SONAR_ISSUE_TYPES', 'VULNERABILITY,SECURITY_HOTSPOT,BUG,CODE_SMELL'),
         'ps': os.getenv('SONAR_ISSUE_PAGE_SIZE', '500'),
     }
+    params.update(sonar_api_context_params())
     severities = os.getenv('SONAR_SEVERITIES')
     if severities:
         params['severities'] = severities
@@ -142,7 +148,9 @@ def fetch_sonar_issues(host: str, token: str, project_key: str) -> list[dict[str
 
 
 def fetch_sonar_quality_gate(host: str, token: str, project_key: str) -> dict[str, Any]:
-    query = urllib.parse.urlencode({'projectKey': project_key})
+    params = {'projectKey': project_key}
+    params.update(sonar_api_context_params(include_pull_request=True))
+    query = urllib.parse.urlencode(params)
     req = urllib.request.Request(f'{host.rstrip("/")}/api/qualitygates/project_status?{query}')
     req.add_header('Authorization', 'Basic ' + basic_token(token))
     with urllib.request.urlopen(req, timeout=45) as response:
@@ -236,6 +244,57 @@ def clean_error(text: str) -> str:
     return ' '.join((text or '').split())[:500]
 
 
+def sonarcloud_requires_organization(host: str) -> bool:
+    return 'sonarcloud.io' in host.lower()
+
+
+def sonar_scanner_command(scanner: str, target: Path, host: str, token: str, project_key: str) -> list[str]:
+    sources = os.getenv('SONAR_SOURCES', '.').strip() or '.'
+    command = [
+        scanner,
+        f'-Dsonar.projectKey={project_key}',
+        f'-Dsonar.projectBaseDir={target}',
+        f'-Dsonar.sources={sources}',
+        f'-Dsonar.host.url={host}',
+        f'-Dsonar.token={token}',
+    ]
+    for key, value in optional_sonar_properties().items():
+        if value:
+            command.append(f'-D{key}={value}')
+    if os.getenv('SONAR_QUALITY_GATE_WAIT', 'false').lower() == 'true':
+        command.extend(['-Dsonar.qualitygate.wait=true', f'-Dsonar.qualitygate.timeout={os.getenv("SONAR_QUALITY_GATE_TIMEOUT", "300")}'])
+    command.extend(split_semicolon_env('SONAR_EXTRA_ARGS'))
+    return command
+
+
+def optional_sonar_properties() -> dict[str, str]:
+    return {
+        'sonar.organization': os.getenv('SONAR_ORGANIZATION', '').strip(),
+        'sonar.projectName': os.getenv('SONAR_PROJECT_NAME', '').strip(),
+        'sonar.sourceEncoding': os.getenv('SONAR_SOURCE_ENCODING', 'UTF-8').strip(),
+        'sonar.exclusions': os.getenv('SONAR_EXCLUSIONS', '').strip(),
+        'sonar.inclusions': os.getenv('SONAR_INCLUSIONS', '').strip(),
+        'sonar.branch.name': os.getenv('SONAR_BRANCH_NAME', '').strip(),
+        'sonar.pullrequest.key': os.getenv('SONAR_PULLREQUEST_KEY', '').strip(),
+        'sonar.pullrequest.branch': os.getenv('SONAR_PULLREQUEST_BRANCH', '').strip(),
+        'sonar.pullrequest.base': os.getenv('SONAR_PULLREQUEST_BASE', '').strip(),
+    }
+
+
+def sonar_api_context_params(include_pull_request: bool = False) -> dict[str, str]:
+    params: dict[str, str] = {}
+    organization = os.getenv('SONAR_ORGANIZATION', '').strip()
+    branch = os.getenv('SONAR_BRANCH_NAME', '').strip()
+    pull_request = os.getenv('SONAR_PULLREQUEST_KEY', '').strip()
+    if organization:
+        params['organization'] = organization
+    if include_pull_request and pull_request:
+        params['pullRequest'] = pull_request
+    elif branch:
+        params['branch'] = branch
+    return params
+
+
 def sonar_env() -> dict[str, str]:
     env = os.environ.copy()
     configured = os.getenv('SONAR_JAVA_HOME') or os.getenv('JAVA_HOME')
@@ -255,6 +314,21 @@ def codeql_query_suites(language: str) -> list[str]:
     suites = [base] if base else []
     suites.extend(split_semicolon_env('CODEQL_EXTRA_QUERY_SUITES'))
     return unique_nonempty(suites)
+
+
+def codeql_build_mode(language: str) -> str:
+    env_name = f'CODEQL_BUILD_MODE_{language.upper().replace("-", "_")}'
+    configured = (os.getenv(env_name) or os.getenv('CODEQL_BUILD_MODE') or '').strip().lower()
+    if configured in {'auto', 'autobuild'}:
+        return ''
+    if configured:
+        return configured
+    return 'none' if language in CODEQL_NO_BUILD_LANGUAGES else ''
+
+
+def codeql_build_command(language: str) -> str:
+    env_name = f'CODEQL_BUILD_COMMAND_{language.upper().replace("-", "_")}'
+    return (os.getenv(env_name) or os.getenv('CODEQL_BUILD_COMMAND') or '').strip()
 
 
 def codeql_resource_args() -> list[str]:

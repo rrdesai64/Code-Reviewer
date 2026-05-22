@@ -126,10 +126,11 @@ Phase A adds deeper scanner orchestration while keeping external enterprise tool
 Implemented:
 
 - Built-in Python AST analysis using the standard `ast` parser
-- Expanded language-specific Semgrep rules for Python, JavaScript/TypeScript, Java, Go, Rust, YAML, and Dockerfile
+- Expanded language-specific Semgrep rules for Python, JavaScript/TypeScript, Java, Go, Rust, YAML, and Dockerfile, including unsafe deserialization, TLS bypass, weak hash, SQL formatting, container privilege, and unpinned base-image patterns
 - Semgrep multi-config support with `SEMGREP_CONFIGS` for organization rules or Semgrep registry packs
-- CodeQL adapter with language detection, configurable query suites, extra query packs, and resource tuning
-- SonarQube adapter that imports issues and quality gate failures when `SONAR_ENABLED=true`, `sonar-scanner` is installed, and server credentials are configured
+- CodeQL adapter with language detection, configurable query suites, extra query packs, resource tuning, no-build defaults for interpreted languages, and optional per-language build commands
+- SonarQube/SonarCloud adapter that imports issues and quality gate failures when `SONAR_ENABLED=true`, `sonar-scanner` is installed, and server credentials are configured
+- Project-local Gitleaks and TruffleHog adapters under `tools/gitleaks/` and `tools/trufflehog/` for external secret-scanning depth
 - Tool status reporting for `python-ast`, `semgrep`, `codeql`, and `sonarqube`
 - Dedicated SonarQube quality gate and scanner-depth reports in API, CLI, web UI, and CI artifacts
 
@@ -155,22 +156,28 @@ $env:CODEQL_QUERY_SUITE_PYTHON="" # optional per-language override
 $env:CODEQL_EXTRA_QUERY_SUITES="codeql/python-queries:codeql-suites/python-security-and-quality.qls"
 $env:CODEQL_THREADS="0" # 0 lets CodeQL choose; set a number for CI
 $env:CODEQL_RAM="4096"
-$env:CODEQL_BUILD_MODE="none" # optional; useful for some compiled-language scans
+$env:CODEQL_BUILD_MODE="none" # optional global override; Python/JavaScript/Ruby default to no-build automatically
+$env:CODEQL_BUILD_MODE_PYTHON="none" # optional per-language override
+$env:CODEQL_BUILD_COMMAND_JAVA_KOTLIN="mvn -DskipTests package" # optional for compiled languages
 $env:CODEQL_TIMEOUT_SECONDS="900"
 ```
 
 The app creates temporary CodeQL databases under `data/codeql/`, which is ignored by Git. CodeQL query packs were installed into the user CodeQL cache with `codeql pack download`.
 
-### Enable SonarQube
+### Enable SonarQube Or SonarCloud
 
 SonarScanner has been installed as a local npm dev dependency. Create a SonarQube/SonarCloud token, then set:
 
 ```powershell
 $env:SONAR_ENABLED="auto" # auto, true, or false
 $env:SONAR_SCANNER_EXE="C:\path\to\sonar-scanner.bat" # optional if on PATH
-$env:SONAR_HOST_URL="https://sonarqube.example.com"
+$env:SONAR_HOST_URL="https://sonarqube.example.com" # use https://sonarcloud.io for SonarCloud
 $env:SONAR_TOKEN="your-token"
 $env:SONAR_PROJECT_KEY="secure-review-project"
+$env:SONAR_ORGANIZATION="your-sonarcloud-organization" # required for SonarCloud, optional for self-hosted SonarQube
+$env:SONAR_PROJECT_NAME="Secure Review Project" # optional display name
+$env:SONAR_SOURCES="." # optional source root inside the scanned repository
+$env:SONAR_EXCLUSIONS="**/.venv/**,**/node_modules/**,**/dist/**,**/build/**" # optional
 $env:SONAR_QUALITY_GATE_ENABLED="true"
 $env:SONAR_QUALITY_GATE_WAIT="false" # set true in CI if you want sonar-scanner to wait for gate completion
 $env:SONAR_QUALITY_GATE_TIMEOUT="300"
@@ -178,6 +185,21 @@ $env:SONAR_ISSUE_TYPES="VULNERABILITY,SECURITY_HOTSPOT,BUG,CODE_SMELL"
 $env:SONAR_SEVERITIES="BLOCKER,CRITICAL,MAJOR" # optional
 $env:SONAR_ISSUE_PAGE_SIZE="500"
 $env:SONAR_TIMEOUT_SECONDS="600"
+$env:SONAR_EXTRA_ARGS="-Dsonar.verbose=false" # optional semicolon-separated raw scanner args
+```
+
+For SonarCloud, `SONAR_ORGANIZATION` must match the organization key shown in the SonarCloud organization URL/settings. The app now fails fast with a clear adapter status when that value is missing instead of running a doomed upload.
+
+### External Secret Scanners
+
+Gitleaks and TruffleHog are installed project-locally and are picked up automatically before PATH lookup:
+
+```powershell
+$env:GITLEAKS_ENABLED="auto" # auto, true, or false
+$env:TRUFFLEHOG_ENABLED="auto" # auto, true, or false
+$env:SECRET_SCAN_EXTERNAL_ENABLED="auto" # set false to use only the built-in scanner
+$env:GITLEAKS_EXE="G:\My Software Projects\Code Reviewer - Codex\tools\gitleaks\gitleaks.exe" # optional override
+$env:TRUFFLEHOG_EXE="G:\My Software Projects\Code Reviewer - Codex\tools\trufflehog\trufflehog.exe" # optional override
 ```
 
 When disabled or unavailable, CodeQL and SonarQube report their status without failing the rest of the scan. Use `--sonarqube-out sonarqube-quality-gate.json` and `--scanner-depth-out scanner-depth.json` for standalone CLI artifacts, or open `/api/scans/{scan_id}/sonarqube/report` and `/api/scans/{scan_id}/scanner-depth` after a scan.
@@ -245,6 +267,9 @@ Implemented:
 - Risk tier, priority label, recommended action, and factor breakdown
 - Scoring factors for scanner severity, confidence, new-vs-baseline status, high-impact CWE/OWASP categories, exploitability keywords, scanner source, and sensitive/exposed file paths
 - Risk-aware finding ordering in CLI and web scans
+- Scope-aware finding classification for `production`, `test`, `docs`, `example`, `config`, `dependency`, and `generated` paths
+- Production gate metrics that exclude ordinary test/docs/example hygiene findings from the main max risk score, priority counts, PR gates, and CLI `--fail-on` checks
+- High-confidence or critical secrets still remain blocking regardless of whether they appear in tests, docs, examples, or production code
 - Aggregate summary metrics: max risk score, average risk score, risk tiers, and priority counts
 - Risk data in JSON scan output, SARIF properties, Markdown/HTML reports, GitHub PR comments, and compliance reports
 - Enterprise policy check for unresolved P0 risk findings

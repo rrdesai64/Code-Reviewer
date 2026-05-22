@@ -11,6 +11,7 @@ from typing import Any
 
 from .ai import explain, suggest_fix
 from .models import Finding, Location, ScanResult
+from .scope import apply_finding_scope, scope_counts
 
 NORMALIZATION_VERSION = 'scanner-mesh-v1'
 SEVERITY_ORDER = {'CRITICAL': 4, 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1, 'INFO': 0}
@@ -106,7 +107,7 @@ def enrich_finding(finding: Finding) -> Finding:
         finding.policy_impact = infer_policy_impact(finding)
     if not finding.remediation:
         finding.remediation = infer_remediation(finding)
-    return finding
+    return apply_finding_scope(finding)
 
 
 def finding_from_semgrep(item: dict[str, Any], target: Path) -> Finding:
@@ -240,7 +241,7 @@ def scanner_mesh_status() -> dict[str, Any]:
     return {
         'schema_version': NORMALIZATION_VERSION,
         'supported_sources': SUPPORTED_SOURCES,
-        'normalized_fields': ['source', 'rule_id', 'severity', 'confidence', 'cwe', 'owasp', 'references', 'risk', 'scanner_metadata', 'exploitability', 'reachability', 'policy_impact', 'remediation'],
+        'normalized_fields': ['source', 'rule_id', 'severity', 'confidence', 'cwe', 'owasp', 'references', 'scope', 'risk', 'scanner_metadata', 'exploitability', 'reachability', 'policy_impact', 'remediation'],
         'sarif_import': {'enabled': True, 'cli_flag': '--sarif-in'},
         'future_connectors': ['snyk-cli', 'snyk-api', 'semgrep-appsec-platform', 'github-code-scanning-sarif'],
     }
@@ -261,6 +262,9 @@ def scanner_mesh_report(scan: ScanResult) -> dict[str, Any]:
         'findings': len(scan.findings),
         'sources': dict(sorted(by_source.items())),
         'source_families': dict(sorted(by_family.items())),
+        'scopes': scope_counts(scan.findings),
+        'production_findings': scan.summary.production_findings,
+        'hygiene_findings': scan.summary.hygiene_findings,
         'tools': scan.summary.tools,
         'coverage': {
             'scanner_metadata': metadata_coverage,

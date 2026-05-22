@@ -13,6 +13,7 @@ from typing import Any
 from .models import Finding, ScanResult
 from .reporting import format_counts
 from .secrets import secret_policy_report
+from .scope import finding_scope, scope_sort_rank
 
 
 class CodeHostIntegrationError(RuntimeError):
@@ -480,6 +481,9 @@ def review_status(scan: ScanResult) -> dict[str, Any]:
         'status': state,
         'description': description,
         'total_findings': scan.summary.total_findings,
+        'production_findings': scan.summary.production_findings,
+        'hygiene_findings': scan.summary.hygiene_findings,
+        'scope_counts': dict(scan.summary.scope_counts),
         'max_risk_score': scan.summary.max_risk_score,
         'avg_risk_score': scan.summary.avg_risk_score,
         'priorities': dict(scan.summary.priorities),
@@ -496,17 +500,18 @@ def review_body(scan: ScanResult, status: dict[str, Any], findings: list[dict[st
         f'Scan ID: `{scan.scan_id}`',
         f'Status: **{status["status"]}** - {status["description"]}',
         f'Findings: **{status["total_findings"]}** across **{scan.summary.files_scanned}** files',
-        f'Max risk: **{status["max_risk_score"]}** | Average risk: **{status["avg_risk_score"]}**',
+        f'Production/gate findings: **{status["production_findings"]}** | Hygiene findings: **{status["hygiene_findings"]}** | Scopes: **{format_counts(status["scope_counts"])}**',
+        f'Production max risk: **{status["max_risk_score"]}** | Production average risk: **{status["avg_risk_score"]}**',
         f'Priorities: **{format_counts(status["priorities"])}**',
         f'Risk tiers: **{format_counts(status["risk_tiers"])}**',
         f'Blocking secrets: **{status["blocking_secrets"]}**',
         '',
-        '| Risk | Severity | Source | Rule | Location | Finding |',
-        '| --- | --- | --- | --- | --- | --- |',
+        '| Risk | Scope | Severity | Source | Rule | Location | Finding |',
+        '| --- | --- | --- | --- | --- | --- | --- |',
     ]
     for finding in findings:
         lines.append(
-            f'| {finding["priority"]} {finding["risk_score"]} | {finding["severity"]} | '
+            f'| {finding["priority"]} {finding["risk_score"]} | {finding["scope"]} | {finding["severity"]} | '
             f'`{finding["source"]}` | `{finding["rule_id"]}` | `{finding["location"]}` | {escape_table(finding["title"])} |'
         )
     if len(scan.findings) > len(findings):
@@ -516,7 +521,7 @@ def review_body(scan: ScanResult, status: dict[str, Any], findings: list[dict[st
 
 
 def top_findings(scan: ScanResult, limit: int) -> list[dict[str, Any]]:
-    sorted_findings = sorted(scan.findings, key=lambda item: (item.risk.score, priority_rank(item)), reverse=True)
+    sorted_findings = sorted(scan.findings, key=lambda item: (scope_sort_rank(item), item.risk.score, priority_rank(item)), reverse=True)
     return [finding_summary(finding) for finding in sorted_findings[:limit]]
 
 
@@ -526,6 +531,7 @@ def finding_summary(finding: Finding) -> dict[str, Any]:
         'priority': finding.risk.priority,
         'risk_score': finding.risk.score,
         'severity': finding.severity,
+        'scope': finding_scope(finding),
         'source': finding.source,
         'rule_id': finding.rule_id,
         'location': f'{finding.location.path}:{finding.location.line}',

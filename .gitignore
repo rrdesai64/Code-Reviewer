@@ -64,3 +64,5 @@ chat-notification.json
 code-host-review.json
 team-learning-dashboard.json
 ai-review.json
+tools/gitleaks/
+tools/trufflehog/

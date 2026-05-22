@@ -7,6 +7,7 @@ from pathlib import Path
 from .llm import generate
 from .memory import repository_context
 from .models import Finding, FixProposal, LLMRequest, RemediationPlan, RemediationStep, ScanResult, ValidationCheck
+from .scope import scope_sort_rank
 from .rag import retrieve_for_finding
 
 GUARDRAILS = [
@@ -72,7 +73,7 @@ def build_fix_proposal(scan: ScanResult, finding_id: str, provider: str = 'offli
 
 def build_remediation_plan(scan: ScanResult, limit: int = 50) -> RemediationPlan:
     candidates = [finding for finding in scan.findings if finding.decision not in {'false_positive', 'risk_accepted'}]
-    candidates = sorted(candidates, key=lambda item: (-item.risk.score, item.location.path, item.location.line))[:limit]
+    candidates = sorted(candidates, key=lambda item: (-scope_sort_rank(item), -item.risk.score, item.location.path, item.location.line))[:limit]
     steps: list[RemediationStep] = []
     commands: list[str] = []
     for finding in candidates:

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Secure Code Review Assistant</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260521-report-bundle" />
+  <link rel="stylesheet" href="/static/styles.css?v=20260522-scanner-status" />
 </head>
 <body>
   <header class="topbar">
@@ -25,6 +25,14 @@
         <label>ZIP archive<input name="archive" type="file" accept=".zip" /></label>
         <button type="submit">Run Security Scan</button>
       </form>
+      <div id="scan-state" class="scan-state idle" role="status" aria-live="polite">
+        <span class="scan-dot" aria-hidden="true"></span>
+        <div class="scan-state-copy">
+          <strong id="scan-state-label">Scan not running</strong>
+          <span id="scan-state-detail">Ready to start a scan.</span>
+        </div>
+        <span id="scan-state-elapsed" class="scan-elapsed">00:00</span>
+      </div>
       <div id="status" class="status"></div>
     </section>
 
@@ -37,6 +45,6 @@
     <section class="findings" id="findings"></section>
   </main>
 
-  <script src="/static/app.js?v=20260521-report-bundle"></script>
+  <script src="/static/app.js?v=20260522-scanner-status"></script>
 </body>
 </html>

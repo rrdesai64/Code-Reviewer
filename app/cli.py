@@ -23,6 +23,7 @@ from .reporting import github_pr_comment, markdown_report
 from .sarif import build_sarif
 from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report, spdx_compliance_report
 from .scanner import SEVERITY_ORDER, run_scan
+from .scope import is_production_impacting
 from .scanner_depth import scanner_depth_report
 from .sonarqube import sonarqube_quality_report
 from .secrets import secret_policy_report
@@ -273,14 +274,15 @@ def main(argv: list[str] | None = None) -> int:
             return 8
 
     print(f'Scan {scan.scan_id}: {scan.summary.total_findings} findings across {scan.summary.files_scanned} files')
-    print(f'Risk: max={scan.summary.max_risk_score}, avg={scan.summary.avg_risk_score}, priorities={scan.summary.priorities}')
+    print(f'Production gate: findings={scan.summary.production_findings}, hygiene={scan.summary.hygiene_findings}, scopes={scan.summary.scope_counts}')
+    print(f'Production risk: max={scan.summary.max_risk_score}, avg={scan.summary.avg_risk_score}, priorities={scan.summary.priorities}')
     print(f"Tools: {', '.join(f'{k}={v}' for k, v in scan.summary.tools.items())}")
     secret_policy = secret_policy_report(scan)
     if secret_policy['total_secret_findings']:
         print(f"Push protection: {secret_policy['status']} ({secret_policy['blocking_findings']} blocking secrets)")
     if args.fail_on:
         threshold = SEVERITY_ORDER[args.fail_on.upper()]
-        if any(SEVERITY_ORDER[f.severity] >= threshold for f in scan.findings):
+        if any(is_production_impacting(f) and SEVERITY_ORDER[f.severity] >= threshold for f in scan.findings):
             return 2
     if args.fail_on_sbom_policy and sbom_policy_report(scan)['status'] == 'failed':
         return 3

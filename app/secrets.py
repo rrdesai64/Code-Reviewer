@@ -12,9 +12,12 @@ from pathlib import Path
 from typing import Any
 
 from .models import Finding, FixSuggestion, Location, ScanResult
+from .scope import finding_scope, is_blocking_secret
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / 'data' / 'secrets'
+LOCAL_GITLEAKS_EXE = ROOT / 'tools' / 'gitleaks' / 'gitleaks.exe'
+LOCAL_TRUFFLEHOG_EXE = ROOT / 'tools' / 'trufflehog' / 'trufflehog.exe'
 
 EXCLUDED_DIRS = {
     '.git', '.hg', '.svn', '.venv', 'venv', 'env', 'node_modules', 'dist', 'build', '__pycache__',
@@ -150,6 +153,8 @@ def scan_text_for_secrets(target: Path, path: Path, text: str) -> list[Finding]:
     for rule in SECRET_RULES:
         for match in rule.pattern.finditer(text):
             value = match.group(rule.value_group) if rule.value_group else match.group(0)
+            if rule.rule_id == 'generic-secret-assignment' and should_ignore_generic_secret_match(path, text, match):
+                continue
             if should_ignore_secret(value):
                 continue
             line, column = position_for_index(text, match.start())
@@ -199,6 +204,26 @@ def is_excluded(path: Path) -> bool:
     return bool(lowered_parts & EXCLUDED_DIRS)
 
 
+def should_ignore_generic_secret_match(path: Path, text: str, match: re.Match[str]) -> bool:
+    raw = match.group(0)
+    value = match.group('value')
+    quoted_value = bool(re.search(r'[:=]\s*["\']', raw))
+    line_start = text.rfind('\n', 0, match.start()) + 1
+    line_end = text.find('\n', match.end())
+    if line_end == -1:
+        line_end = len(text)
+    line_text = text[line_start:line_end]
+    after = line_text[match.end() - line_start:].lstrip()
+    if after.startswith('('):
+        return True
+    source_suffixes = {'.py', '.js', '.jsx', '.ts', '.tsx', '.java', '.go', '.rs', '.rb', '.php', '.cs', '.cpp', '.c', '.h'}
+    if path.suffix.lower() in source_suffixes and not quoted_value:
+        return True
+    if not quoted_value and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.]*', value):
+        return True
+    return False
+
+
 def should_ignore_secret(value: str) -> bool:
     clean = value.strip().strip('"\'` ,;')
     lower = clean.lower()
@@ -245,7 +270,7 @@ def run_gitleaks(target: Path) -> tuple[list[Finding], str]:
     enabled = os.getenv('GITLEAKS_ENABLED', 'auto').lower()
     if enabled in {'false', '0', 'no', 'off'}:
         return [], 'disabled by GITLEAKS_ENABLED=false'
-    exe = os.getenv('GITLEAKS_EXE') or shutil.which('gitleaks')
+    exe = os.getenv('GITLEAKS_EXE') or (str(LOCAL_GITLEAKS_EXE) if LOCAL_GITLEAKS_EXE.exists() else None) or shutil.which('gitleaks')
     if not exe:
         return [], 'not installed'
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -267,7 +292,7 @@ def run_trufflehog(target: Path) -> tuple[list[Finding], str]:
     enabled = os.getenv('TRUFFLEHOG_ENABLED', 'auto').lower()
     if enabled in {'false', '0', 'no', 'off'}:
         return [], 'disabled by TRUFFLEHOG_ENABLED=false'
-    exe = os.getenv('TRUFFLEHOG_EXE') or shutil.which('trufflehog')
+    exe = os.getenv('TRUFFLEHOG_EXE') or (str(LOCAL_TRUFFLEHOG_EXE) if LOCAL_TRUFFLEHOG_EXE.exists() else None) or shutil.which('trufflehog')
     if not exe:
         return [], 'not installed'
     timeout = int(os.getenv('TRUFFLEHOG_TIMEOUT_SECONDS', '180'))
@@ -322,7 +347,7 @@ def secret_policy_report(scan: ScanResult) -> dict[str, Any]:
     push_protection = os.getenv('PUSH_PROTECTION_ENABLED', 'true').lower() not in {'false', '0', 'no', 'off'}
     secret_findings = [finding for finding in scan.findings if is_secret_finding(finding)]
     open_findings = [finding for finding in secret_findings if finding.decision == 'open']
-    blockers = [finding for finding in open_findings if SEVERITY_ORDER.get(finding.severity, 0) >= SEVERITY_ORDER[threshold]]
+    blockers = [finding for finding in open_findings if is_blocking_secret(finding) and SEVERITY_ORDER.get(finding.severity, 0) >= SEVERITY_ORDER[threshold]]
     status = 'blocked' if push_protection and blockers else 'passed'
     return {
         'scan_id': scan.scan_id,
@@ -337,7 +362,7 @@ def secret_policy_report(scan: ScanResult) -> dict[str, Any]:
         'findings': [policy_finding_summary(finding) for finding in secret_findings],
         'blocking': [policy_finding_summary(finding) for finding in blockers],
         'guidance': [
-            'Block merges when high or critical secrets are open.',
+            'Block merges only for high-confidence or critical secrets, regardless of source scope.',
             'Rotate leaked credentials before marking a finding fixed or risk-accepted.',
             'Use CLI --fail-on-secrets in pre-push or CI workflows for push protection.',
         ],
@@ -358,6 +383,8 @@ def policy_finding_summary(finding: Finding) -> dict[str, Any]:
         'risk_score': finding.risk.score,
         'priority': finding.risk.priority,
         'location': {'path': finding.location.path, 'line': finding.location.line, 'column': finding.location.column},
+        'scope': finding_scope(finding),
+        'production_impacting': is_blocking_secret(finding) or finding_scope(finding) in {'production', 'config', 'dependency'},
         'decision': finding.decision,
         'message': finding.message,
     }

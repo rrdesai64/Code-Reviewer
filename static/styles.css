@@ -31,9 +31,23 @@ button.ghost { background: #edf2f7; color: var(--text); }
 .text-action { min-height: auto; padding: 0; border-radius: 0; background: transparent; color: var(--accent); font: inherit; font-weight: 700; }
 .text-action:hover { text-decoration: underline; }
 .status { margin-top: 14px; min-height: 20px; }
-.summary-grid { display: grid; grid-template-columns: repeat(6, minmax(92px, 1fr)); gap: 10px; }
+.scan-state { margin-top: 14px; border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; background: #fbfcfe; }
+.scan-state-copy { display: grid; gap: 2px; min-width: 0; }
+.scan-state-copy strong { font-size: 13px; }
+.scan-state-copy span { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.scan-dot { width: 10px; height: 10px; border-radius: 50%; background: #98a2b3; box-shadow: 0 0 0 4px rgba(152, 162, 179, 0.16); }
+.scan-elapsed { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.scan-state.running { border-color: #99d8cf; background: #f0fdfa; }
+.scan-state.running .scan-dot { background: var(--accent); box-shadow: 0 0 0 4px rgba(13, 118, 110, 0.16); animation: scan-pulse 1s ease-in-out infinite; }
+.scan-state.done { border-color: #9ed8b3; background: #f0fff4; }
+.scan-state.done .scan-dot { background: #16803c; box-shadow: 0 0 0 4px rgba(22, 128, 60, 0.14); }
+.scan-state.error { border-color: #f3a69e; background: #fff5f5; }
+.scan-state.error .scan-dot { background: var(--danger); box-shadow: 0 0 0 4px rgba(180, 35, 24, 0.14); }
+button:disabled { cursor: wait; opacity: 0.72; }
+@keyframes scan-pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.45); opacity: 0.7; } }
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 10px; }
 .metric { border: 1px solid var(--line); border-radius: 6px; padding: 12px; background: #fbfcfe; }
-.metric strong { display: block; font-size: 22px; }
+.metric strong { display: block; font-size: 20px; line-height: 1.2; overflow-wrap: anywhere; }
 .metric span { color: var(--muted); font-size: 12px; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 .findings { grid-column: 1 / -1; display: grid; gap: 12px; }

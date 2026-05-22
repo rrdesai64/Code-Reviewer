@@ -19,6 +19,7 @@ from .external_scanners import run_codeql, run_sonarqube
 from .models import Finding, Location, ScanResult, ScanSummary
 from .risk import score_scan
 from .secrets import run_secret_scan
+from .scope import apply_finding_scope, production_gate_findings, scope_counts, scope_sort_rank
 from .storage import apply_decisions, compare_to_baseline
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -83,7 +84,7 @@ def run_scan(target_path: Path, project_name: str | None = None, extra_sarif_pat
     tools.update(sarif_status)
 
     findings = [enrich_finding(finding) for finding in dedupe_findings(findings)]
-    findings = enrich_dependency_findings(target, findings)
+    findings = [apply_finding_scope(finding) for finding in enrich_dependency_findings(target, findings)]
     scan = ScanResult(
         scan_id=scan_id,
         project_name=project_name or target.name,
@@ -92,7 +93,7 @@ def run_scan(target_path: Path, project_name: str | None = None, extra_sarif_pat
         findings=findings,
     )
     scan = score_scan(compare_to_baseline(scan))
-    scan.findings = sorted(scan.findings, key=lambda item: (-item.risk.score, -SEVERITY_ORDER.get(item.severity, 0), item.location.path, item.location.line))
+    scan.findings = sorted(scan.findings, key=lambda item: (-scope_sort_rank(item), -item.risk.score, -SEVERITY_ORDER.get(item.severity, 0), item.location.path, item.location.line))
     scan.summary = build_summary(files, scan.findings, tools)
     return apply_decisions(scan)
 
@@ -110,8 +111,11 @@ def iter_source_files(target: Path):
 def build_summary(files: list[Path], findings: list[Finding], tools: dict[str, str]) -> ScanSummary:
     languages = Counter(language_for_path(path) for path in files)
     severities = Counter(f.severity for f in findings)
-    risk_tiers = Counter(f.risk.tier for f in findings)
-    priorities = Counter(f.risk.priority for f in findings)
+    production_findings = production_gate_findings(findings)
+    production_risk_tiers = Counter(f.risk.tier for f in production_findings)
+    production_priorities = Counter(f.risk.priority for f in production_findings)
+    all_risk_tiers = Counter(f.risk.tier for f in findings)
+    all_priorities = Counter(f.risk.priority for f in findings)
     return ScanSummary(
         total_findings=len(findings),
         critical=severities['CRITICAL'],
@@ -122,10 +126,17 @@ def build_summary(files: list[Path], findings: list[Finding], tools: dict[str, s
         files_scanned=len(files),
         languages=dict(sorted(languages.items())),
         tools=tools,
-        max_risk_score=max((f.risk.score for f in findings), default=0),
-        avg_risk_score=round(sum(f.risk.score for f in findings) / len(findings), 1) if findings else 0,
-        risk_tiers=dict(sorted(risk_tiers.items())),
-        priorities=dict(sorted(priorities.items())),
+        max_risk_score=max((f.risk.score for f in production_findings), default=0),
+        avg_risk_score=round(sum(f.risk.score for f in production_findings) / len(production_findings), 1) if production_findings else 0,
+        risk_tiers=dict(sorted(production_risk_tiers.items())),
+        priorities=dict(sorted(production_priorities.items())),
+        scope_counts=scope_counts(findings),
+        production_findings=len(production_findings),
+        hygiene_findings=len(findings) - len(production_findings),
+        all_max_risk_score=max((f.risk.score for f in findings), default=0),
+        all_avg_risk_score=round(sum(f.risk.score for f in findings) / len(findings), 1) if findings else 0,
+        all_risk_tiers=dict(sorted(all_risk_tiers.items())),
+        all_priorities=dict(sorted(all_priorities.items())),
     )
 
 

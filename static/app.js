@@ -1,12 +1,20 @@
 const form = document.querySelector('#scan-form');
 const statusEl = document.querySelector('#status');
+const scanStateEl = document.querySelector('#scan-state');
+const scanStateLabelEl = document.querySelector('#scan-state-label');
+const scanStateDetailEl = document.querySelector('#scan-state-detail');
+const scanStateElapsedEl = document.querySelector('#scan-state-elapsed');
 const summaryEl = document.querySelector('#summary');
 const findingsEl = document.querySelector('#findings');
 const actionsEl = document.querySelector('#actions');
 const healthEl = document.querySelector('#health');
 const authUserEl = document.querySelector('#auth-user');
+const scanButton = form.querySelector('button[type="submit"]');
+const scanButtonLabel = scanButton ? scanButton.textContent : '';
 let currentScan = null;
 let serviceHealth = null;
+let scanTimer = null;
+let scanStartedAt = null;
 
 fetch('/api/health').then(r => r.json()).then(data => {
   serviceHealth = data;
@@ -21,33 +29,93 @@ fetch('/auth/me').then(r => r.ok ? r.json() : null).then(user => {
   authUserEl.innerHTML = `${escapeHtml(user.display_name)} <a href="/auth/logout">Logout</a>`;
 }).catch(() => {});
 
+setScanState('idle', 'Scan not running', 'Ready to start a scan.');
 
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   statusEl.textContent = 'Scanning with source analyzers, dependency audit, secret scanning, risk scoring, memory update, and enterprise audit logging.';
   findingsEl.innerHTML = '';
   actionsEl.innerHTML = '';
+  setScanState('running', 'Scan in progress', 'Running analyzers and preparing reports.');
+  startScanTimer();
+  if (scanButton) {
+    scanButton.disabled = true;
+    scanButton.textContent = 'Scanning...';
+  }
   const body = new FormData(form);
   if (!body.get('archive')?.name) body.delete('archive');
-  const response = await fetch('/api/scans', { method: 'POST', body });
-  if (!response.ok) {
-    const detail = await response.text();
+  try {
+    const response = await fetch('/api/scans', { method: 'POST', body });
+    if (!response.ok) {
+      const detail = await response.text();
+      statusEl.textContent = `Scan failed: ${detail}`;
+      setScanState('error', 'Scan failed', shortStatus(detail));
+      return;
+    }
+    currentScan = await response.json();
+    const bundlePath = currentScan.report_bundle && currentScan.report_bundle.bundle_dir;
+    statusEl.textContent = bundlePath
+      ? `Scan ${currentScan.scan_id} finished. Report bundle saved to: ${bundlePath}`
+      : `Scan ${currentScan.scan_id} finished.`;
+    setScanState('done', 'Scan is over', `Completed scan ${currentScan.scan_id}.`);
+    renderScan(currentScan);
+  } catch (error) {
+    const detail = error && error.message ? error.message : String(error);
     statusEl.textContent = `Scan failed: ${detail}`;
-    return;
+    setScanState('error', 'Scan failed', shortStatus(detail));
+  } finally {
+    stopScanTimer();
+    if (scanButton) {
+      scanButton.disabled = false;
+      scanButton.textContent = scanButtonLabel;
+    }
   }
-  currentScan = await response.json();
-  const bundlePath = currentScan.report_bundle && currentScan.report_bundle.bundle_dir;
-  statusEl.textContent = bundlePath
-    ? `Scan ${currentScan.scan_id} finished. Report bundle saved to: ${bundlePath}`
-    : `Scan ${currentScan.scan_id} finished.`;
-  renderScan(currentScan);
 });
+
+function setScanState(state, label, detail) {
+  if (!scanStateEl) return;
+  scanStateEl.className = `scan-state ${state}`;
+  scanStateLabelEl.textContent = label;
+  scanStateDetailEl.textContent = detail || '';
+}
+
+function startScanTimer() {
+  scanStartedAt = Date.now();
+  updateScanElapsed();
+  stopScanTimer();
+  scanTimer = window.setInterval(updateScanElapsed, 1000);
+}
+
+function stopScanTimer() {
+  if (scanTimer) {
+    window.clearInterval(scanTimer);
+    scanTimer = null;
+  }
+}
+
+function updateScanElapsed() {
+  if (!scanStartedAt || !scanStateElapsedEl) return;
+  scanStateElapsedEl.textContent = formatElapsed(Date.now() - scanStartedAt);
+}
+
+function formatElapsed(ms) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+  const seconds = String(totalSeconds % 60).padStart(2, '0');
+  return `${minutes}:${seconds}`;
+}
+
+function shortStatus(value) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text.length > 180 ? `${text.slice(0, 177)}...` : text;
+}
 
 function renderScan(scan) {
   const s = scan.summary;
   summaryEl.innerHTML = [
-    metric('Total', s.total_findings), metric('Max Risk', s.max_risk_score || 0), metric('Avg Risk', s.avg_risk_score || 0),
-    metric('P0/P1', priorityCount(s, 'P0') + priorityCount(s, 'P1')), metric('Files', s.files_scanned), metric('New', scan.new_findings.length)
+    metric('Total', s.total_findings), metric('Production', s.production_findings || 0), metric('Hygiene', s.hygiene_findings || 0),
+    metric('Prod Max Risk', s.max_risk_score || 0), metric('Prod P0/P1', priorityCount(s, 'P0') + priorityCount(s, 'P1')), metric('Files', s.files_scanned),
+    metric('Scopes', formatScopeCounts(s.scope_counts)), metric('New', scan.new_findings.length)
   ].join('');
   actionsEl.innerHTML = `
     <a class="link-button" href="/api/scans/${scan.scan_id}/sarif" target="_blank">SARIF</a>
@@ -91,6 +159,11 @@ function priorityCount(summary, priority) {
   return (summary.priorities && summary.priorities[priority]) || 0;
 }
 
+function formatScopeCounts(scopes) {
+  const entries = Object.entries(scopes || {});
+  return entries.length ? entries.map(([key, value]) => `${key}:${value}`).join(' ') : 'none';
+}
+
 function renderFinding(f) {
   const tags = [...(f.cwe || []), ...(f.owasp || [])].map(t => `<span class="badge">${escapeHtml(t)}</span>`).join('');
   const guidance = (f.fix.guidance || []).map(item => `<li>${escapeHtml(item)}</li>`).join('');
@@ -98,7 +171,7 @@ function renderFinding(f) {
   const risk = f.risk || { score: 0, tier: 'INFO', priority: 'P4', recommended_action: 'Review and triage.' };
   return `<article class="finding ${risk.tier.toLowerCase()}">
     <div class="finding-head"><h3>[${risk.priority} / ${risk.score}] ${escapeHtml(f.title)}</h3><span class="risk-pill">${escapeHtml(risk.tier)}</span></div>
-    <div class="meta"><span>${escapeHtml(f.location.path)}:${f.location.line}</span><span>${escapeHtml(f.rule_id)}</span><span>${escapeHtml(f.source)}</span><span>Severity ${escapeHtml(f.severity)}</span><span>Confidence ${escapeHtml(f.confidence)}</span>${tags}</div>
+    <div class="meta"><span>${escapeHtml(f.location.path)}:${f.location.line}</span><span>Scope ${escapeHtml(f.scope || 'production')}</span><span>${escapeHtml(f.rule_id)}</span><span>${escapeHtml(f.source)}</span><span>Severity ${escapeHtml(f.severity)}</span><span>Confidence ${escapeHtml(f.confidence)}</span>${tags}</div>
     <p>${escapeHtml(f.message)}</p>
     <p>${escapeHtml(risk.recommended_action)}</p>
     <details class="risk-details"><summary>Risk factors</summary><ul>${riskFactors || '<li>No risk factors recorded.</li>'}</ul></details>

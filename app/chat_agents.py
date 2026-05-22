@@ -14,6 +14,7 @@ from typing import Any
 
 from .models import Finding, ScanResult
 from .reporting import format_counts
+from .scope import finding_scope, scope_sort_rank
 
 SUPPORTED_CHAT_COMMANDS = {
     'help': 'Show supported Secure Review chat commands.',
@@ -182,7 +183,8 @@ def build_slack_payload(scan: ScanResult, summary: dict[str, Any], findings: lis
     status = chat_status_label(summary)
     fields = [
         {'type': 'mrkdwn', 'text': f'*Findings*\n{summary["total_findings"]}'},
-        {'type': 'mrkdwn', 'text': f'*Max risk*\n{summary["max_risk_score"]}'},
+        {'type': 'mrkdwn', 'text': f'*Production*\n{summary["production_findings"]}'},
+        {'type': 'mrkdwn', 'text': f'*Production max risk*\n{summary["max_risk_score"]}'},
         {'type': 'mrkdwn', 'text': f'*Priorities*\n{slack_escape(summary["priorities"])}'},
         {'type': 'mrkdwn', 'text': f'*Push protection*\n{slack_escape(summary["push_protection"])}'},
     ]
@@ -231,7 +233,9 @@ def build_teams_payload(scan: ScanResult, summary: dict[str, Any], findings: lis
             'facts': [
                 {'title': 'Scan', 'value': scan.scan_id},
                 {'title': 'Findings', 'value': str(summary['total_findings'])},
-                {'title': 'Max risk', 'value': str(summary['max_risk_score'])},
+                {'title': 'Production/gate findings', 'value': str(summary['production_findings'])},
+                {'title': 'Hygiene findings', 'value': str(summary['hygiene_findings'])},
+                {'title': 'Production max risk', 'value': str(summary['max_risk_score'])},
                 {'title': 'Priorities', 'value': summary['priorities']},
                 {'title': 'Push protection', 'value': summary['push_protection']},
             ],
@@ -451,6 +455,9 @@ def scan_summary(scan: ScanResult) -> dict[str, Any]:
     return {
         'total_findings': scan.summary.total_findings,
         'files_scanned': scan.summary.files_scanned,
+        'production_findings': scan.summary.production_findings,
+        'hygiene_findings': scan.summary.hygiene_findings,
+        'scope_counts': format_counts(scan.summary.scope_counts),
         'max_risk_score': scan.summary.max_risk_score,
         'avg_risk_score': scan.summary.avg_risk_score,
         'priorities': format_counts(scan.summary.priorities),
@@ -462,7 +469,7 @@ def scan_summary(scan: ScanResult) -> dict[str, Any]:
 
 
 def top_findings(scan: ScanResult, limit: int) -> list[dict[str, Any]]:
-    sorted_findings = sorted(scan.findings, key=lambda item: (item.risk.score, priority_rank(item)), reverse=True)
+    sorted_findings = sorted(scan.findings, key=lambda item: (scope_sort_rank(item), item.risk.score, priority_rank(item)), reverse=True)
     return [finding_summary(finding) for finding in sorted_findings[:limit]]
 
 
@@ -472,6 +479,7 @@ def finding_summary(finding: Finding) -> dict[str, Any]:
         'priority': finding.risk.priority,
         'risk_score': finding.risk.score,
         'severity': finding.severity,
+        'scope': finding_scope(finding),
         'title': finding.title,
         'source': finding.source,
         'rule_id': finding.rule_id,
@@ -485,7 +493,7 @@ def chat_status_label(summary: dict[str, Any]) -> str:
         return 'action required'
     if summary['max_risk_score'] >= 65:
         return 'security review required'
-    if summary['total_findings']:
+    if summary['production_findings'] or summary['hygiene_findings']:
         return 'review recommended'
     return 'no findings'
 

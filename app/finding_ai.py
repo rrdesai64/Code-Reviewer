@@ -12,6 +12,7 @@ from .memory import repository_context
 from .models import Finding, LLMRequest, ScanResult
 from .rag import retrieve_for_finding
 from .refactor import validation_commands_for
+from .scope import finding_scope, scope_sort_rank
 
 MAX_REVIEW_LIMIT = 100
 OPEN_DECISIONS = {'open', 'accepted_fix'}
@@ -153,7 +154,7 @@ def finding_ai_status() -> dict[str, Any]:
 
 def build_scan_ai_review(scan: ScanResult, provider: str = 'offline', model: str | None = None, limit: int = 25, include_prompts: bool = False) -> dict[str, Any]:
     candidates = [finding for finding in scan.findings if finding.decision in OPEN_DECISIONS]
-    candidates = sorted(candidates, key=lambda item: (-item.risk.score, item.location.path, item.location.line, item.id))[:max(1, min(limit, MAX_REVIEW_LIMIT))]
+    candidates = sorted(candidates, key=lambda item: (-scope_sort_rank(item), -item.risk.score, item.location.path, item.location.line, item.id))[:max(1, min(limit, MAX_REVIEW_LIMIT))]
     reviews = [build_finding_ai_review(scan, finding.id, provider=provider, model=model, include_prompts=include_prompts) for finding in candidates]
     scenario_counts = Counter(review['scenario']['id'] for review in reviews)
     return {
@@ -439,6 +440,7 @@ def finding_summary(finding: Finding) -> dict[str, Any]:
         'title': finding.title,
         'severity': finding.severity,
         'confidence': finding.confidence,
+        'scope': finding_scope(finding),
         'location': finding.location.model_dump(),
         'cwe': finding.cwe,
         'owasp': finding.owasp,

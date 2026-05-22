@@ -9,6 +9,7 @@ Severity = Literal['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
 DecisionState = Literal['open', 'false_positive', 'accepted_fix', 'risk_accepted']
 Priority = Literal['P0', 'P1', 'P2', 'P3', 'P4']
 ValidationStatus = Literal['passed', 'warning', 'blocked', 'manual']
+FindingScope = Literal['production', 'test', 'docs', 'example', 'config', 'dependency', 'generated', 'unknown']
 
 
 class Location(BaseModel):
@@ -59,6 +60,7 @@ class Finding(BaseModel):
     reachability: str = 'unknown'
     policy_impact: list[str] = Field(default_factory=list)
     remediation: list[str] = Field(default_factory=list)
+    scope: FindingScope = 'production'
     risk: RiskScore = Field(default_factory=RiskScore)
     decision: DecisionState = 'open'
     decision_reason: str | None = None
@@ -78,6 +80,13 @@ class ScanSummary(BaseModel):
     avg_risk_score: float = 0
     risk_tiers: dict[str, int] = Field(default_factory=dict)
     priorities: dict[str, int] = Field(default_factory=dict)
+    scope_counts: dict[str, int] = Field(default_factory=dict)
+    production_findings: int = 0
+    hygiene_findings: int = 0
+    all_max_risk_score: int = 0
+    all_avg_risk_score: float = 0
+    all_risk_tiers: dict[str, int] = Field(default_factory=dict)
+    all_priorities: dict[str, int] = Field(default_factory=dict)
 
 
 class ScanResult(BaseModel):

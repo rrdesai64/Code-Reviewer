@@ -15,6 +15,7 @@ from typing import Any
 from .models import Finding, ScanResult
 from .reporting import format_counts, github_pr_comment
 from .secrets import secret_policy_report
+from .scope import finding_scope, is_production_impacting
 
 SEVERITY_ORDER = {'CRITICAL': 4, 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1, 'INFO': 0}
 SUPPORTED_REVIEW_EVENTS = {'COMMENT', 'REQUEST_CHANGES', 'APPROVE'}
@@ -335,7 +336,7 @@ def build_inline_comments(scan: ScanResult, diff_map: dict[tuple[str, int], dict
 
 def review_status(scan: ScanResult) -> dict[str, Any]:
     secrets = secret_policy_report(scan)
-    open_findings = [finding for finding in scan.findings if finding.decision == 'open']
+    open_findings = [finding for finding in scan.findings if finding.decision == 'open' and is_production_impacting(finding)]
     p0 = [finding for finding in open_findings if finding.risk.priority == 'P0']
     p1 = [finding for finding in open_findings if finding.risk.priority == 'P1']
     critical = [finding for finding in open_findings if finding.severity == 'CRITICAL']
@@ -357,6 +358,10 @@ def review_status(scan: ScanResult) -> dict[str, Any]:
         'gate': gate,
         'reason': reason,
         'open_findings': len(open_findings),
+        'total_findings': scan.summary.total_findings,
+        'production_findings': scan.summary.production_findings,
+        'hygiene_findings': scan.summary.hygiene_findings,
+        'scope_counts': dict(scan.summary.scope_counts),
         'p0': len(p0),
         'p1': len(p1),
         'critical': len(critical),
@@ -374,7 +379,8 @@ def build_review_body(scan: ScanResult, status: dict[str, Any], inline: list[dic
         f"Reason: {status['reason']}",
         '',
         f'Findings: **{scan.summary.total_findings}** across **{scan.summary.files_scanned} files**.',
-        f'Max risk: **{scan.summary.max_risk_score}** | Average risk: **{scan.summary.avg_risk_score}** | Priorities: **{format_counts(scan.summary.priorities)}**',
+        f'Production/gate findings: **{scan.summary.production_findings}** | Hygiene findings: **{scan.summary.hygiene_findings}** | Scopes: **{format_counts(scan.summary.scope_counts)}**',
+        f'Production max risk: **{scan.summary.max_risk_score}** | Production average risk: **{scan.summary.avg_risk_score}** | Production priorities: **{format_counts(scan.summary.priorities)}**',
         f'Inline comments prepared: **{len(inline)}** | Summary-only findings: **{len(summary_only)}**',
         '',
     ]
@@ -391,6 +397,7 @@ def inline_comment_body(scan: ScanResult, finding: Finding) -> str:
         '',
         f'- Scan: `{scan.scan_id}`',
         f'- Source: `{finding.source}` / `{finding.rule_id}`',
+        f'- Scope: `{finding_scope(finding)}`',
         f'- Severity: `{finding.severity}` | Confidence: `{finding.confidence}`',
         f'- CWE: {cwe}',
         f'- OWASP: {owasp}',
@@ -521,6 +528,7 @@ def finding_summary(finding: Finding, reason: str) -> dict[str, Any]:
         'severity': finding.severity,
         'risk_score': finding.risk.score,
         'priority': finding.risk.priority,
+        'scope': finding_scope(finding),
         'location': {'path': finding.location.path, 'line': finding.location.line},
         'message': finding.message,
     }
@@ -536,6 +544,7 @@ def comment_without_payload(comment: dict[str, Any]) -> dict[str, Any]:
         'severity': finding.severity,
         'risk_score': finding.risk.score,
         'priority': finding.risk.priority,
+        'scope': finding_scope(finding),
         'path': comment['path'],
         'line': comment['line'],
         'position': comment['position'],

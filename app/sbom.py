@@ -321,8 +321,14 @@ def read_python_requirements(target: Path) -> list[SbomComponent]:
             if not parsed:
                 continue
             name, version, spec = parsed
-            components.append(enrich_component(SbomComponent('pypi', name, version=version, version_spec=spec, manifest_path=rel, package_manager='pip')))
+            components.append(enrich_component(SbomComponent('pypi', name, version=version, version_spec=spec, scope=python_requirements_scope(rel), manifest_path=rel, package_manager='pip')))
     return components
+
+
+def python_requirements_scope(path: str) -> str:
+    value = path.lower()
+    return 'optional' if any(marker in value for marker in ('dev', 'test', 'tests', 'doc', 'docs', 'example', 'sample')) else 'required'
+
 
 
 def read_pyproject(target: Path) -> list[SbomComponent]:
@@ -345,7 +351,7 @@ def read_pyproject(target: Path) -> list[SbomComponent]:
             parsed = parse_requirement_line(str(item))
             if parsed:
                 name, version, spec = parsed
-                components.append(enrich_component(SbomComponent('pypi', name, version=version, version_spec=spec, manifest_path=rel, package_manager='pip')))
+                components.append(enrich_component(SbomComponent('pypi', name, version=version, version_spec=spec, scope=python_requirements_scope(rel), manifest_path=rel, package_manager='pip')))
         poetry = ((payload.get('tool') or {}).get('poetry') or {}).get('dependencies') or {}
         for name, spec_value in poetry.items():
             if name.lower() == 'python':

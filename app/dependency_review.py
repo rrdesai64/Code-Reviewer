@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import Finding, ScanResult
+from .scope import classify_path_scope
 from .sbom import (
     SbomComponent,
     attach_missing_vulnerable_components,
@@ -31,6 +32,7 @@ SEVERITY_POINTS = {'CRITICAL': 72, 'HIGH': 56, 'MEDIUM': 34, 'LOW': 16, 'INFO': 
 REACHABILITY_POINTS = {
     'reachable-source-import': 20,
     'direct-manifest': 12,
+    'reachable-test-import': 2,
     'manifest-only': 5,
     'transitive-unknown': 2,
     'dev-or-optional': 1,
@@ -59,7 +61,7 @@ class DependencyUsage:
     symbol: str
 
     def as_dict(self) -> dict[str, Any]:
-        return {'path': self.path, 'line': self.line, 'kind': self.kind, 'symbol': self.symbol}
+        return {'path': self.path, 'line': self.line, 'kind': self.kind, 'symbol': self.symbol, 'scope': classify_path_scope(self.path)}
 
 
 def dependency_review_report(scan: ScanResult) -> dict[str, Any]:
@@ -218,10 +220,14 @@ def component_review_item(component: SbomComponent, context: dict[str, Any]) -> 
 
 
 def component_reachability(component: SbomComponent, evidence: list[DependencyUsage]) -> dict[str, Any]:
-    if evidence:
+    production_evidence = [item for item in evidence if classify_path_scope(item.path) in {'production', 'config'}]
+    if production_evidence:
         status = 'reachable-source-import'
         confidence = 'high'
-    elif dependency_type(component) == 'direct':
+    elif evidence:
+        status = 'reachable-test-import'
+        confidence = 'medium'
+    elif dependency_type(component) == 'direct' and component.scope == 'required':
         status = 'direct-manifest'
         confidence = 'medium'
     elif component.scope == 'optional':
@@ -237,6 +243,7 @@ def component_reachability(component: SbomComponent, evidence: list[DependencyUs
         'status': status,
         'confidence': confidence,
         'evidence': [item.as_dict() for item in evidence[:10]],
+        'production_evidence_count': len(production_evidence),
         'evidence_count': len(evidence),
     }
 
@@ -503,6 +510,8 @@ def reachability_note(review: dict[str, Any]) -> str:
         return 'Validate the reachable import/use path and prioritize compatibility testing for the upgrade.'
     if status == 'direct-manifest':
         return 'No source import was detected, but the dependency is declared directly in a runtime manifest; verify runtime/plugin usage before deferring.'
+    if status == 'reachable-test-import':
+        return 'Dependency usage was detected only in test/docs/example code; verify it is absent from production runtime before raising priority.'
     if status == 'transitive-unknown':
         return 'Dependency appears lockfile-only or transitive; identify the parent dependency before remediation planning.'
     if status == 'dev-or-optional':

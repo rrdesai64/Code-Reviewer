@@ -72,6 +72,58 @@ Open `http://127.0.0.1:8000`.
 
 Or use the web form with the same path.
 
+`run.ps1` and `scan.ps1` both load `.env` before starting the app or CLI scan, so scanner settings such as CodeQL, SonarQube/SonarCloud, govulncheck, and secret-scanner paths stay consistent between web and command-line workflows.
+
+Generated runtime data defaults to `E:\secure-review` when no output root is configured. Set `SECURE_REVIEW_OUTPUT_ROOT`, `SECURE_REVIEW_DATA_DIR`, and `REPORT_BUNDLE_DIR` in `.env` if you want a different drive.
+
+## Bulk Clone Repositories
+
+Create a private `repo-list.txt` with one GitHub URL per line, optionally followed by branch and Sonar project key:
+
+```text
+# repository_url,branch,sonar_project_key
+https://github.com/example-org/example-service.git,,adsflaunt-enterprises_example-org__example-service
+https://github.com/example-org/example-api.git,main,adsflaunt-enterprises_example-org__example-api
+```
+
+Then clone each repository into an isolated scan workspace:
+
+```powershell
+.\clone-repos.ps1 -List .\repo-list.txt -OutDir .\scan-workspace\repos
+```
+
+Existing repositories are skipped by default. Add `-UpdateExisting` to fetch and fast-forward existing checkouts, `-Depth 1` for shallow clones, or `-DryRun` to preview the planned directories. The script writes `clone-summary.json` under the output directory for auditability.
+
+If the first clone run fills a disk, resume into a different drive while reusing completed checkouts from the old directory:
+
+```powershell
+.\clone-repos.ps1 -List .\repo-list.txt -OutDir "E:\secure-review\repos" -ResumeFromDir .\scan-workspace\repos -Depth 1
+```
+
+To verify supply-chain scanner coverage, collect root-level manifest and lock files from the cloned repositories:
+
+```powershell
+.\collect-supply-chain-footprints.ps1 -List .\repo-list.txt -ReposDir .\scan-workspace\repos -OutDir .\scan-workspace\supply-chain-footprints
+```
+
+The collector copies files such as `package.json`, `package-lock.json`, `requirements*.txt`, `pyproject.toml`, `poetry.lock`, `go.mod`, `go.sum`, `pom.xml`, Gradle manifests, `Cargo.toml`, `Cargo.lock`, and common ecosystem lockfiles from each repository root. It writes `footprint-index.json` with per-file SHA-256 hashes, sizes, source paths, and copied evidence paths.
+
+Run scans for every cloned repository while applying each repo's Sonar project key from the third manifest column:
+
+```powershell
+.\scan-repos.ps1 -List .\repo-list.txt -ReposDir .\scan-workspace\repos -ReportsDir .\reports
+```
+
+With the default output root, `-ReportsDir .\reports` resolves to `E:\secure-review\reports` so bulk scan reports do not fill the project drive.
+
+When repositories are split across drives, pass both roots and put reports on the drive with enough space:
+
+```powershell
+.\scan-repos.ps1 -List .\repo-list.txt -ReposDir .\scan-workspace\repos,"E:\secure-review\repos" -ReportsDir "E:\secure-review\reports"
+```
+
+Use `-DryRun` first to verify paths and Sonar keys without scanning.
+
 ## CLI Examples
 
 ```powershell
@@ -786,7 +838,7 @@ Implemented:
 
 - VS Code command palette and activity-bar commands for workspace scans, health checks, refresh, baseline save, and web app launch
 - Finding tree with source navigation, RAG context, fix proposals, and finding decision updates
-- Report picker for scanner mesh, dependency review, SonarQube quality gate, scanner depth, secret policy, push protection, CycloneDX, SPDX, SPDX compliance, SBOM policy, SBOM comparison, GitHub PR review, PR comment, remediation plan, memory context, recursive scanner learning, advanced AI report, compliance, SARIF, Markdown, and HTML
+- Report picker for scanner mesh, dependency review, SonarQube quality gate, scanner depth, quarantine policy, sanitized report lake records, RAG memory records, Hermes orchestration, OpenClaw control, enterprise governance evidence, secret policy, push protection, CycloneDX, SPDX, SPDX compliance, SBOM policy, SBOM comparison, GitHub PR review, PR comment, remediation plan, memory context, recursive scanner learning, advanced AI report, compliance, SARIF, Markdown, and HTML
 - Safe fix workflow parity through IDE-accessible fix proposals, fix bundles, and dry-run fix apply reports
 - Evidence bundle export to `.secure-review-artifacts/{scan_id}` using the same core artifacts emitted by `scan.ps1` and `app.cli`
 - Extension settings for backend URL, optional bearer token, extra request headers, default fix provider, and fix bundle limit
@@ -1078,6 +1130,345 @@ PowerShell wrapper:
 
 Recommended workflow: collect scan evidence, review generated scanner improvement recommendations, approve candidate changes manually, test them against benchmark repositories, and promote them into the main rule pack only if false-positive noise drops without losing true positives.
 
+## Quarantine Registry
+
+Step 1 of the disposable-VM and agent-learning architecture adds a local quarantine registry for repositories that must be treated as hostile input before any future scanner worker or Hermes agent touches them.
+
+Implemented:
+
+- Registry path: `SECURE_REVIEW_DATA_DIR\quarantine-registry.json`
+- Built-in quarantined entry for `https://github.com/samratashok/nishang`
+- Deny-by-default controls for raw-code access, host execution, and agent learning
+- Report-only guidance for sanitized, inert artifacts after explicit approval
+- Recursive-learning exclusion for quarantined scans
+- CLI host-scan blocking for quarantined targets with exit code `13`
+- `quarantine-policy.json` in `scan.ps1`, bulk scan outputs, report bundles, and the VS Code report picker
+
+Useful endpoints:
+
+- `GET /api/quarantine/registry`
+- `POST /api/quarantine/lookup`
+- `POST /api/quarantine/registry`
+- `GET /api/scans/{scan_id}/quarantine-policy`
+
+CLI export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --quarantine-policy-out quarantine-policy.json
+```
+
+Example entry:
+
+```json
+{
+  "repository": "https://github.com/example/danger-lab",
+  "status": "quarantined",
+  "reason": "Known hostile test corpus.",
+  "tags": ["malware", "report-only"]
+}
+```
+
+## Disposable VM Scan Worker
+
+Step 2 adds a disposable VM worker preparation layer. It does not execute unknown repository code on the host. Instead, it creates a job package for an isolated guest, with a manifest, Windows Sandbox config, guest runner, launcher script, and strict artifact export allowlist.
+
+Implemented:
+
+- Disposable VM job manifests under `SECURE_REVIEW_DATA_DIR\vm-worker\jobs`
+- Windows Sandbox `.wsb` job generation
+- Read-only host mounts for the app and repository source
+- Guest scratch copy before scanning
+- Scanner output written inside the guest first
+- Export allowlist for report artifacts only, including `scan.json`, SARIF, SBOM/SPDX, recursive learning, benchmark gate, quarantine policy, sanitized report lake records, RAG memory records, and worker status/log
+- Offline network mode through Windows Sandbox networking disablement
+- `scanner-only` and `full` network policy metadata for future firewall-backed workers
+- Explicit approval requirement before preparing a VM job for quarantined repositories
+
+Useful endpoints:
+
+- `GET /api/vm-worker/status`
+- `GET /api/vm-worker/jobs`
+- `GET /api/vm-worker/jobs/{job_id}`
+- `POST /api/vm-worker/jobs`
+
+Prepare a disposable VM scan job:
+
+```powershell
+.\prepare-vm-scan-job.ps1 `
+  -RepoPath "E:\secure-review\repos\owner__repo" `
+  -RepoUrl "https://github.com/owner/repo" `
+  -OutputRoot "D:\secure-review" `
+  -ReportsDir ".\reports" `
+  -NetworkPolicy offline `
+  -JsonOut "D:\secure-review\vm-job-owner-repo.json"
+```
+
+For a quarantined repository, preparation requires explicit approval:
+
+```powershell
+.\prepare-vm-scan-job.ps1 `
+  -RepoPath "E:\secure-review\repos\samratashok__nishang" `
+  -RepoUrl "https://github.com/samratashok/nishang" `
+  -OutputRoot "D:\secure-review" `
+  -ApprovedQuarantine `
+  -NetworkPolicy offline `
+  -JsonOut "D:\secure-review\vm-job-nishang.json"
+```
+
+Use `-Launch` only after reviewing the generated job manifest and `.wsb` file. Closing the Windows Sandbox window discards the guest state.
+
+## Sanitized Report Lake
+
+Step 3 adds a sanitized report lake for future Hermes/RAG memory work. It is populated from saved `ScanResult` objects only; it does not open cloned repositories, execute code, or parse raw report files.
+
+Implemented:
+
+- Lake path: `SECURE_REVIEW_DATA_DIR\report-lake\scans`
+- Automatic sanitized lake record after each API or CLI scan
+- `sanitized-report.json` in `scan.ps1`, bulk scan outputs, disposable VM exports, report bundles, GitHub Actions artifacts, browser UI, and VS Code report picker
+- Redaction for obvious secret-like strings before persistence
+- No raw source code, patches, or full local target paths in lake records
+- Quarantine and learning-eligibility labels for every record
+- Reindex endpoint for rebuilding sanitized records from saved scans without touching repos
+
+Useful endpoints:
+
+- `GET /api/report-lake/status`
+- `GET /api/report-lake/scans`
+- `POST /api/report-lake/reindex`
+- `GET /api/report-lake/scans/{scan_id}`
+- `GET /api/scans/{scan_id}/sanitized-report`
+
+CLI export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --sanitized-report-out sanitized-report.json
+```
+
+Hermes and future language agents should treat `learning_eligibility` as mandatory policy input. Quarantined or watched scans can be retained as inert governance evidence, but they must not be used for autonomous RAG ingestion, fine-tuning, or scanner promotion.
+
+## RAG Memory Schema
+
+Step 4 adds a dedicated RAG memory schema and index fed by the sanitized report lake. It keeps repository scan experience separate from the static markdown knowledge base, and every memory item carries eligibility and safety labels for future Hermes agents.
+
+Implemented:
+
+- Memory path: `SECURE_REVIEW_DATA_DIR\rag-memory`
+- Schema endpoint describing required item fields, allowed item types, safety labels, and eligibility gates
+- Automatic per-scan `rag-memory.json` after API or CLI scans
+- Retrieval index with `scan-summary`, `finding-pattern`, `rule-pattern`, `dependency-signal`, and `scanner-status` items
+- Query endpoint over retrieval-eligible sanitized memory items
+- Quarantine/watch records skipped for retrieval by default
+- `rag-memory.json` in `scan.ps1`, bulk scan outputs, disposable VM exports, report bundles, GitHub Actions artifacts, browser UI, and VS Code report picker
+
+Useful endpoints:
+
+- `GET /api/rag-memory/schema`
+- `GET /api/rag-memory/status`
+- `GET /api/rag-memory/items`
+- `GET /api/rag-memory/scans`
+- `GET /api/rag-memory/query?q=dependency%20risk`
+- `POST /api/rag-memory/reindex`
+- `GET /api/scans/{scan_id}/rag-memory`
+
+CLI export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --rag-memory-out rag-memory.json
+```
+
+This layer is retrieval memory, not autonomous scanner learning. It can help future Python, Go, and other Hermes agents understand recurring sanitized patterns, but scanner/rule updates still require human approval and benchmark gates.
+
+## Hermes Orchestrator
+
+Step 5 adds the production Hermes orchestration core. Hermes consumes only sanitized RAG memory, plans review tasks, dispatches deterministic governance agents, records durable runs, and produces auditable recommendations without reading source code or mutating scanners, rules, suppressions, fixes, or repositories.
+
+Implemented:
+
+- Durable run store: `SECURE_REVIEW_DATA_DIR\hermes\runs`
+- Policy gate that blocks missing, quarantined, watch-policy, or safety-violating memory
+- Built-in deterministic agents:
+  - `hermes-risk-governor`
+  - `hermes-supply-chain-governor`
+  - `hermes-scanner-coverage-governor`
+  - `hermes-remediation-governor`
+  - `hermes-compliance-governor`
+- Task planning for release readiness, risk triage, supply-chain review, remediation routing, scanner coverage, and scanner improvement candidates
+- Audit-safe synthesis with blockers, review-required items, next actions, and benchmark/human-approval gates
+- `hermes-orchestration.json` in `scan.ps1`, bulk scan outputs, disposable VM exports, report bundles, GitHub Actions artifacts, browser UI, and VS Code report picker
+
+Useful endpoints:
+
+- `GET /api/hermes/status`
+- `GET /api/hermes/runs`
+- `GET /api/hermes/runs/{run_id}`
+- `POST /api/hermes/runs`
+- `GET /api/scans/{scan_id}/hermes`
+
+CLI export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --hermes-out hermes-orchestration.json
+```
+
+Hermes is production-grade orchestration, not autonomous mutation. Its outputs are planning and governance artifacts; any code fix, scanner tuning, rule promotion, suppression, or parser change must still go through human approval and benchmark validation.
+
+## Hermes Python Security Specialist
+
+Step 6 adds the first language-specialist Hermes agent: `hermes-python-security-specialist`. It follows the local Hermes agent contract and the upstream [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) security posture, while deliberately avoiding a broad runtime dependency import for this project.
+
+Implemented:
+
+- Python-specific task planning for finding patterns, dependency signals, scanner status, and release-readiness runs
+- Language-aware triage for command execution, unsafe deserialization, SQL injection, path traversal, TLS bypass, secret handling, debug-mode, dependency, and locking-range signals
+- Python supply-chain review for `pip-audit`, `requirements.txt`, `pyproject.toml`, Poetry, Pipfile, vulnerable package, and dependency-hygiene evidence
+- Python scanner coverage checks for Bandit, pip-audit, Python AST, Semgrep, CodeQL, and SonarQube status signals
+- Review-only remediation routing with validation commands such as `python -m compileall .`, `pip-audit`, `bandit -r .`, and `pytest`
+- No raw repository reads, no source execution, no external calls, no file edits, no dependency installation, and no automatic rule/scanner changes
+
+Hermes upstream review notes:
+
+- `NousResearch/hermes-agent` was reviewed as the framework reference for agent registry, memory, skills, tool routing, and messaging concepts.
+- Its security policy treats OS/container isolation as the real security boundary, so this app keeps language agents inside the existing sanitized-memory-only governance layer and relies on disposable VM workers for hostile repositories.
+- Its current direct pinned core dependencies were checked with `pip-audit --no-deps`; no known vulnerabilities were reported for that direct pinned set at review time.
+- The upstream package itself was not added to `requirements.txt` because this Python specialist does not need its full CLI, messaging gateway, terminal backends, skill hub, scheduler, provider, or optional tool dependency surface.
+
+The Python specialist is included automatically in `hermes-orchestration.json`, `/api/hermes/status`, `/api/hermes/runs`, and `/api/scans/{scan_id}/hermes` whenever eligible sanitized RAG memory contains Python evidence.
+
+## Benchmark Gate
+
+Step 7 adds a hard promotion gate for recursive scanner learning. Recommendations can still be generated as `proposed`, but they cannot influence future scanner/rule recommendations unless they become active through the full benchmark path.
+
+Implemented:
+
+- Benchmark corpus: `benchmarks/language-corpus.json`
+- Per-language benchmark expectations for Python, Go, JavaScript, TypeScript, Java, Rust, PHP, Ruby, C#, YAML, Dockerfile, and Terraform
+- Required benchmark case types for every language:
+  - `rule-regression`
+  - `false-positive`
+  - `fix-validation`
+- Promotion states:
+  - `proposed`
+  - `reviewed`
+  - `benchmarked`
+  - `approved`
+  - `active`
+- Stateful benchmark lesson store: `SECURE_REVIEW_DATA_DIR\benchmark-gate\lessons.json`
+- Recursive-learning recommendations now carry benchmark promotion metadata and `learning_influence_allowed`
+- Only active lessons with passing benchmark evidence and human approval are exposed as approved learning influences
+- `benchmark-gate.json` in `scan.ps1`, bulk scan outputs, report bundles, GitHub Actions artifacts, and the VS Code report picker
+
+Useful endpoints:
+
+- `GET /api/benchmark-gate/status`
+- `GET /api/benchmark-gate/corpus`
+- `GET /api/benchmark-gate/lessons`
+- `POST /api/benchmark-gate/lessons`
+- `POST /api/benchmark-gate/lessons/{lesson_id}/transition`
+- `GET /api/scans/{scan_id}/benchmark-gate`
+
+CLI export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --benchmark-gate-out benchmark-gate.json
+```
+
+Benchmark evidence must show all known true positives were preserved, false-positive noise did not increase after review, fix validation passed, and scanner status did not fail or silently skip required coverage. The gate does not rewrite scanner rules, parser code, configs, suppressions, or repository files.
+
+## OpenClaw Approval/Chat Frontend
+
+Step 8 adds an OpenClaw-compatible backend control surface for Peter Steinberger's [`openclaw/openclaw`](https://github.com/openclaw/openclaw). OpenClaw is treated as the self-hosted multi-channel gateway and Control UI; this app remains the policy-enforcing backend.
+
+Implemented:
+
+- Channel-ready inbound routes for API, WhatsApp, Telegram, Slack, and Teams payloads
+- Scan status command support
+- Benchmark Gate approval queue support
+- Quarantine alert lookups
+- Per-finding explanation through the existing AI review endpoint
+- Memory lesson approval and activation through Benchmark Gate transition APIs
+- Disposable VM rerun job preparation with offline networking by default
+- Feature registry controlled by `OPENCLAW_FEATURES`, defaulting to `all`
+- `openclaw-control.json` in `scan.ps1`, bulk scan outputs, disposable VM exports, report bundles, GitHub Actions artifacts, and the VS Code report picker
+
+Useful endpoints:
+
+- `GET /api/openclaw/status`
+- `GET /api/openclaw/features`
+- `POST /api/openclaw/messages`
+- `POST /api/openclaw/webhook/{channel}`
+- `GET /api/scans/{scan_id}/openclaw`
+
+Supported chat commands:
+
+```text
+status <scan_id>
+explain <scan_id> <finding_id>
+approvals [state]
+approve lesson <lesson_id>
+review lesson <lesson_id>
+activate lesson <lesson_id>
+quarantine <scan_id-or-repo>
+rerun vm <scan_id>
+```
+
+OpenClaw does not directly mutate scanner rules, parser code, suppressions, scanner config, or repository files. Approval commands call backend APIs, and disposable VM reruns only prepare a job manifest; launching the guest remains a human action.
+
+CLI export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --openclaw-out openclaw-control.json
+```
+
+## Enterprise Governance
+
+Step 9 adds the team-governance layer around Hermes, RAG memory, Benchmark Gate, and OpenClaw chat approvals. The goal is traceability: what agent ran, what evidence it used, who approved scanner-learning lessons, why a lesson moved forward, which memory version was used, and how to export this for review.
+
+Implemented:
+
+- Governance event log: `SECURE_REVIEW_DATA_DIR\governance\events.jsonl`
+- Audit events for every Hermes agent action and policy block
+- Benchmark Gate promotion evidence with `promotion_reason`, reviewer, benchmark, approver, and activation history
+- RAG memory version snapshots under `SECURE_REVIEW_DATA_DIR\rag-memory\versions`
+- Active memory version registry: `SECURE_REVIEW_DATA_DIR\rag-memory\versions.json`
+- Memory rollback endpoint that restores sanitized RAG memory and rebuilds the retrieval index
+- Scan-level and enterprise-level governance evidence exports
+- `governance-evidence.json` in `scan.ps1`, bulk scan outputs, disposable VM exports, report bundles, GitHub Actions artifacts, browser UI, and the VS Code report picker
+- OpenClaw supply-chain posture report that confirms this app does not install or import the OpenClaw npm package
+
+Useful endpoints:
+
+- `GET /api/enterprise/governance`
+- `GET /api/enterprise/governance/events`
+- `GET /api/enterprise/governance/evidence`
+- `GET /api/enterprise/openclaw/supply-chain`
+- `GET /api/scans/{scan_id}/governance`
+- `GET /api/rag-memory/versions`
+- `POST /api/rag-memory/versions/{version_id}/rollback`
+
+Rollback request:
+
+```json
+{
+  "reason": "Rollback to the last reviewed sanitized memory version."
+}
+```
+
+CLI export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --governance-out governance-evidence.json
+```
+
+OpenClaw dependency decision:
+
+- Local dependency check: no OpenClaw Python package and no OpenClaw npm dependency are used by this app.
+- The integration is a backend-compatible webhook/control surface only.
+- The known upstream OpenClaw advisory `GHSA-m3mh-3mpg-37hw` affects npm `openclaw` versions `<= 2025.3.23` and is patched in `>= 2026.3.24`.
+- If OpenClaw runtime installation is approved later, use only patched pinned versions, audit the full npm tree, do not install untrusted plugins/hooks, and run it outside the scanner process boundary.
+
+What OpenClaw brings here: multi-channel operator access, chat approval requests, quarantine alerts, finding explanations, scan status, and disposable-VM rerun requests. It does not bring scanner engines, rule mutation, code execution inside this app, or package dependencies.
+
 ## AI Finding Review Layer
 
 The app already had local/cloud LLM plumbing, RAG, multi-agent reports, and fix proposals. This layer adds a first-class per-finding AI review artifact: each finding gets a dynamically generated vulnerability explanation prompt and remediation suggestion prompt based on the scanner source, CWE/OWASP tags, risk score, reachability, RAG context, repository memory, and detected vulnerability scenario.
@@ -1112,7 +1503,7 @@ Dashboard scans now write a human-shareable report bundle automatically after ea
 reports\<repo-name>\<scan-id>\
 ```
 
-Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, and safe fix dry-run artifacts.
+Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `openclaw-control.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, and safe fix dry-run artifacts.
 
 The dashboard shows the saved bundle path after the scan and includes a `Report Bundle` action that opens the manifest. Set `REPORT_BUNDLE_DIR` in `.env` to place bundles somewhere else, for example:
 

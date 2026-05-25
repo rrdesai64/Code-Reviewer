@@ -51,6 +51,9 @@ function activate(context) {
   register(context, 'secureCodeReview.showChatNotification', () => showReportById(context, 'chat-notification'));
   register(context, 'secureCodeReview.showTeamLearning', () => showReportById(context, 'team-learning'));
   register(context, 'secureCodeReview.showRecursiveLearning', () => showReportById(context, 'recursive-learning'));
+  register(context, 'secureCodeReview.showBenchmarkGate', () => showReportById(context, 'benchmark-gate'));
+  register(context, 'secureCodeReview.showOpenClaw', () => showReportById(context, 'openclaw'));
+  register(context, 'secureCodeReview.showGovernanceEvidence', () => showReportById(context, 'governance-evidence'));
   register(context, 'secureCodeReview.showMemoryContext', () => showReportById(context, 'memory-context'));
   register(context, 'secureCodeReview.showAdvancedAiReport', () => showReportById(context, 'advanced-ai'));
   register(context, 'secureCodeReview.showAiReview', () => showReportById(context, 'ai-review'));
@@ -408,6 +411,10 @@ function reportDefinitions(scan) {
     jsonReport('dependency-review', 'Dependency Review', `/api/scans/${scanId}/dependencies/review`, 'dependency-review.json', 'Reachability and dependency risk scoring.'),
     jsonReport('sonarqube', 'SonarQube Quality Gate', `/api/scans/${scanId}/sonarqube/report`, 'sonarqube-quality-gate.json', 'SonarQube issue and quality gate ingestion.'),
     jsonReport('scanner-depth', 'Scanner Depth', `/api/scans/${scanId}/scanner-depth`, 'scanner-depth.json', 'Semgrep and CodeQL coverage depth.'),
+    jsonReport('quarantine-policy', 'Quarantine Policy', `/api/scans/${scanId}/quarantine-policy`, 'quarantine-policy.json', 'Host execution, raw-code access, and agent-learning controls for this repository.'),
+    jsonReport('sanitized-report', 'Sanitized Report Lake', `/api/scans/${scanId}/sanitized-report`, 'sanitized-report.json', 'Redacted scan record prepared for report lake and future agent memory.'),
+    jsonReport('rag-memory', 'RAG Memory', `/api/scans/${scanId}/rag-memory`, 'rag-memory.json', 'Structured sanitized memory items for future Hermes/RAG retrieval.'),
+    jsonReport('hermes', 'Hermes Orchestration', `/api/scans/${scanId}/hermes`, 'hermes-orchestration.json', 'Policy-gated agent orchestration over sanitized RAG memory.'),
     jsonReport('secret-policy', 'Secret Policy', `/api/scans/${scanId}/secrets/policy`, 'secret-policy.json', 'Push-protection policy evidence.'),
     jsonReport('push-protection', 'Push Protection', `/api/scans/${scanId}/push-protection`, 'push-protection.json', 'Secret blocking status.'),
     jsonReport('cyclonedx', 'CycloneDX SBOM', `/api/scans/${scanId}/sbom/cyclonedx`, 'cyclonedx-sbom.json', 'CycloneDX SBOM export.'),
@@ -426,6 +433,9 @@ function reportDefinitions(scan) {
     jsonReport('chat-notification', 'Slack/Teams Agent', `/api/scans/${scanId}/chat/notification`, 'chat-notification.json', 'Dry-run Slack and Teams notification payloads.'),
     jsonReport('team-learning', 'Team Learning Dashboard', '/api/team-learning/dashboard', 'team-learning-dashboard.json', 'Team learning trends, campaign recommendations, and security behavior dashboard.'),
     jsonReport('recursive-learning', 'Recursive Scanner Learning', `/api/scans/${scanId}/recursive-learning`, 'recursive-learning.json', 'Controlled scanner improvement recommendations from scan evidence.'),
+    jsonReport('benchmark-gate', 'Benchmark Gate', `/api/scans/${scanId}/benchmark-gate`, 'benchmark-gate.json', 'Promotion gate for benchmarked, approved scanner lessons.'),
+    jsonReport('openclaw', 'OpenClaw Control', `/api/scans/${scanId}/openclaw`, 'openclaw-control.json', 'OpenClaw chat approval and disposable-VM control surface.'),
+    jsonReport('governance-evidence', 'Enterprise Governance Evidence', `/api/scans/${scanId}/governance`, 'governance-evidence.json', 'Audit, approval, memory lineage, rollback, and compliance evidence.'),
     jsonReport('memory-context', 'Repository Memory Brief', `/api/scans/${scanId}/memory-context`, 'memory-context.json', 'Repository memory attached to this scan.'),
     jsonReport('advanced-ai', 'Advanced AI Report', `/api/scans/${scanId}/advanced-ai/report`, 'advanced-ai.json', 'Embeddings, multi-agent, local runtime, and GPU report.'),
     jsonReport('ai-review', 'AI Finding Review', `/api/scans/${scanId}/ai-review?provider=${encodeURIComponent(defaultFixProvider())}&limit=${fixBundleLimit()}`, 'ai-review.json', 'Dynamic prompt AI explanations and remediation suggestions.'),

@@ -14,6 +14,7 @@ from typing import Any
 from .go_tools import go_tool_env
 from .ingestion import finding_from_sonar_issue, findings_from_sarif_file, normalize_finding
 from .models import Finding
+from .paths import data_dir
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_CODEQL_EXE = ROOT / 'tools' / 'codeql' / 'codeql.exe'
@@ -57,7 +58,7 @@ def run_codeql(target: Path, files: list[Path]) -> tuple[list[Finding], str]:
 
 
 def run_codeql_language(codeql: Path, target: Path, language: str) -> tuple[list[Finding], str]:
-    work = ROOT / 'data' / 'codeql' / f'{target.name}-{language}-{uuid.uuid4().hex[:8]}'
+    work = data_dir() / 'codeql' / f'{target.name}-{language}-{uuid.uuid4().hex[:8]}'
     db = work / 'db'
     sarif = work / 'results.sarif'
     query_suites = codeql_query_suites(language)

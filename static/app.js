@@ -122,6 +122,11 @@ function renderScan(scan) {
     <a class="link-button secondary" href="/api/scans/${scan.scan_id}/report.html" target="_blank">HTML Report</a>
     <a class="link-button secondary" href="/api/scans/${scan.scan_id}/report.md" target="_blank">Markdown</a>
     <button class="ghost" onclick="showReportBundle('${scan.scan_id}')">Report Bundle</button>
+    <button class="ghost" onclick="showSanitizedReport('${scan.scan_id}')">Sanitized Report</button>
+    <button class="ghost" onclick="showRagMemory('${scan.scan_id}')">RAG Memory</button>
+    <button class="ghost" onclick="showHermes('${scan.scan_id}')">Hermes</button>
+    <button class="ghost" onclick="showOpenClaw('${scan.scan_id}')">OpenClaw</button>
+    <button class="ghost" onclick="showGovernance('${scan.scan_id}')">Governance</button>
     <a class="link-button secondary" href="/api/scans/${scan.scan_id}/github-pr-comment" target="_blank">PR Comment</a>
     <button class="ghost" onclick="saveBaseline('${scan.scan_id}')">Save Baseline</button>
     <button class="ghost" onclick="showCompliance('${scan.scan_id}')">Compliance</button>
@@ -258,6 +263,51 @@ async function showReportBundle(scanId) {
   const manifest = await response.json();
   statusEl.textContent = manifest.bundle_dir ? `Report bundle: ${manifest.bundle_dir}` : 'Report bundle manifest loaded.';
   showJsonPanel('Report Bundle', manifest);
+}
+
+async function showSanitizedReport(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/sanitized-report`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not load sanitized report.';
+    return;
+  }
+  showJsonPanel('Sanitized Report', await response.json());
+}
+
+async function showRagMemory(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/rag-memory`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not load RAG memory.';
+    return;
+  }
+  showJsonPanel('RAG Memory', await response.json());
+}
+
+async function showHermes(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/hermes`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not load Hermes orchestration.';
+    return;
+  }
+  showJsonPanel('Hermes Orchestration', await response.json());
+}
+
+async function showOpenClaw(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/openclaw`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not load OpenClaw control.';
+    return;
+  }
+  showJsonPanel('OpenClaw Control', await response.json());
+}
+
+async function showGovernance(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/governance`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not load governance evidence.';
+    return;
+  }
+  showJsonPanel('Enterprise Governance Evidence', await response.json());
 }
 
 async function showAiScanReview(scanId) {

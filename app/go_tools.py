@@ -4,6 +4,8 @@ import os
 import shutil
 from pathlib import Path
 
+from .paths import data_dir
+
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_GO_ROOT = ROOT / 'tools' / 'go'
 LOCAL_GO_EXE = LOCAL_GO_ROOT / 'bin' / 'go.exe'
@@ -42,7 +44,10 @@ def go_tool_env(base: dict[str, str] | None = None) -> dict[str, str]:
         path_parts.append(str(LOCAL_GO_TOOLS_BIN))
     if path_parts:
         env['PATH'] = os.pathsep.join([*path_parts, env.get('PATH', '')])
+    cache_root = data_dir() / 'go-tools'
+    (cache_root / 'pkg' / 'mod').mkdir(parents=True, exist_ok=True)
+    (cache_root / 'build-cache').mkdir(parents=True, exist_ok=True)
     env.setdefault('GOTOOLCHAIN', 'local')
-    env.setdefault('GOMODCACHE', str(ROOT / 'tools' / 'go-tools' / 'pkg' / 'mod'))
-    env.setdefault('GOCACHE', str(ROOT / 'tools' / 'go-tools' / 'build-cache'))
+    env.setdefault('GOMODCACHE', str(cache_root / 'pkg' / 'mod'))
+    env.setdefault('GOCACHE', str(cache_root / 'build-cache'))
     return env

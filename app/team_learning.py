@@ -9,10 +9,11 @@ from typing import Any
 
 from .memory import memory_summary
 from .models import Finding, ScanResult
+from .paths import data_dir
 from .storage import apply_decisions, list_scans, load_scan
 
 ROOT = Path(__file__).resolve().parents[1]
-CAMPAIGNS_PATH = ROOT / 'data' / 'security_campaigns.json'
+CAMPAIGNS_PATH = data_dir() / 'security_campaigns.json'
 PRIORITY_ORDER = {'P0': 0, 'P1': 1, 'P2': 2, 'P3': 3, 'P4': 4}
 
 

@@ -18,4 +18,13 @@ if (Test-Path $EnvFile) {
   }
 }
 
+$DefaultOutputRoot = if (-not [string]::IsNullOrWhiteSpace($env:SECURE_REVIEW_OUTPUT_ROOT)) { $env:SECURE_REVIEW_OUTPUT_ROOT } else { "E:\secure-review" }
+[Environment]::SetEnvironmentVariable("SECURE_REVIEW_OUTPUT_ROOT", $DefaultOutputRoot, "Process")
+if ([string]::IsNullOrWhiteSpace($env:SECURE_REVIEW_DATA_DIR)) {
+  [Environment]::SetEnvironmentVariable("SECURE_REVIEW_DATA_DIR", (Join-Path $DefaultOutputRoot "data"), "Process")
+}
+if ([string]::IsNullOrWhiteSpace($env:REPORT_BUNDLE_DIR)) {
+  [Environment]::SetEnvironmentVariable("REPORT_BUNDLE_DIR", (Join-Path $DefaultOutputRoot "reports"), "Process")
+}
+
 & .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port $Port

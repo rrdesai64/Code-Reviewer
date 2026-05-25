@@ -12,10 +12,11 @@ from pathlib import Path
 from typing import Any
 
 from .models import Finding, FixSuggestion, Location, ScanResult
+from .paths import data_dir
 from .scope import finding_scope, is_blocking_secret
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT / 'data' / 'secrets'
+DATA_DIR = data_dir() / 'secrets'
 LOCAL_GITLEAKS_EXE = ROOT / 'tools' / 'gitleaks' / 'gitleaks.exe'
 LOCAL_TRUFFLEHOG_EXE = ROOT / 'tools' / 'trufflehog' / 'trufflehog.exe'
 

@@ -7,10 +7,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .paths import data_dir
 from .models import Finding, ScanResult
 
 ROOT = Path(__file__).resolve().parents[1]
-MEMORY_PATH = ROOT / 'data' / 'memory.json'
+MEMORY_PATH = data_dir() / 'memory.json'
 MAX_GLOBAL_HISTORY = 200
 MAX_REPO_HISTORY = 50
 MAX_FINDING_MEMORY = 1000

@@ -10,8 +10,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from .models import ChatNotificationRequest, CodeHostReviewRequest, DecisionRequest, FixApplyRequest, GitHubPrReviewRequest, IssuePlanRequest, LLMRequest, TeamCampaignRequest
+from .models import BenchmarkLessonRequest, BenchmarkTransitionRequest, ChatNotificationRequest, CodeHostReviewRequest, DecisionRequest, DisposableVmScanRequest, FixApplyRequest, GitHubPrReviewRequest, HermesRunRequest, IssuePlanRequest, LLMRequest, MemoryRollbackRequest, OpenClawMessageRequest, QuarantineEntryRequest, QuarantineLookupRequest, RagMemoryReindexRequest, ReportLakeReindexRequest, TeamCampaignRequest
 from .advanced_ai import advanced_ai_status, build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, gpu_profile, local_runtime_status, phase_g_report, run_multi_agent_review, semantic_search
+from .benchmark_gate import benchmark_corpus_report, benchmark_gate_report_for_recommendations, benchmark_gate_status, list_benchmark_lessons, transition_benchmark_lesson, upsert_benchmark_lesson
 from .chat_agents import ChatAgentError, build_chat_notification, chat_agent_status, handle_slack_command, handle_teams_command, verify_slack_signature, verify_teams_command_secret
 from .code_hosts import CodeHostIntegrationError, build_code_host_review, code_host_status
 from .auth import AuthEnforcementMiddleware, AuthUser, auth_config, auth_status, login_user, logout_user, make_oauth, make_saml_auth, normalize_user, require_permission, require_user, saml_metadata_response
@@ -20,13 +21,18 @@ from .finding_ai import build_finding_ai_review, build_scan_ai_review, finding_a
 from .dependency_review import dependency_review_report
 from .llm import generate, provider_status
 from .github_pr import GitHubIntegrationError, build_github_pr_review, github_integration_status, handle_github_webhook, verify_github_webhook_signature
+from .governance import compliance_evidence_export, enterprise_governance_report, governance_events, openclaw_dependency_posture
+from .hermes import create_hermes_run, hermes_report_for_scan, hermes_status, list_hermes_runs, load_hermes_run
 from .fix_workflow import apply_fix_bundle, build_fix_bundle
 from .ingestion import scanner_mesh_report, scanner_mesh_status
 from .issue_planning import IssuePlanningError, build_issue_plan, issue_planning_status
 from .memory import load_memory, memory_summary, repository_memory, repository_memory_for_scan, update_repository_memory
+from .openclaw_frontend import handle_openclaw_message, openclaw_feature_report, openclaw_status, scan_openclaw_control
 from .rag import add_knowledge_document, build_index, finding_context, index_stats, retrieve_response
+from .rag_memory import list_memory_versions, list_rag_memory_items, list_scan_rag_memory, query_rag_memory, rag_memory_for_scan, rag_memory_schema, rag_memory_status, reindex_rag_memory, rollback_rag_memory_version, save_rag_memory_for_report, scan_rag_memory_report
 from .refactor import build_fix_proposal, build_remediation_plan
 from .recursive_learning import recursive_learning_report, scan_recursive_learning_report
+from .report_lake import list_sanitized_scans, load_sanitized_scan, reindex_report_lake, report_lake_index_record, report_lake_status, sanitized_scan_report, save_sanitized_scan
 from .reporting import github_pr_comment, html_report, markdown_report
 from .report_bundle import build_report_bundle, report_bundle_metadata
 from .sarif import build_sarif
@@ -34,14 +40,17 @@ from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report
 from .scanner import ROOT, run_scan
 from .scanner_depth import scanner_depth_report
 from .secrets import secret_policy_report
+from .paths import data_dir
+from .quarantine import blocks_host_scan, quarantine_policy, quarantine_policy_for_scan, quarantine_registry_report, upsert_quarantine_entry
 from .sonarqube import sonarqube_quality_report
 from .storage import apply_decisions, load_baseline, load_scan, save_baseline, save_decision, save_scan, list_scans
 from .team_learning import create_campaign, load_campaigns, scan_learning_brief_by_id, team_learning_dashboard
+from .vm_worker import create_vm_scan_job, list_jobs as list_vm_jobs, load_job as load_vm_job, vm_worker_status
 
 app = FastAPI(title='Secure Code Review Assistant', version='0.26.0')
 oauth = make_oauth()
 STATIC_DIR = ROOT / 'static'
-UPLOAD_DIR = ROOT / 'data' / 'uploads'
+UPLOAD_DIR = data_dir() / 'uploads'
 cfg = auth_config()
 app.add_middleware(AuthEnforcementMiddleware)
 app.add_middleware(SessionMiddleware, secret_key=cfg.session_secret, https_only=cfg.cookie_secure, same_site=cfg.cookie_same_site)
@@ -55,13 +64,112 @@ def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
 
 @app.get('/api/health')
 def health() -> dict:
-    return {'ok': True, 'phase': 'phase-s', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'sonarqube-issue-ingestion', 'sonarqube-quality-gate', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'local-gitleaks-tool', 'local-trufflehog-tool', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'scanner-mesh', 'scanner-depth', 'expanded-semgrep-rules', 'semgrep-multi-config', 'codeql-query-depth', 'codeql-no-build-defaults', 'codeql-go-local-toolchain', 'sonarcloud-organization-config', 'dashboard-scan-state', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'go-module-dependency-review', 'govulncheck-adapter', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run', 'ide-cli-parity', 'vscode-extension-parity', 'ide-evidence-export', 'issue-planning', 'jira-planning', 'linear-planning', 'issue-plan-dry-run', 'slack-teams-agent', 'chat-notifications', 'slack-agent', 'teams-agent', 'chat-bot-commands', 'gitlab-review', 'azure-devops-review', 'bitbucket-review', 'multi-code-host-review', 'team-learning-dashboard', 'security-campaigns', 'learning-recommendations', 'risk-trend-dashboard', 'recursive-learning', 'scanner-improvement-recommendations', 'human-approved-tuning-workflow', 'benchmark-promotion-gates', 'finding-ai-review', 'dynamic-prompt-templates', 'ai-vulnerability-explanations', 'ai-remediation-suggestions'], 'llm_providers': provider_status(), 'auth': auth_status()}
+    return {'ok': True, 'phase': 'phase-s', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'sonarqube-issue-ingestion', 'sonarqube-quality-gate', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'local-gitleaks-tool', 'local-trufflehog-tool', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'scanner-mesh', 'scanner-depth', 'expanded-semgrep-rules', 'semgrep-multi-config', 'codeql-query-depth', 'codeql-no-build-defaults', 'codeql-go-local-toolchain', 'sonarcloud-organization-config', 'dashboard-scan-state', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'go-module-dependency-review', 'govulncheck-adapter', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run', 'ide-cli-parity', 'vscode-extension-parity', 'ide-evidence-export', 'issue-planning', 'jira-planning', 'linear-planning', 'issue-plan-dry-run', 'slack-teams-agent', 'chat-notifications', 'slack-agent', 'teams-agent', 'chat-bot-commands', 'gitlab-review', 'azure-devops-review', 'bitbucket-review', 'multi-code-host-review', 'team-learning-dashboard', 'security-campaigns', 'learning-recommendations', 'risk-trend-dashboard', 'recursive-learning', 'scanner-improvement-recommendations', 'human-approved-tuning-workflow', 'benchmark-promotion-gates', 'benchmark-gate', 'language-benchmark-corpus', 'rule-regression-tests', 'false-positive-tests', 'fix-validation-tests', 'benchmark-lesson-promotion', 'approved-benchmarked-learning-only', 'quarantine-registry', 'host-scan-blocking', 'quarantined-learning-exclusion', 'disposable-vm-worker', 'windows-sandbox-job-export', 'vm-artifact-whitelist', 'sanitized-report-lake', 'report-lake-reindex', 'learning-eligibility-labels', 'rag-memory-schema', 'rag-memory-index', 'rag-memory-query', 'rag-memory-versioning', 'rag-memory-rollback', 'hermes-orchestrator', 'hermes-agent-registry', 'hermes-policy-gates', 'hermes-durable-runs', 'hermes-python-agent', 'python-specialist-review', 'python-dependency-agent', 'python-scanner-coverage-agent', 'openclaw-frontend', 'openclaw-compatible-backend', 'openclaw-whatsapp', 'openclaw-telegram', 'openclaw-slack', 'openclaw-teams', 'openclaw-approval-requests', 'openclaw-quarantine-alerts', 'openclaw-disposable-vm-rerun', 'enterprise-governance', 'governance-agent-audit-trail', 'governance-approval-lineage', 'governance-memory-version-lineage', 'governance-compliance-evidence-export', 'openclaw-supply-chain-isolation', 'finding-ai-review', 'dynamic-prompt-templates', 'ai-vulnerability-explanations', 'ai-remediation-suggestions'], 'llm_providers': provider_status(), 'auth': auth_status()}
 
 
 
 @app.get('/api/scanner-mesh/status')
 def scanner_mesh_status_endpoint(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
     return scanner_mesh_status()
+
+
+@app.get('/api/quarantine/registry')
+def quarantine_registry(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = quarantine_registry_report()
+    audit(user.username, 'quarantine.registry_reported', 'quarantine-registry', {'entries': str(report['total_entries'])})
+    return report
+
+
+@app.post('/api/quarantine/lookup')
+def quarantine_lookup(request: QuarantineLookupRequest, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    policy = quarantine_policy(request.repository, project_name=request.project_name)
+    audit(user.username, 'quarantine.lookup', request.repository, {'matched': str(policy['matched']), 'status': policy['status']})
+    return policy
+
+
+@app.post('/api/quarantine/registry')
+def quarantine_registry_upsert(request: QuarantineEntryRequest, user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    try:
+        entry = upsert_quarantine_entry(request.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'quarantine.entry_upserted', entry['key'], {'status': entry['status'], 'repository': entry['repository']})
+    return entry
+
+
+@app.get('/api/vm-worker/status')
+def vm_worker_status_endpoint(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    status = vm_worker_status()
+    audit(user.username, 'vm_worker.status_reported', 'vm-worker', {'windows_sandbox': str(status['providers']['windows-sandbox']['available'])})
+    return status
+
+
+@app.get('/api/vm-worker/jobs')
+def vm_worker_jobs(limit: int = 50, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    jobs = list_vm_jobs(limit=limit)
+    return {'jobs': jobs, 'count': len(jobs)}
+
+
+@app.get('/api/vm-worker/jobs/{job_id}')
+def vm_worker_job(job_id: str, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    try:
+        return load_vm_job(job_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='VM worker job not found')
+
+
+@app.post('/api/vm-worker/jobs')
+def vm_worker_prepare_job(request: DisposableVmScanRequest, user: AuthUser = Depends(require_permission('scan:run'))) -> dict:
+    try:
+        job = create_vm_scan_job(
+            repository_path=request.repository_path,
+            repository_url=request.repository_url,
+            project_name=request.project_name,
+            sonar_project_key=request.sonar_project_key,
+            sonar_branch_name=request.sonar_branch_name,
+            output_root_path=request.output_root,
+            reports_dir=request.reports_dir,
+            run_id=request.run_id,
+            provider=request.provider,
+            network_policy=request.network_policy,
+            approved_quarantine=request.approved_quarantine,
+            copy_git_history=request.copy_git_history,
+            job_name=request.job_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'vm_worker.job_prepared', job['job_id'], {'repo': job['repository']['path'], 'provider': job['provider'], 'network_policy': job['network_policy']})
+    return job
+
+
+@app.get('/api/report-lake/status')
+def report_lake_status_endpoint(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    status = report_lake_status()
+    audit(user.username, 'report_lake.status_reported', 'report-lake', {'records': str(status['scan_record_count'])})
+    return status
+
+
+@app.get('/api/report-lake/scans')
+def report_lake_scans(limit: int = 100, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    records = list_sanitized_scans(limit=limit)
+    return {'records': records, 'count': len(records)}
+
+
+@app.post('/api/report-lake/reindex')
+def report_lake_reindex(request: ReportLakeReindexRequest | None = Body(None), user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    request = request or ReportLakeReindexRequest()
+    report = reindex_report_lake(limit=request.limit, include_quarantined=request.include_quarantined)
+    audit(user.username, 'report_lake.reindexed', 'report-lake', {'indexed': str(report['indexed']), 'include_quarantined': str(request.include_quarantined)})
+    return report
+
+
+@app.get('/api/report-lake/scans/{scan_id}')
+def report_lake_scan(scan_id: str, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    try:
+        return load_sanitized_scan(scan_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='sanitized report not found')
+
 
 @app.get('/auth/me')
 def auth_me(user: AuthUser = Depends(require_user)) -> dict:
@@ -134,13 +242,37 @@ def scans(user: AuthUser = Depends(require_permission('scan:read'))) -> list[dic
 @app.post('/api/scans')
 async def create_scan(project_name: str | None = Form(None), repo_path: str | None = Form(None), archive: UploadFile | None = File(None), user: AuthUser = Depends(require_permission('scan:run'))) -> dict:
     target = await resolve_target(repo_path, archive)
+    if blocks_host_scan(str(target), project_name=project_name):
+        policy = quarantine_policy(str(target), project_name=project_name)
+        audit(user.username, 'quarantine.host_scan_blocked', str(target), {'status': policy['status'], 'project': project_name or ''})
+        raise HTTPException(status_code=423, detail={'message': 'Repository is quarantined; use a report-only or disposable-VM workflow.', 'quarantine_policy': policy})
     scan = run_scan(target, project_name=project_name)
+    policy = quarantine_policy_for_scan(scan)
     save_scan(scan)
-    update_repository_memory(scan)
+    sanitized = save_sanitized_scan(scan)
+    rag_memory = save_rag_memory_for_report(sanitized)
+    hermes_run = create_hermes_run(scan_id=scan.scan_id, requester=user.username, persist=True)
+    if policy['controls'].get('agent_learning', True):
+        update_repository_memory(scan)
+    else:
+        audit(user.username, 'memory.quarantine_skipped', scan.scan_id, {'project': scan.project_name, 'status': policy['status']})
     report_bundle = build_report_bundle(scan)
     audit(user.username, 'scan.created', scan.scan_id, {'project': scan.project_name})
     audit(user.username, 'reports.bundle_created', scan.scan_id, {'path': report_bundle['bundle_dir'], 'artifacts': str(report_bundle['artifact_count']), 'errors': str(report_bundle['error_count'])})
     payload = scan.model_dump(mode='json')
+    payload['quarantine_policy'] = policy
+    payload['sanitized_report'] = report_lake_index_record(sanitized)
+    payload['rag_memory'] = {
+        'status': rag_memory.get('status'),
+        'item_count': rag_memory.get('item_count', 0),
+        'skipped_reason': rag_memory.get('skipped_reason', ''),
+    }
+    payload['hermes'] = {
+        'run_id': hermes_run.get('run_id'),
+        'status': hermes_run.get('status'),
+        'task_count': hermes_run.get('plan', {}).get('task_count', 0),
+        'summary': hermes_run.get('synthesis', {}).get('summary', ''),
+    }
     payload['report_bundle'] = report_bundle
     return payload
 
@@ -152,6 +284,21 @@ def get_scan(scan_id: str, user: AuthUser = Depends(require_permission('scan:rea
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail='scan not found')
     payload = scan.model_dump(mode='json')
+    payload['quarantine_policy'] = quarantine_policy_for_scan(scan)
+    try:
+        payload['sanitized_report'] = report_lake_index_record(load_sanitized_scan(scan_id))
+    except FileNotFoundError:
+        payload['sanitized_report'] = report_lake_index_record(sanitized_scan_report(scan))
+    try:
+        rag_memory = scan_rag_memory_report(scan_id)
+    except Exception:
+        rag_memory = rag_memory_for_scan(scan)
+    payload['rag_memory'] = {
+        'status': rag_memory.get('status'),
+        'item_count': rag_memory.get('item_count', 0),
+        'skipped_reason': rag_memory.get('skipped_reason', ''),
+    }
+    payload['hermes'] = hermes_report_for_scan(scan)
     payload['report_bundle'] = report_bundle_metadata(scan)
     return payload
 
@@ -199,6 +346,36 @@ def scan_scanner_depth(scan_id: str, user: AuthUser = Depends(require_permission
     report = scanner_depth_report(scan)
     audit(user.username, 'scanner_depth.reported', scan_id, {'status': report['status'], 'gaps': str(len(report['coverage_gaps']))})
     return report
+
+
+@app.get('/api/scans/{scan_id}/quarantine-policy')
+def scan_quarantine_policy(scan_id: str, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    policy = quarantine_policy_for_scan(scan)
+    audit(user.username, 'quarantine.scan_policy_reported', scan_id, {'matched': str(policy['matched']), 'status': policy['status']})
+    return policy
+
+
+@app.get('/api/scans/{scan_id}/sanitized-report')
+def scan_sanitized_report(scan_id: str, rebuild: bool = False, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    if not rebuild:
+        try:
+            report = load_sanitized_scan(scan_id)
+            audit(user.username, 'report_lake.scan_reported', scan_id, {'source': 'lake'})
+            return report
+        except FileNotFoundError:
+            pass
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    report = save_sanitized_scan(scan) if rebuild else sanitized_scan_report(scan)
+    audit(user.username, 'report_lake.scan_reported', scan_id, {'source': 'rebuilt' if rebuild else 'generated'})
+    return report
+
 
 @app.get('/api/scans/{scan_id}/sarif')
 def sarif(scan_id: str, user: AuthUser = Depends(require_permission('scan:read'))) -> JSONResponse:
@@ -371,6 +548,51 @@ def issue_planning_integration_status(user: AuthUser = Depends(require_permissio
 @app.get('/api/integrations/chat/status')
 def chat_agent_integration_status(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
     return chat_agent_status()
+
+
+@app.get('/api/openclaw/status')
+def openclaw_status_endpoint(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    status = openclaw_status()
+    audit(user.username, 'openclaw.status_reported', 'openclaw', {'features': str(status['feature_count'])})
+    return status
+
+
+@app.get('/api/openclaw/features')
+def openclaw_features_endpoint(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = openclaw_feature_report()
+    audit(user.username, 'openclaw.features_reported', 'openclaw', {'features': str(len(report['features']))})
+    return report
+
+
+@app.post('/api/openclaw/messages')
+def openclaw_message(request: OpenClawMessageRequest, user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    result = handle_openclaw_message(request.model_dump(), actor=user.username)
+    audit(user.username, 'openclaw.message_handled', result.get('feature_id') or 'unknown', {'accepted': str(result.get('accepted', False)), 'status': result.get('status', ''), 'channel': result.get('channel', '')})
+    return result
+
+
+@app.post('/api/openclaw/webhook/{channel}')
+async def openclaw_webhook(channel: str, request: Request, user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail='Invalid OpenClaw webhook JSON payload')
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail='OpenClaw webhook payload must be a JSON object')
+    payload = {**payload, 'channel': channel}
+    result = handle_openclaw_message(payload, actor=user.username)
+    audit(user.username, 'openclaw.webhook_handled', result.get('feature_id') or 'unknown', {'accepted': str(result.get('accepted', False)), 'status': result.get('status', ''), 'channel': result.get('channel', '')})
+    return result
+
+
+@app.get('/api/scans/{scan_id}/openclaw')
+def scan_openclaw(scan_id: str, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        report = scan_openclaw_control(scan_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    audit(user.username, 'openclaw.scan_control_reported', scan_id, {'approvals': str(report['approval_queue']['count'])})
+    return report
 
 
 @app.get('/api/scans/{scan_id}/chat/notification')
@@ -619,6 +841,166 @@ def rag_reindex(user: AuthUser = Depends(require_permission('enterprise:write'))
     return {'chunks': len(chunks), 'stats': index_stats()}
 
 
+@app.get('/api/rag-memory/schema')
+def rag_memory_schema_endpoint(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    return rag_memory_schema()
+
+
+@app.get('/api/rag-memory/status')
+def rag_memory_status_endpoint(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    status = rag_memory_status()
+    audit(user.username, 'rag_memory.status_reported', 'rag-memory', {'items': str(status['retrieval_item_count'])})
+    return status
+
+
+@app.get('/api/rag-memory/items')
+def rag_memory_items(limit: int = 100, item_type: str | None = None, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    items = list_rag_memory_items(limit=limit, item_type=item_type)
+    return {'items': items, 'count': len(items)}
+
+
+@app.get('/api/rag-memory/scans')
+def rag_memory_scans(limit: int = 100, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    records = list_scan_rag_memory(limit=limit)
+    return {'records': records, 'count': len(records)}
+
+
+@app.get('/api/rag-memory/query')
+def rag_memory_query(q: str, limit: int = 5, tags: str | None = None, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    tag_list = [item.strip() for item in (tags or '').split(',') if item.strip()]
+    return query_rag_memory(q, limit=limit, tags=tag_list)
+
+
+@app.post('/api/rag-memory/reindex')
+def rag_memory_reindex(request: RagMemoryReindexRequest | None = Body(None), user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    request = request or RagMemoryReindexRequest()
+    report = reindex_rag_memory(limit=request.limit, include_ineligible=request.include_ineligible)
+    audit(user.username, 'rag_memory.reindexed', 'rag-memory', {'items': str(report['retrieval_item_count']), 'include_ineligible': str(request.include_ineligible)})
+    return report
+
+
+@app.get('/api/rag-memory/versions')
+def rag_memory_versions(scan_id: str | None = None, limit: int = 100, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    versions = list_memory_versions(scan_id=scan_id, limit=limit)
+    audit(user.username, 'rag_memory.versions_reported', scan_id or 'all', {'count': str(len(versions))})
+    return {'schema_version': 1, 'scan_id': scan_id, 'count': len(versions), 'versions': versions}
+
+
+@app.post('/api/rag-memory/versions/{version_id}/rollback')
+def rag_memory_version_rollback(version_id: str, request: MemoryRollbackRequest | None = Body(None), user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    request = request or MemoryRollbackRequest()
+    try:
+        report = rollback_rag_memory_version(version_id, actor=user.username, reason=request.reason)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='RAG memory version not found')
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'rag_memory.version_rollback_requested', version_id, {'scan_id': report['scan_id'], 'reason': request.reason})
+    return report
+
+
+@app.get('/api/hermes/status')
+def hermes_status_endpoint(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    status = hermes_status()
+    audit(user.username, 'hermes.status_reported', 'hermes', {'runs': str(status['run_count'])})
+    return status
+
+
+@app.get('/api/hermes/runs')
+def hermes_runs(limit: int = 100, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    runs = list_hermes_runs(limit=limit)
+    return {'runs': runs, 'count': len(runs)}
+
+
+@app.get('/api/hermes/runs/{run_id}')
+def hermes_run(run_id: str, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    try:
+        return load_hermes_run(run_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='Hermes run not found')
+
+
+@app.post('/api/hermes/runs')
+def hermes_run_create(request: HermesRunRequest, user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    try:
+        run = create_hermes_run(
+            scan_id=request.scan_id,
+            goal=request.goal,
+            requester=user.username,
+            allowed_agents=request.allowed_agents,
+            limit=request.limit,
+            include_ineligible=request.include_ineligible,
+            persist=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'hermes.run_created', run['run_id'], {'scan_id': request.scan_id, 'status': run['status'], 'goal': request.goal})
+    return run
+
+
+@app.get('/api/benchmark-gate/status')
+def benchmark_gate_status_endpoint(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    status = benchmark_gate_status()
+    audit(user.username, 'benchmark_gate.status_reported', 'benchmark-gate', {'lessons': str(status['lesson_count']), 'active': str(status['active_influence_count'])})
+    return status
+
+
+@app.get('/api/benchmark-gate/corpus')
+def benchmark_gate_corpus(language: str | None = None, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = benchmark_corpus_report(language=language)
+    audit(user.username, 'benchmark_gate.corpus_reported', 'benchmark-gate', {'languages': str(report['language_count']), 'cases': str(report['case_count'])})
+    return report
+
+
+@app.get('/api/benchmark-gate/lessons')
+def benchmark_gate_lessons(state: str | None = None, language: str | None = None, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    try:
+        return list_benchmark_lessons(state=state, language=language)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post('/api/benchmark-gate/lessons')
+def benchmark_gate_lesson_create(request: BenchmarkLessonRequest, user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    try:
+        lesson = upsert_benchmark_lesson(request.model_dump(), actor=user.username)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'benchmark_gate.lesson_proposed', lesson['lesson_id'], {'language': lesson['language'], 'category': lesson['category']})
+    return lesson
+
+
+@app.post('/api/benchmark-gate/lessons/{lesson_id}/transition')
+def benchmark_gate_lesson_transition(lesson_id: str, request: BenchmarkTransitionRequest, user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    try:
+        lesson = transition_benchmark_lesson(
+            lesson_id,
+            request.target_state,
+            actor=user.username,
+            note=request.note,
+            benchmark_evidence=request.benchmark_evidence,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='benchmark lesson not found')
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'benchmark_gate.lesson_transitioned', lesson_id, {'state': lesson['promotion_state'], 'influence_allowed': str(lesson['learning_influence_allowed'])})
+    return lesson
+
+
+@app.get('/api/scans/{scan_id}/benchmark-gate')
+def scan_benchmark_gate(scan_id: str, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        learning = scan_recursive_learning_report(scan_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    report = benchmark_gate_report_for_recommendations(learning.get('scanner_improvement_recommendations', []))
+    report['scan_id'] = scan_id
+    report['project_name'] = learning.get('project_name')
+    audit(user.username, 'benchmark_gate.scan_reported', scan_id, {'status': report['status'], 'influence_allowed': str(report['influence_allowed_count'])})
+    return report
+
+
 @app.post('/api/rag/documents')
 def rag_document(title: str = Body(...), text: str = Body(...), user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
     chunk = add_knowledge_document(title, text)
@@ -710,7 +1092,36 @@ def scan_memory_context(scan_id: str, user: AuthUser = Depends(require_permissio
         scan = apply_decisions(load_scan(scan_id))
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail='scan not found')
+    policy = quarantine_policy_for_scan(scan)
+    if not policy['controls'].get('agent_learning', True):
+        audit(user.username, 'memory.quarantine_context_blocked', scan_id, {'project': scan.project_name, 'status': policy['status']})
+        return {
+            'repo_key': None,
+            'project_name': scan.project_name,
+            'last_scan_id': scan.scan_id,
+            'quarantine_policy': policy,
+            'recommendations': ['Repository memory is blocked by quarantine policy. Inspect sanitized reports only after explicit approval.'],
+        }
     return repository_memory_for_scan(scan)
+
+
+@app.get('/api/scans/{scan_id}/rag-memory')
+def scan_rag_memory(scan_id: str, rebuild: bool = False, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    report = scan_rag_memory_report(scan_id, rebuild=rebuild)
+    if report.get('status') == 'missing':
+        raise HTTPException(status_code=404, detail=report.get('skipped_reason') or 'rag memory not found')
+    audit(user.username, 'rag_memory.scan_reported', scan_id, {'status': report.get('status', ''), 'items': str(report.get('item_count', 0))})
+    return report
+
+
+@app.get('/api/scans/{scan_id}/hermes')
+def scan_hermes(scan_id: str, goal: str = 'secure-review-triage', persist: bool = False, limit: int = 100, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        run = create_hermes_run(scan_id=scan_id, goal=goal, requester=user.username, limit=limit, persist=persist)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'hermes.scan_reported', scan_id, {'status': run['status'], 'goal': run['goal'], 'persist': str(persist)})
+    return run
 
 
 @app.get('/api/llm/providers')
@@ -858,9 +1269,48 @@ def scan_compliance(scan_id: str, user: AuthUser = Depends(require_permission('e
     return report
 
 
+@app.get('/api/scans/{scan_id}/governance')
+def scan_governance(scan_id: str, limit: int = 100, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    try:
+        load_scan(scan_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    report = compliance_evidence_export(scan_id=scan_id, limit=limit)
+    audit(user.username, 'enterprise.scan_governance_reported', scan_id, {'agent_actions': str(report['evidence']['agent_actions']['count'])})
+    return report
+
+
 @app.get('/api/enterprise')
 def enterprise(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
     return load_enterprise()
+
+
+@app.get('/api/enterprise/governance')
+def enterprise_governance(scan_id: str | None = None, limit: int = 100, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = enterprise_governance_report(scan_id=scan_id, limit=limit)
+    audit(user.username, 'enterprise.governance_reported', scan_id or 'all', {'events': str(report['audit_trail']['event_count']), 'agent_actions': str(report['agent_actions']['count'])})
+    return report
+
+
+@app.get('/api/enterprise/governance/events')
+def enterprise_governance_events(category: str | None = None, scan_id: str | None = None, limit: int = 100, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    events = governance_events(limit=limit, category=category, scan_id=scan_id)
+    audit(user.username, 'enterprise.governance_events_reported', category or 'all', {'scan_id': scan_id or '', 'events': str(len(events))})
+    return {'schema_version': 1, 'count': len(events), 'events': events}
+
+
+@app.get('/api/enterprise/governance/evidence')
+def enterprise_governance_evidence(scan_id: str | None = None, limit: int = 250, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = compliance_evidence_export(scan_id=scan_id, limit=limit)
+    audit(user.username, 'enterprise.governance_evidence_exported', scan_id or 'all', {'agent_actions': str(report['evidence']['agent_actions']['count']), 'memory_versions': str(report['evidence']['memory_lineage']['version_count'])})
+    return report
+
+
+@app.get('/api/enterprise/openclaw/supply-chain')
+def enterprise_openclaw_supply_chain(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = openclaw_dependency_posture()
+    audit(user.username, 'enterprise.openclaw_supply_chain_reported', 'openclaw', {'dependency_present': str(report['local_dependency_status']['package_dependency_present'])})
+    return report
 
 
 @app.get('/api/audit')

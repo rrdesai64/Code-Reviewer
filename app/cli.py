@@ -12,14 +12,21 @@ from .dependency_review import dependency_review_report
 from .chat_agents import ChatAgentError, build_chat_notification
 from .code_hosts import CodeHostIntegrationError, build_code_host_review
 from .advanced_ai import build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, phase_g_report, run_multi_agent_review, semantic_search
+from .benchmark_gate import benchmark_gate_report_for_recommendations
 from .github_pr import GitHubIntegrationError, build_github_pr_review
+from .governance import compliance_evidence_export
+from .hermes import run_hermes_on_memory
 from .fix_workflow import apply_fix_bundle, build_fix_bundle
 from .finding_ai import build_scan_ai_review
 from .ingestion import scanner_mesh_report
 from .issue_planning import IssuePlanningError, build_issue_plan
 from .memory import update_repository_memory
+from .openclaw_frontend import openclaw_control_for_scan
+from .quarantine import blocks_host_scan, quarantine_policy, quarantine_policy_for_scan
+from .rag_memory import save_rag_memory_for_report
 from .refactor import build_fix_proposal, build_remediation_plan
 from .recursive_learning import scan_recursive_learning_report
+from .report_lake import save_sanitized_scan
 from .reporting import github_pr_comment, markdown_report
 from .sarif import build_sarif
 from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report, spdx_compliance_report
@@ -93,6 +100,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--team-learning-limit', type=int, default=100)
     parser.add_argument('--recursive-learning-out')
     parser.add_argument('--recursive-learning-limit', type=int, default=100)
+    parser.add_argument('--benchmark-gate-out')
+    parser.add_argument('--openclaw-out')
+    parser.add_argument('--governance-out')
+    parser.add_argument('--quarantine-policy-out')
+    parser.add_argument('--sanitized-report-out')
+    parser.add_argument('--rag-memory-out')
+    parser.add_argument('--hermes-out')
     parser.add_argument('--chat-provider', choices=['all', 'slack', 'teams'], default='all')
     parser.add_argument('--chat-include-findings', type=int, default=10)
     parser.add_argument('--chat-publish', action='store_true', help='publish the prepared Slack/Teams notification when credentials and dry-run gates allow it')
@@ -120,9 +134,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--fail-on-secrets', action='store_true', help='exit with code 5 when push protection blocks open secret findings')
     args = parser.parse_args(argv)
 
-    scan = run_scan(Path(args.path), project_name=args.project_name, extra_sarif_paths=[Path(item) for item in args.sarif_in])
+    target = Path(args.path)
+    if blocks_host_scan(str(target), project_name=args.project_name):
+        policy = quarantine_policy(str(target), project_name=args.project_name)
+        print('Scan blocked by quarantine policy: use a report-only or disposable-VM workflow.', file=sys.stderr)
+        print(json.dumps(policy, indent=2), file=sys.stderr)
+        return 13
+
+    scan = run_scan(target, project_name=args.project_name, extra_sarif_paths=[Path(item) for item in args.sarif_in])
+    quarantine = quarantine_policy_for_scan(scan)
     save_scan(scan)
-    update_repository_memory(scan)
+    sanitized = save_sanitized_scan(scan)
+    rag_memory = save_rag_memory_for_report(sanitized)
+    hermes_run = run_hermes_on_memory(rag_memory, requester='cli', persist=True)
+    if quarantine['controls'].get('agent_learning', True):
+        update_repository_memory(scan)
+    else:
+        audit('cli', 'memory.quarantine_skipped', scan.scan_id, {'project': scan.project_name, 'status': quarantine['status']})
     audit('cli', 'scan.created', scan.scan_id, {'project': scan.project_name})
     if args.save_baseline:
         save_baseline(scan)
@@ -250,6 +278,24 @@ def main(argv: list[str] | None = None) -> int:
             json.dumps(scan_recursive_learning_report(scan, limit=args.recursive_learning_limit), indent=2),
             encoding='utf-8',
         )
+    if args.benchmark_gate_out:
+        learning = scan_recursive_learning_report(scan, limit=args.recursive_learning_limit)
+        gate_report = benchmark_gate_report_for_recommendations(learning.get('scanner_improvement_recommendations', []))
+        gate_report['scan_id'] = scan.scan_id
+        gate_report['project_name'] = scan.project_name
+        Path(args.benchmark_gate_out).write_text(json.dumps(gate_report, indent=2), encoding='utf-8')
+    if args.openclaw_out:
+        Path(args.openclaw_out).write_text(json.dumps(openclaw_control_for_scan(scan), indent=2), encoding='utf-8')
+    if args.governance_out:
+        Path(args.governance_out).write_text(json.dumps(compliance_evidence_export(scan_id=scan.scan_id), indent=2), encoding='utf-8')
+    if args.quarantine_policy_out:
+        Path(args.quarantine_policy_out).write_text(json.dumps(quarantine, indent=2), encoding='utf-8')
+    if args.sanitized_report_out:
+        Path(args.sanitized_report_out).write_text(json.dumps(sanitized, indent=2), encoding='utf-8')
+    if args.rag_memory_out:
+        Path(args.rag_memory_out).write_text(json.dumps(rag_memory, indent=2), encoding='utf-8')
+    if args.hermes_out:
+        Path(args.hermes_out).write_text(json.dumps(hermes_run, indent=2), encoding='utf-8')
     chat_notification = None
     if args.chat_notification_out or args.chat_publish:
         try:
@@ -285,6 +331,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f'Production gate: findings={scan.summary.production_findings}, hygiene={scan.summary.hygiene_findings}, scopes={scan.summary.scope_counts}')
     print(f'Production risk: max={scan.summary.max_risk_score}, avg={scan.summary.avg_risk_score}, priorities={scan.summary.priorities}')
     print(f"Tools: {', '.join(f'{k}={v}' for k, v in scan.summary.tools.items())}")
+    if quarantine.get('matched'):
+        print(f"Quarantine: {quarantine['status']} (agent_learning={quarantine['controls'].get('agent_learning')}, report_only={quarantine['controls'].get('report_only')})")
     secret_policy = secret_policy_report(scan)
     if secret_policy['total_secret_findings']:
         print(f"Push protection: {secret_policy['status']} ({secret_policy['blocking_findings']} blocking secrets)")

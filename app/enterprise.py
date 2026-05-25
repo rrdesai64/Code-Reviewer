@@ -7,10 +7,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .models import AuditEvent, Role, ScanResult, UserAccount
+from .paths import data_dir
 
 ROOT = Path(__file__).resolve().parents[1]
-ENTERPRISE_PATH = ROOT / 'data' / 'enterprise.json'
-AUDIT_PATH = ROOT / 'data' / 'audit.log'
+ENTERPRISE_PATH = data_dir() / 'enterprise.json'
+AUDIT_PATH = data_dir() / 'audit.log'
 
 DEFAULT_ROLES = [
     Role(name='admin', permissions=['scan:run', 'scan:read', 'baseline:write', 'decision:write', 'enterprise:read', 'enterprise:write', 'fix:propose', 'fix:apply']),

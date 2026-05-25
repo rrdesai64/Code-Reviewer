@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from .benchmark_gate import benchmark_gate_report_for_recommendations
 from .chat_agents import build_chat_notification
 from .code_hosts import build_code_host_review
 from .dependency_review import dependency_review_report
@@ -14,11 +15,17 @@ from .enterprise import compliance_report
 from .finding_ai import build_scan_ai_review
 from .fix_workflow import apply_fix_bundle, build_fix_bundle
 from .github_pr import build_github_pr_review
+from .governance import compliance_evidence_export
+from .hermes import hermes_report_for_scan
 from .ingestion import scanner_mesh_report
 from .issue_planning import build_issue_plan
 from .models import FixApplyRequest, ScanResult
+from .openclaw_frontend import openclaw_control_for_scan
+from .quarantine import quarantine_policy_for_scan
 from .refactor import build_remediation_plan
 from .recursive_learning import scan_recursive_learning_report
+from .report_lake import sanitized_scan_report
+from .rag_memory import rag_memory_for_scan
 from .reporting import github_pr_comment, html_report, markdown_report
 from .sarif import build_sarif
 from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report, spdx_compliance_report
@@ -55,6 +62,10 @@ def build_report_bundle(scan: ScanResult, base_dir: Path | None = None, ai_revie
     write_json_artifact('dependency-review.json', lambda: dependency_review_report(scan))
     write_json_artifact('sonarqube-quality-gate.json', lambda: sonarqube_quality_report(scan))
     write_json_artifact('scanner-depth.json', lambda: scanner_depth_report(scan))
+    write_json_artifact('quarantine-policy.json', lambda: quarantine_policy_for_scan(scan))
+    write_json_artifact('sanitized-report.json', lambda: sanitized_scan_report(scan))
+    write_json_artifact('rag-memory.json', lambda: rag_memory_for_scan(scan))
+    write_json_artifact('hermes-orchestration.json', lambda: hermes_report_for_scan(scan))
     write_json_artifact('ai-review.json', lambda: build_scan_ai_review(scan, provider='offline', limit=ai_review_limit, include_prompts=False))
     write_json_artifact('cyclonedx-sbom.json', lambda: build_cyclonedx(scan), 'application/vnd.cyclonedx+json')
     write_json_artifact('spdx-sbom.json', lambda: build_spdx(scan))
@@ -70,6 +81,9 @@ def build_report_bundle(scan: ScanResult, base_dir: Path | None = None, ai_revie
     write_json_artifact('chat-notification.json', lambda: build_chat_notification(scan))
     write_json_artifact('team-learning-dashboard.json', lambda: team_learning_dashboard())
     write_json_artifact('recursive-learning.json', lambda: scan_recursive_learning_report(scan))
+    write_json_artifact('benchmark-gate.json', lambda: scan_benchmark_gate_artifact(scan))
+    write_json_artifact('openclaw-control.json', lambda: openclaw_control_for_scan(scan))
+    write_json_artifact('governance-evidence.json', lambda: compliance_evidence_export(scan_id=scan.scan_id))
     write_json_artifact('fix-bundle.json', lambda: build_fix_bundle(scan, limit=DEFAULT_FIX_BUNDLE_LIMIT, provider='offline'))
     write_json_artifact('fix-apply-dry-run.json', lambda: apply_fix_bundle(scan, FixApplyRequest(dry_run=True, approved=True, limit=DEFAULT_FIX_BUNDLE_LIMIT, provider='offline')))
 
@@ -99,6 +113,14 @@ def report_bundle_metadata(scan: ScanResult, base_dir: Path | None = None) -> di
         'artifacts': [],
         'errors': [],
     }
+
+
+def scan_benchmark_gate_artifact(scan: ScanResult) -> dict[str, Any]:
+    learning = scan_recursive_learning_report(scan)
+    report = benchmark_gate_report_for_recommendations(learning.get('scanner_improvement_recommendations', []))
+    report['scan_id'] = scan.scan_id
+    report['project_name'] = scan.project_name
+    return report
 
 
 def report_bundle_dir(scan: ScanResult, base_dir: Path | None = None) -> Path:

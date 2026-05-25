@@ -43,6 +43,9 @@
     "onCommand:secureCodeReview.showChatNotification",
     "onCommand:secureCodeReview.showTeamLearning",
     "onCommand:secureCodeReview.showRecursiveLearning",
+    "onCommand:secureCodeReview.showBenchmarkGate",
+    "onCommand:secureCodeReview.showOpenClaw",
+    "onCommand:secureCodeReview.showGovernanceEvidence",
     "onCommand:secureCodeReview.showMemoryContext",
     "onCommand:secureCodeReview.showAdvancedAiReport",
     "onCommand:secureCodeReview.showAiReview",
@@ -217,6 +220,18 @@
       {
         "command": "secureCodeReview.showRecursiveLearning",
         "title": "Secure Review: Show Recursive Scanner Learning"
+      },
+      {
+        "command": "secureCodeReview.showBenchmarkGate",
+        "title": "Secure Review: Show Benchmark Gate"
+      },
+      {
+        "command": "secureCodeReview.showOpenClaw",
+        "title": "Secure Review: Show OpenClaw Control"
+      },
+      {
+        "command": "secureCodeReview.showGovernanceEvidence",
+        "title": "Secure Review: Show Governance Evidence"
       },
       {
         "command": "secureCodeReview.showMemoryContext",

@@ -231,6 +231,87 @@ class CodeHostReviewRequest(BaseModel):
     include_findings: int = 25
 
 
+class QuarantineEntryRequest(BaseModel):
+    repository: str
+    status: Literal['clear', 'watch', 'quarantined', 'blocked'] = 'quarantined'
+    reason: str = ''
+    source: str = 'user'
+    severity: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)
+    controls: dict[str, bool] | None = None
+
+
+class QuarantineLookupRequest(BaseModel):
+    repository: str
+    project_name: str | None = None
+
+
+class DisposableVmScanRequest(BaseModel):
+    repository_path: str
+    repository_url: str | None = None
+    project_name: str | None = None
+    sonar_project_key: str | None = None
+    sonar_branch_name: str | None = None
+    output_root: str | None = None
+    reports_dir: str | None = None
+    run_id: str | None = None
+    provider: Literal['windows-sandbox', 'manual'] = 'windows-sandbox'
+    network_policy: Literal['offline', 'scanner-only', 'full'] = 'scanner-only'
+    approved_quarantine: bool = False
+    copy_git_history: bool = True
+    job_name: str | None = None
+
+
+class ReportLakeReindexRequest(BaseModel):
+    limit: int = 100
+    include_quarantined: bool = True
+
+
+class RagMemoryReindexRequest(BaseModel):
+    limit: int = 100
+    include_ineligible: bool = False
+
+
+class MemoryRollbackRequest(BaseModel):
+    reason: str = ''
+
+
+class HermesRunRequest(BaseModel):
+    scan_id: str
+    goal: Literal['secure-review-triage', 'release-readiness', 'supply-chain-review', 'scanner-improvement-planning'] = 'secure-review-triage'
+    limit: int = 100
+    allowed_agents: list[str] = Field(default_factory=list)
+    include_ineligible: bool = False
+
+
+class BenchmarkLessonRequest(BaseModel):
+    recommendation_id: str | None = None
+    lesson_id: str | None = None
+    language: str
+    category: str
+    title: str
+    source: str | None = None
+    rule_id: str | None = None
+    proposed_change: str = ''
+    evidence: dict[str, object] = Field(default_factory=dict)
+
+
+class BenchmarkTransitionRequest(BaseModel):
+    target_state: Literal['reviewed', 'benchmarked', 'approved', 'active']
+    note: str = ''
+    benchmark_evidence: dict[str, object] = Field(default_factory=dict)
+
+
+class OpenClawMessageRequest(BaseModel):
+    channel: Literal['api', 'whatsapp', 'telegram', 'slack', 'teams'] = 'api'
+    text: str = ''
+    user: str | None = None
+    channel_id: str | None = None
+    thread_id: str | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
 class TeamCampaignRequest(BaseModel):
     title: str
     focus_area: str

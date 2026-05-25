@@ -24,13 +24,34 @@ env/
 data/
 reports/
 test-repos/
+scan-workspace/
+repo-list*.txt
+repo_list*.txt
+!repo-list.example.txt
 *.sarif
+scan.json
 *report.md
 *pr-comment.md
+secure-review.md
 compliance.json
 secret-policy.json
 github-pr-review.json
 fix-proposals.json
+advanced-ai.json
+cyclonedx-sbom.json
+recursive-learning.json
+quarantine-policy.json
+sanitized-report.json
+rag-memory.json
+hermes-orchestration.json
+vm-worker-status.json
+vm-worker.log
+vm-job*.json
+remediation-plan.json
+sbom-compare.json
+sbom-policy.json
+spdx-compliance.json
+spdx-sbom.json
 
 # OS/editor noise
 .DS_Store
@@ -64,6 +85,8 @@ chat-notification.json
 code-host-review.json
 team-learning-dashboard.json
 ai-review.json
+hs_err_pid*.log
+replay_pid*.log
 tools/gitleaks/
 tools/trufflehog/
 tools/go/

@@ -16,11 +16,12 @@ from typing import Any
 
 from .llm import generate, post_json, provider_status
 from .models import Finding, LLMRequest, ScanResult
+from .paths import data_dir
 from .rag import load_index, retrieve, tokenize
 from .refactor import build_remediation_plan
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT / 'data' / 'advanced_ai'
+DATA_DIR = data_dir() / 'advanced_ai'
 EMBEDDING_INDEX_PATH = DATA_DIR / 'embeddings.json'
 DEFAULT_EMBEDDING_DIMENSIONS = 384
 DEFAULT_AGENT_LIMIT = 5

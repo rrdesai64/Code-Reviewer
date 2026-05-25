@@ -4,10 +4,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .paths import data_dir
 from .models import ScanResult
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT / 'data'
+DATA_DIR = data_dir()
 SCANS_DIR = DATA_DIR / 'scans'
 BASELINE_PATH = DATA_DIR / 'baseline.json'
 DECISIONS_PATH = DATA_DIR / 'decisions.json'

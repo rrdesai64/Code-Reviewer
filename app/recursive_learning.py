@@ -4,8 +4,14 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
+from .benchmark_gate import (
+    annotate_recommendations_with_benchmark_gate,
+    approved_learning_influences,
+    benchmark_gate_report_for_recommendations,
+)
 from .enterprise import audit_events
 from .models import Finding, ScanResult
+from .quarantine import quarantine_policy_for_scan
 from .scope import classify_path_scope, finding_scope, is_production_impacting
 from .storage import apply_decisions, list_scans, load_scan
 
@@ -64,38 +70,65 @@ def recursive_learning_from_scans(
     requested_limit: int = 100,
 ) -> dict[str, Any]:
     audit_rows = audit_rows or []
+    eligible_scans, quarantine_exclusions = exclude_quarantined_learning_scans(scans)
     evidence = {
-        'noisy_rules_to_tighten': noisy_rules(scans),
-        'missing_language_framework_parsers': parser_gaps(scans),
-        'bad_scope_classification': scope_classification_gaps(scans),
-        'scanner_failures_by_environment': scanner_failures(scans),
-        'false_positive_patterns': false_positive_patterns(scans),
-        'recurring_vulnerable_dependency_families': dependency_families(scans),
-        'finding_lifecycle_decisions': finding_lifecycle(scans),
+        'quarantine_exclusions': quarantine_exclusions,
+        'noisy_rules_to_tighten': noisy_rules(eligible_scans),
+        'missing_language_framework_parsers': parser_gaps(eligible_scans),
+        'bad_scope_classification': scope_classification_gaps(eligible_scans),
+        'scanner_failures_by_environment': scanner_failures(eligible_scans),
+        'false_positive_patterns': false_positive_patterns(eligible_scans),
+        'recurring_vulnerable_dependency_families': dependency_families(eligible_scans),
+        'finding_lifecycle_decisions': finding_lifecycle(eligible_scans),
         'report_section_usage': report_section_usage(audit_rows),
     }
-    recommendations = build_recommendations(evidence, scans)
+    recommendations = annotate_recommendations_with_benchmark_gate(build_recommendations(evidence, eligible_scans))
+    benchmark_gate = benchmark_gate_report_for_recommendations(recommendations)
     return {
         'schema_version': 1,
         'generated_at': datetime.now(timezone.utc).isoformat(),
         'scope': scope,
-        'scan_count': len(scans),
+        'scan_count': len(eligible_scans),
+        'input_scan_count': len(scans),
+        'quarantined_scan_count': len(quarantine_exclusions),
         'requested_limit': requested_limit,
-        'latest_scan_id': scans[0].scan_id if scans else None,
-        'latest_project': scans[0].project_name if scans else None,
+        'latest_scan_id': eligible_scans[0].scan_id if eligible_scans else None,
+        'latest_project': eligible_scans[0].project_name if eligible_scans else None,
         'status': learning_status(evidence, recommendations),
         'guardrails': [
             'This is a read-only learning report; it does not rewrite rules, configs, parsers, or scanner settings.',
             'Every scanner improvement recommendation is proposed only and requires human approval before implementation.',
             'Rule-pack promotion requires benchmark evidence that noise drops without losing known true positives.',
             'Accepted-risk and false-positive decisions are used as evidence, not as automatic suppression rules.',
+            'Quarantined repositories are excluded from recursive learning and agent memory by default.',
         ],
         'controlled_workflow': controlled_workflow(),
         'evidence': evidence,
         'scanner_improvement_recommendations': recommendations,
         'approval_queue': [item for item in recommendations if item['requires_human_approval']],
+        'approved_learning_influences': approved_learning_influences(),
+        'benchmark_gate': benchmark_gate,
         'promotion_gate': promotion_gate(),
     }
+
+
+def exclude_quarantined_learning_scans(scans: list[ScanResult]) -> tuple[list[ScanResult], list[dict[str, Any]]]:
+    eligible: list[ScanResult] = []
+    excluded: list[dict[str, Any]] = []
+    for scan in scans:
+        policy = quarantine_policy_for_scan(scan)
+        if policy['controls'].get('agent_learning', True):
+            eligible.append(scan)
+            continue
+        excluded.append({
+            'scan_id': scan.scan_id,
+            'project_name': scan.project_name,
+            'target_path': scan.target_path,
+            'status': policy['status'],
+            'reason': (policy.get('entry') or {}).get('reason', ''),
+            'controls': policy['controls'],
+        })
+    return eligible, excluded
 
 
 def noisy_rules(scans: list[ScanResult]) -> list[dict[str, Any]]:
@@ -475,6 +508,8 @@ def recommendation(category: str, title: str, priority: str, evidence: Any, reco
         'title': title,
         'priority': priority,
         'status': 'proposed',
+        'promotion_state': 'proposed',
+        'learning_influence_allowed': False,
         'requires_human_approval': True,
         'auto_apply': False,
         'evidence': evidence,
@@ -497,6 +532,8 @@ def controlled_workflow() -> list[dict[str, str]]:
 
 def promotion_gate() -> dict[str, Any]:
     return {
+        'states': ['proposed', 'reviewed', 'benchmarked', 'approved', 'active'],
+        'influence_rule': 'Only active lessons with passing benchmark evidence and human approval can influence future scanner/rule recommendations.',
         'requires_benchmark_set': True,
         'requires_human_approval': True,
         'requires_no_true_positive_regression': True,

@@ -9,10 +9,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .models import Finding, KnowledgeChunk, RagQueryResponse, ScanResult
+from .paths import data_dir
 
 ROOT = Path(__file__).resolve().parents[1]
 KNOWLEDGE_DIR = ROOT / 'knowledge'
-INDEX_PATH = ROOT / 'data' / 'rag_index.json'
+INDEX_PATH = data_dir() / 'rag_index.json'
 TOKEN_RE = re.compile(r'[a-zA-Z][a-zA-Z0-9_+.-]{1,}')
 TAG_RE = re.compile(r'\b(CWE-\d+|A0\d:2021-[A-Za-z -]+|OWASP\s+A0\d|P[0-4]|[A-Z][A-Z0-9_/-]{2,})\b')
 MAX_CHUNK_WORDS = 220

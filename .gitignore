@@ -25,6 +25,7 @@ data/
 reports/
 test-repos/
 scan-workspace/
+saved-scan-validation/
 repo-list*.txt
 repo_list*.txt
 !repo-list.example.txt

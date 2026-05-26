@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import urllib.parse
+import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
@@ -36,6 +37,11 @@ CODEQL_QUERY_SUITE_BY_LANGUAGE = {
     'swift': 'codeql/swift-queries:codeql-suites/swift-code-scanning.qls',
 }
 CODEQL_NO_BUILD_LANGUAGES = {'python', 'javascript', 'ruby'}
+DEFAULT_SONAR_ISSUE_TYPES = 'VULNERABILITY,BUG,CODE_SMELL'
+
+
+class SonarApiError(RuntimeError):
+    pass
 
 
 def run_codeql(target: Path, files: list[Path]) -> tuple[list[Finding], str]:
@@ -118,6 +124,17 @@ def run_sonarqube(target: Path, files: list[Path]) -> tuple[list[Finding], str]:
     except Exception as exc:
         status_parts.append(f'issue_fetch_failed={clean_error(str(exc))}')
 
+    if os.getenv('SONAR_HOTSPOTS_ENABLED', 'true').lower() != 'false':
+        try:
+            hotspots = fetch_sonar_hotspots(host, token, project_key)
+            hotspot_findings = [finding_from_sonar_hotspot(hotspot, project_key) for hotspot in hotspots]
+            findings.extend(hotspot_findings)
+            status_parts.append(f'hotspots={len(hotspot_findings)}')
+        except Exception as exc:
+            status_parts.append(f'hotspot_fetch_failed={clean_error(str(exc))}')
+    else:
+        status_parts.append('hotspots=disabled')
+
     if os.getenv('SONAR_QUALITY_GATE_ENABLED', 'true').lower() != 'false':
         try:
             gate = fetch_sonar_quality_gate(host, token, project_key)
@@ -135,30 +152,69 @@ def run_sonarqube(target: Path, files: list[Path]) -> tuple[list[Finding], str]:
 def fetch_sonar_issues(host: str, token: str, project_key: str) -> list[dict[str, Any]]:
     params = {
         'componentKeys': project_key,
-        'types': os.getenv('SONAR_ISSUE_TYPES', 'VULNERABILITY,SECURITY_HOTSPOT,BUG,CODE_SMELL'),
+        'types': ','.join(sonar_issue_types()),
         'ps': os.getenv('SONAR_ISSUE_PAGE_SIZE', '500'),
     }
+    if not params['types']:
+        return []
     params.update(sonar_api_context_params())
     severities = os.getenv('SONAR_SEVERITIES')
     if severities:
         params['severities'] = severities
-    query = urllib.parse.urlencode(params)
-    req = urllib.request.Request(f'{host.rstrip("/")}/api/issues/search?{query}')
-    req.add_header('Authorization', 'Basic ' + basic_token(token))
-    with urllib.request.urlopen(req, timeout=45) as response:
-        payload = json.loads(response.read().decode('utf-8'))
+    payload = sonar_get_json(host, token, '/api/issues/search', params)
     return payload.get('issues', [])
+
+
+def fetch_sonar_hotspots(host: str, token: str, project_key: str) -> list[dict[str, Any]]:
+    params = {
+        'projectKey': project_key,
+        'ps': os.getenv('SONAR_HOTSPOT_PAGE_SIZE', '500'),
+    }
+    params.update(sonar_api_context_params(include_pull_request=True))
+    payload = sonar_get_json(host, token, '/api/hotspots/search', params)
+    return payload.get('hotspots', [])
 
 
 def fetch_sonar_quality_gate(host: str, token: str, project_key: str) -> dict[str, Any]:
     params = {'projectKey': project_key}
     params.update(sonar_api_context_params(include_pull_request=True))
-    query = urllib.parse.urlencode(params)
-    req = urllib.request.Request(f'{host.rstrip("/")}/api/qualitygates/project_status?{query}')
-    req.add_header('Authorization', 'Basic ' + basic_token(token))
-    with urllib.request.urlopen(req, timeout=45) as response:
-        payload = json.loads(response.read().decode('utf-8'))
+    payload = sonar_get_json(host, token, '/api/qualitygates/project_status', params)
     return payload.get('projectStatus', {}) or {}
+
+
+def sonar_get_json(host: str, token: str, path: str, params: dict[str, str]) -> dict[str, Any]:
+    query = urllib.parse.urlencode({key: value for key, value in params.items() if value})
+    url = f'{host.rstrip("/")}{path}?{query}'
+    req = urllib.request.Request(url)
+    req.add_header('Authorization', f'Bearer {token}')
+    try:
+        with urllib.request.urlopen(req, timeout=45) as response:
+            return json.loads(response.read().decode('utf-8'))
+    except urllib.error.HTTPError as exc:
+        body = read_http_error_body(exc)
+        detail = f'HTTP {exc.code} {exc.reason}'
+        if body:
+            detail += f': {redact_token(body, token)}'
+        raise SonarApiError(detail) from exc
+
+
+def read_http_error_body(exc: urllib.error.HTTPError) -> str:
+    try:
+        return (exc.read() or b'').decode('utf-8', errors='replace')[:1000]
+    except Exception:
+        return ''
+
+
+def redact_token(text: str, token: str) -> str:
+    if token:
+        text = text.replace(token, '[REDACTED]')
+    return text
+
+
+def sonar_issue_types() -> list[str]:
+    raw = os.getenv('SONAR_ISSUE_TYPES', DEFAULT_SONAR_ISSUE_TYPES)
+    values = [item.strip().upper() for item in raw.split(',') if item.strip()]
+    return [item for item in values if item != 'SECURITY_HOTSPOT']
 
 
 def findings_from_sonar_quality_gate(project_key: str, gate: dict[str, Any]) -> list[Finding]:
@@ -223,6 +279,43 @@ def basic_token(token: str) -> str:
 
 def finding_from_sonar(issue: dict[str, Any]) -> Finding:
     return finding_from_sonar_issue(issue)
+
+
+def finding_from_sonar_hotspot(hotspot: dict[str, Any], project_key: str) -> Finding:
+    component = str(hotspot.get('component') or '')
+    path = component.split(':', 1)[-1] if ':' in component else component
+    text_range = hotspot.get('textRange') if isinstance(hotspot.get('textRange'), dict) else {}
+    line = int(hotspot.get('line') or text_range.get('startLine') or 1)
+    rule_payload = hotspot.get('rule') if isinstance(hotspot.get('rule'), dict) else {}
+    rule = str(hotspot.get('ruleKey') or rule_payload.get('key') or 'sonarqube-security-hotspot')
+    probability = str(hotspot.get('vulnerabilityProbability') or '').upper()
+    message = str(hotspot.get('message') or hotspot.get('securityCategory') or rule)
+    severity = {'HIGH': 'MEDIUM', 'MEDIUM': 'LOW', 'LOW': 'INFO'}.get(probability, 'LOW')
+    return normalize_finding(
+        source='sonarqube',
+        rule_id=rule,
+        title=f'SonarQube security hotspot: {title_from_sonar_rule(rule)}',
+        severity=severity,
+        confidence='LOW',
+        path=path or f'sonarqube/{safe_project_key(project_key)}',
+        line=line,
+        message=message,
+        raw=hotspot,
+        raw_severity=probability or severity,
+        metadata={
+            'engine': 'sonarqube',
+            'sonar_kind': 'security_hotspot',
+            'project_key': project_key,
+            'key': str(hotspot.get('key') or ''),
+            'status': str(hotspot.get('status') or ''),
+            'security_category': str(hotspot.get('securityCategory') or ''),
+            'vulnerability_probability': probability,
+        },
+    )
+
+
+def title_from_sonar_rule(rule: str) -> str:
+    return rule.split(':')[-1].replace('_', '-').replace('-', ' ').title()
 
 
 def findings_from_sarif(path: Path, source: str) -> list[Finding]:

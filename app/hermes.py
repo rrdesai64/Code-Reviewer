@@ -38,6 +38,10 @@ def hermes_runs_dir() -> Path:
     return hermes_dir() / 'runs'
 
 
+def hermes_reviews_path() -> Path:
+    return hermes_dir() / 'reviews.jsonl'
+
+
 def ensure_hermes_dirs() -> None:
     hermes_runs_dir().mkdir(parents=True, exist_ok=True)
 
@@ -671,6 +675,224 @@ def list_hermes_runs(limit: int = 100) -> list[dict[str, Any]]:
         if len(records) >= max(0, limit):
             break
     return records
+
+
+def hermes_review_queue(
+    *,
+    scan_id: str | None = None,
+    run_id: str | None = None,
+    limit: int = 100,
+    include_decided: bool = False,
+) -> dict[str, Any]:
+    ensure_hermes_dirs()
+    decisions = load_hermes_review_decisions()
+    selected_runs: list[dict[str, Any]] = []
+    if run_id:
+        selected_runs.append(load_hermes_run(run_id))
+    else:
+        for card in list_hermes_runs(limit=max(limit, 100)):
+            source = card.get('source') or {}
+            if scan_id and source.get('scan_id') != scan_id:
+                continue
+            try:
+                selected_runs.append(load_hermes_run(str(card.get('run_id'))))
+            except FileNotFoundError:
+                continue
+            if len(selected_runs) >= max(limit, 1):
+                break
+
+    items: list[dict[str, Any]] = []
+    for run in selected_runs:
+        for item in review_items_for_run(run, decisions):
+            if include_decided or item['review_state'] == 'pending':
+                items.append(item)
+            if len(items) >= max(limit, 0):
+                break
+        if len(items) >= max(limit, 0):
+            break
+
+    counts = Counter(item['review_state'] for item in items)
+    status = 'reviewed' if items and counts.get('pending', 0) == 0 else 'pending_review' if items else 'empty'
+    return {
+        'schema_version': SCHEMA_VERSION,
+        'generated_at': now_iso(),
+        'status': status,
+        'scope': {'scan_id': scan_id or '', 'run_id': run_id or ''},
+        'count': len(items),
+        'pending_count': counts.get('pending', 0),
+        'decided_count': len(items) - counts.get('pending', 0),
+        'items': items,
+        'guardrails': [
+            'Hermes review records human decisions only; it does not apply fixes.',
+            'Hermes review does not promote scanner lessons or mutate rules.',
+            'Scanner learning influence still requires Benchmark Gate approval and benchmark evidence.',
+        ],
+    }
+
+
+def hermes_run_review_report(run_id: str, *, include_decided: bool = True, limit: int = 100) -> dict[str, Any]:
+    return hermes_review_queue(run_id=run_id, include_decided=include_decided, limit=limit)
+
+
+def record_hermes_review(
+    run_id: str,
+    *,
+    decision: str,
+    reviewer: str,
+    note: str = '',
+    review_item_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    ensure_hermes_dirs()
+    run = load_hermes_run(run_id)
+    current = hermes_review_queue(run_id=run_id, include_decided=True, limit=MAX_TASKS * 10)
+    allowed_ids = {item['review_item_id']: item for item in current.get('items', [])}
+    requested_ids = [str(item).strip() for item in review_item_ids or [] if str(item).strip()]
+    selected_ids = requested_ids or [item_id for item_id, item in allowed_ids.items() if item.get('review_state') == 'pending']
+    unknown = [item_id for item_id in selected_ids if item_id not in allowed_ids]
+    if unknown:
+        raise ValueError(f'unknown Hermes review item id(s): {", ".join(unknown[:5])}')
+    if not selected_ids:
+        raise ValueError('no Hermes review items selected')
+
+    reviewer = safe_text(reviewer, 120) or 'local-admin'
+    event = {
+        'schema_version': SCHEMA_VERSION,
+        'review_id': stable_id(run_id, decision, reviewer, now_iso()),
+        'created_at': now_iso(),
+        'run_id': run_id,
+        'scan_id': str((run.get('source') or {}).get('scan_id') or ''),
+        'project_name': str((run.get('source') or {}).get('project_name') or ''),
+        'reviewer': reviewer,
+        'decision': decision,
+        'note': safe_text(note, 1000),
+        'review_item_ids': selected_ids,
+        'item_count': len(selected_ids),
+        'safety': {
+            'raw_code_included': False,
+            'repository_mutated': False,
+            'scanner_rule_mutated': False,
+            'lesson_promoted': False,
+        },
+    }
+    with hermes_reviews_path().open('a', encoding='utf-8') as handle:
+        handle.write(json.dumps(event, sort_keys=True) + '\n')
+    record_hermes_review_governance(event, selected_ids, run)
+    updated = hermes_review_queue(run_id=run_id, include_decided=False, limit=MAX_TASKS * 10)
+    return {
+        'schema_version': SCHEMA_VERSION,
+        'generated_at': now_iso(),
+        'status': 'recorded',
+        'review': event,
+        'remaining_pending_count': updated.get('pending_count', 0),
+        'guardrails': [
+            'Review recorded as audit evidence only.',
+            'No scanner rules, suppressions, parser code, repository files, or memory lessons were changed.',
+        ],
+    }
+
+
+def review_items_for_run(run: dict[str, Any], decisions: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    source = run.get('source') or {}
+    run_id = str(run.get('run_id') or '')
+    items: list[dict[str, Any]] = []
+    for result in run.get('agent_results', []):
+        if result.get('status') not in BLOCKING_AGENT_STATUSES | REVIEW_AGENT_STATUSES:
+            continue
+        item_id = review_item_id(run_id, result)
+        decision = decisions.get(item_id)
+        items.append({
+            'review_item_id': item_id,
+            'review_state': 'decided' if decision else 'pending',
+            'latest_decision': public_review_decision(decision) if decision else None,
+            'run_id': run_id,
+            'scan_id': source.get('scan_id'),
+            'project_name': source.get('project_name'),
+            'run_status': run.get('status'),
+            'run_summary': (run.get('synthesis') or {}).get('summary', ''),
+            'agent_id': result.get('agent_id'),
+            'agent_name': result.get('agent_name'),
+            'task_id': result.get('task_id'),
+            'task_type': result.get('task_type'),
+            'status': result.get('status'),
+            'confidence': result.get('confidence'),
+            'item_id': result.get('item_id'),
+            'findings': result.get('findings', [])[:5],
+            'recommendations': result.get('recommendations', [])[:5],
+            'evidence_refs': result.get('evidence_refs', {}),
+            'safety': result.get('safety', {}),
+            'allowed_decisions': ['acknowledged', 'confirmed_true_positive', 'accepted_risk', 'false_positive', 'needs_fix', 'needs_more_evidence'],
+        })
+    return sorted(items, key=lambda item: (item['review_state'] != 'pending', review_status_rank(item['status']), item.get('task_type', ''), item.get('agent_id', '')))
+
+
+def load_hermes_review_decisions() -> dict[str, dict[str, Any]]:
+    path = hermes_reviews_path()
+    if not path.exists():
+        return {}
+    decisions: dict[str, dict[str, Any]] = {}
+    for line in path.read_text(encoding='utf-8').splitlines():
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        for item_id in event.get('review_item_ids', []):
+            decisions[str(item_id)] = event
+    return decisions
+
+
+def public_review_decision(decision: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not decision:
+        return None
+    return {
+        'review_id': decision.get('review_id'),
+        'created_at': decision.get('created_at'),
+        'reviewer': decision.get('reviewer'),
+        'decision': decision.get('decision'),
+        'note': decision.get('note'),
+    }
+
+
+def review_item_id(run_id: str, result: dict[str, Any]) -> str:
+    return stable_id(run_id, str(result.get('result_id') or ''), str(result.get('task_id') or ''), str(result.get('agent_id') or ''), str(result.get('status') or ''))
+
+
+def review_status_rank(status: str) -> int:
+    if status in BLOCKING_AGENT_STATUSES:
+        return 0
+    if status in REVIEW_AGENT_STATUSES:
+        return 1
+    return 2
+
+
+def record_hermes_review_governance(event: dict[str, Any], selected_ids: list[str], run: dict[str, Any]) -> None:
+    try:
+        from .governance import record_governance_event
+
+        record_governance_event(
+            actor=str(event.get('reviewer') or 'local-admin'),
+            action='hermes.review_recorded',
+            category='approval',
+            resource=str(event.get('review_id') or event.get('run_id') or ''),
+            scan_id=str(event.get('scan_id') or ''),
+            reason=str(event.get('note') or f"Hermes review decision: {event.get('decision')}"),
+            metadata={
+                'run_id': event.get('run_id'),
+                'decision': event.get('decision'),
+                'review_item_count': str(len(selected_ids)),
+                'project_name': event.get('project_name'),
+                'memory_version_id': (run.get('source') or {}).get('memory_version_id', ''),
+            },
+            evidence_refs={
+                'review_id': event.get('review_id'),
+                'run_id': event.get('run_id'),
+                'review_item_ids': selected_ids[:100],
+                'safety': event.get('safety') or {},
+            },
+        )
+    except Exception:
+        pass
 
 
 def hermes_run_card(run: dict[str, Any]) -> dict[str, Any]:

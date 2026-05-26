@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from .models import BenchmarkLessonRequest, BenchmarkTransitionRequest, ChatNotificationRequest, CodeHostReviewRequest, DecisionRequest, DisposableVmScanRequest, FixApplyRequest, GitHubPrReviewRequest, HermesRunRequest, IssuePlanRequest, LLMRequest, MemoryRollbackRequest, OpenClawMessageRequest, QuarantineEntryRequest, QuarantineLookupRequest, RagMemoryReindexRequest, ReportLakeReindexRequest, TeamCampaignRequest
+from .models import BenchmarkLessonRequest, BenchmarkTransitionRequest, ChatNotificationRequest, CodeHostReviewRequest, DecisionRequest, DisposableVmScanRequest, FixApplyRequest, GitHubPrReviewRequest, HermesReviewRequest, HermesRunRequest, IssuePlanRequest, LLMRequest, MemoryRollbackRequest, OpenClawMessageRequest, QuarantineEntryRequest, QuarantineLookupRequest, RagMemoryReindexRequest, ReportLakeReindexRequest, TeamCampaignRequest
 from .advanced_ai import advanced_ai_status, build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, gpu_profile, local_runtime_status, phase_g_report, run_multi_agent_review, semantic_search
 from .benchmark_gate import benchmark_corpus_report, benchmark_gate_report_for_recommendations, benchmark_gate_status, list_benchmark_lessons, transition_benchmark_lesson, upsert_benchmark_lesson
 from .chat_agents import ChatAgentError, build_chat_notification, chat_agent_status, handle_slack_command, handle_teams_command, verify_slack_signature, verify_teams_command_secret
@@ -22,7 +22,7 @@ from .dependency_review import dependency_review_report
 from .llm import generate, provider_status
 from .github_pr import GitHubIntegrationError, build_github_pr_review, github_integration_status, handle_github_webhook, verify_github_webhook_signature
 from .governance import compliance_evidence_export, enterprise_governance_report, governance_events, openclaw_dependency_posture
-from .hermes import create_hermes_run, hermes_report_for_scan, hermes_status, list_hermes_runs, load_hermes_run
+from .hermes import create_hermes_run, hermes_report_for_scan, hermes_review_queue, hermes_run_review_report, hermes_status, list_hermes_runs, load_hermes_run, record_hermes_review
 from .fix_workflow import apply_fix_bundle, build_fix_bundle
 from .ingestion import scanner_mesh_report, scanner_mesh_status
 from .issue_planning import IssuePlanningError, build_issue_plan, issue_planning_status
@@ -938,6 +938,50 @@ def hermes_run_create(request: HermesRunRequest, user: AuthUser = Depends(requir
     return run
 
 
+@app.get('/api/hermes/review-queue')
+def hermes_review_queue_endpoint(
+    scan_id: str | None = None,
+    run_id: str | None = None,
+    limit: int = 100,
+    include_decided: bool = False,
+    user: AuthUser = Depends(require_permission('enterprise:read')),
+) -> dict:
+    try:
+        report = hermes_review_queue(scan_id=scan_id, run_id=run_id, limit=limit, include_decided=include_decided)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='Hermes run not found')
+    audit(user.username, 'hermes.review_queue_reported', run_id or scan_id or 'all', {'pending': str(report['pending_count']), 'count': str(report['count'])})
+    return report
+
+
+@app.get('/api/hermes/runs/{run_id}/review')
+def hermes_run_review(run_id: str, include_decided: bool = True, limit: int = 100, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    try:
+        report = hermes_run_review_report(run_id, include_decided=include_decided, limit=limit)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='Hermes run not found')
+    audit(user.username, 'hermes.run_review_reported', run_id, {'pending': str(report['pending_count']), 'count': str(report['count'])})
+    return report
+
+
+@app.post('/api/hermes/runs/{run_id}/review')
+def hermes_run_review_record(run_id: str, request: HermesReviewRequest, user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    try:
+        report = record_hermes_review(
+            run_id,
+            decision=request.decision,
+            reviewer=request.reviewer or user.username,
+            note=request.note,
+            review_item_ids=request.review_item_ids,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='Hermes run not found')
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'hermes.review_recorded', run_id, {'decision': request.decision, 'items': str(report['review']['item_count'])})
+    return report
+
+
 @app.get('/api/benchmark-gate/status')
 def benchmark_gate_status_endpoint(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
     status = benchmark_gate_status()
@@ -962,21 +1006,23 @@ def benchmark_gate_lessons(state: str | None = None, language: str | None = None
 
 @app.post('/api/benchmark-gate/lessons')
 def benchmark_gate_lesson_create(request: BenchmarkLessonRequest, user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    actor = request.delegated_actor or user.username
     try:
-        lesson = upsert_benchmark_lesson(request.model_dump(), actor=user.username)
+        lesson = upsert_benchmark_lesson(request.model_dump(exclude={'delegated_actor'}), actor=actor)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    audit(user.username, 'benchmark_gate.lesson_proposed', lesson['lesson_id'], {'language': lesson['language'], 'category': lesson['category']})
+    audit(user.username, 'benchmark_gate.lesson_proposed', lesson['lesson_id'], {'language': lesson['language'], 'category': lesson['category'], 'delegated_actor': actor})
     return lesson
 
 
 @app.post('/api/benchmark-gate/lessons/{lesson_id}/transition')
 def benchmark_gate_lesson_transition(lesson_id: str, request: BenchmarkTransitionRequest, user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    actor = request.delegated_actor or user.username
     try:
         lesson = transition_benchmark_lesson(
             lesson_id,
             request.target_state,
-            actor=user.username,
+            actor=actor,
             note=request.note,
             benchmark_evidence=request.benchmark_evidence,
         )
@@ -984,7 +1030,7 @@ def benchmark_gate_lesson_transition(lesson_id: str, request: BenchmarkTransitio
         raise HTTPException(status_code=404, detail='benchmark lesson not found')
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    audit(user.username, 'benchmark_gate.lesson_transitioned', lesson_id, {'state': lesson['promotion_state'], 'influence_allowed': str(lesson['learning_influence_allowed'])})
+    audit(user.username, 'benchmark_gate.lesson_transitioned', lesson_id, {'state': lesson['promotion_state'], 'influence_allowed': str(lesson['learning_influence_allowed']), 'delegated_actor': actor})
     return lesson
 
 
@@ -1122,6 +1168,16 @@ def scan_hermes(scan_id: str, goal: str = 'secure-review-triage', persist: bool 
         raise HTTPException(status_code=400, detail=str(exc))
     audit(user.username, 'hermes.scan_reported', scan_id, {'status': run['status'], 'goal': run['goal'], 'persist': str(persist)})
     return run
+
+
+@app.get('/api/scans/{scan_id}/hermes/review')
+def scan_hermes_review(scan_id: str, limit: int = 100, include_decided: bool = False, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        report = hermes_review_queue(scan_id=scan_id, limit=limit, include_decided=include_decided)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='Hermes run not found')
+    audit(user.username, 'hermes.scan_review_queue_reported', scan_id, {'pending': str(report['pending_count']), 'count': str(report['count'])})
+    return report
 
 
 @app.get('/api/llm/providers')

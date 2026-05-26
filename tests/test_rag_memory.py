@@ -1,11 +1,12 @@
 import json
 import os
+from pathlib import Path
 import tempfile
 import unittest
 
 from app.ingestion import normalize_finding
 from app.models import ScanResult, ScanSummary
-from app.rag_memory import query_rag_memory, rag_memory_schema, reindex_rag_memory, save_rag_memory_for_report
+from app.rag_memory import query_rag_memory, rag_memory_schema, reindex_rag_memory, save_rag_memory_for_report, scan_rag_memory_report
 from app.report_lake import save_sanitized_scan, sanitized_scan_report
 
 
@@ -14,8 +15,28 @@ class RagMemorySchemaTests(unittest.TestCase):
         self._old_data_dir = os.environ.get('SECURE_REVIEW_DATA_DIR')
         self.tmp = tempfile.TemporaryDirectory()
         os.environ['SECURE_REVIEW_DATA_DIR'] = self.tmp.name
+        from app import storage
+
+        self._old_storage_paths = (
+            storage.DATA_DIR,
+            storage.SCANS_DIR,
+            storage.BASELINE_PATH,
+            storage.DECISIONS_PATH,
+        )
+        storage.DATA_DIR = Path(self.tmp.name)
+        storage.SCANS_DIR = storage.DATA_DIR / 'scans'
+        storage.BASELINE_PATH = storage.DATA_DIR / 'baseline.json'
+        storage.DECISIONS_PATH = storage.DATA_DIR / 'decisions.json'
 
     def tearDown(self):
+        from app import storage
+
+        (
+            storage.DATA_DIR,
+            storage.SCANS_DIR,
+            storage.BASELINE_PATH,
+            storage.DECISIONS_PATH,
+        ) = self._old_storage_paths
         self.tmp.cleanup()
         if self._old_data_dir is None:
             os.environ.pop('SECURE_REVIEW_DATA_DIR', None)
@@ -82,6 +103,18 @@ class RagMemorySchemaTests(unittest.TestCase):
         self.assertEqual(report['scan_reports_processed'], 1)
         self.assertGreater(report['retrieval_item_count'], 0)
         self.assertFalse(report['skipped'])
+
+    def test_rebuild_creates_sanitized_lake_record_from_saved_scan(self):
+        from app import storage
+
+        scan = self.safe_scan(scan_id='saved-only-rag')
+        storage.save_scan(scan)
+
+        report = scan_rag_memory_report(scan.scan_id, rebuild=True)
+
+        self.assertEqual(report['status'], 'indexed')
+        self.assertGreater(report['item_count'], 0)
+        self.assertTrue((Path(self.tmp.name) / 'report-lake' / 'scans' / 'saved-only-rag.json').exists())
 
     def safe_scan(self, scan_id='safe-rag'):
         finding = normalize_finding(

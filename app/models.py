@@ -285,6 +285,13 @@ class HermesRunRequest(BaseModel):
     include_ineligible: bool = False
 
 
+class HermesReviewRequest(BaseModel):
+    decision: Literal['acknowledged', 'confirmed_true_positive', 'accepted_risk', 'false_positive', 'needs_fix', 'needs_more_evidence']
+    reviewer: str | None = None
+    note: str = ''
+    review_item_ids: list[str] = Field(default_factory=list)
+
+
 class BenchmarkLessonRequest(BaseModel):
     recommendation_id: str | None = None
     lesson_id: str | None = None
@@ -295,12 +302,14 @@ class BenchmarkLessonRequest(BaseModel):
     rule_id: str | None = None
     proposed_change: str = ''
     evidence: dict[str, object] = Field(default_factory=dict)
+    delegated_actor: str | None = None
 
 
 class BenchmarkTransitionRequest(BaseModel):
     target_state: Literal['reviewed', 'benchmarked', 'approved', 'active']
     note: str = ''
     benchmark_evidence: dict[str, object] = Field(default_factory=dict)
+    delegated_actor: str | None = None
 
 
 class OpenClawMessageRequest(BaseModel):

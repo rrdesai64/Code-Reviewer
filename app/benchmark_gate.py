@@ -448,6 +448,8 @@ def public_lesson_influence(lesson: dict[str, Any]) -> dict[str, Any]:
         'source': lesson.get('source'),
         'rule_id': lesson.get('rule_id'),
         'title': lesson.get('title'),
+        'proposed_change': lesson.get('proposed_change'),
+        'evidence_summary': lesson.get('evidence_summary') or {},
         'promotion_state': lesson.get('promotion_state'),
         'benchmark': {
             'status': (lesson.get('benchmark') or {}).get('status'),

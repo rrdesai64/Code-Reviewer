@@ -160,6 +160,9 @@ def run_python_specialist(agent: dict[str, Any], task: dict[str, Any], item: dic
         findings.extend(signals['risk_findings'] or ['No Python-specific blocker detected from sanitized memory.'])
         recommendations.extend(python_validation_steps(signals))
 
+    active_lessons = active_teacher_lessons_for_item(item, signals)
+    recommendations.extend(lesson_recommendations(active_lessons))
+
     return {
         'result_id': stable_id(agent['agent_id'], task['task_id'], status),
         'agent_id': agent['agent_id'],
@@ -185,6 +188,7 @@ def run_python_specialist(agent: dict[str, Any], task: dict[str, Any], item: dic
             'scanner_gaps': signals['scanner_gaps'],
             'dependency_findings': signals['dependency_findings'],
             'validation_commands': python_validation_commands(signals),
+            'active_teacher_lessons': active_lessons,
             'requires_human_approval': True,
             'requires_benchmark_gate': signals['scanner_tuning_candidate'],
         },
@@ -319,6 +323,80 @@ def python_validation_commands(signals: dict[str, Any]) -> list[str]:
         commands.append('bandit -r .')
     commands.append('pytest')
     return dedupe(commands)
+
+
+def active_teacher_lessons_for_item(item: dict[str, Any], signals: dict[str, Any]) -> list[dict[str, Any]]:
+    try:
+        from .benchmark_gate import approved_learning_influences
+
+        lessons = approved_learning_influences(language='python')
+    except Exception:
+        return []
+    if not lessons:
+        return []
+
+    metadata = item.get('metadata') or {}
+    tags = {str(tag).lower() for tag in item.get('tags', [])}
+    text = normalized_text(item)
+    categories = {str(category).lower() for category in signals.get('categories', set())}
+    source = str(metadata.get('source') or '').lower()
+    rule_id = str(metadata.get('rule_id') or '').lower()
+    matched = []
+    for lesson in lessons:
+        lesson_category = str(lesson.get('category') or '').lower()
+        lesson_source = str(lesson.get('source') or '').lower()
+        lesson_rule = str(lesson.get('rule_id') or '').lower()
+        evidence = lesson.get('evidence_summary') if isinstance(lesson.get('evidence_summary'), dict) else {}
+        evidence_text = ' '.join(str(value).lower() for value in evidence.values())
+        if lesson_source and source and lesson_source != source:
+            continue
+        if lesson_rule and rule_id and lesson_rule != rule_id:
+            continue
+        if lesson_category and lesson_category in categories:
+            matched.append(public_teacher_lesson(lesson))
+            continue
+        if lesson_rule and lesson_rule in text:
+            matched.append(public_teacher_lesson(lesson))
+            continue
+        evidence_tokens = [token for token in re.split(r'[^a-z0-9_.:-]+', evidence_text) if len(token) >= 4]
+        if any(token in text for token in evidence_tokens):
+            matched.append(public_teacher_lesson(lesson))
+            continue
+        if lesson_category and lesson_category in tags:
+            matched.append(public_teacher_lesson(lesson))
+    return dedupe_lessons(matched)[:5]
+
+
+def lesson_recommendations(lessons: list[dict[str, Any]]) -> list[str]:
+    recommendations = []
+    for lesson in lessons:
+        title = lesson.get('title') or lesson.get('lesson_id')
+        change = lesson.get('proposed_change') or 'Apply the approved teacher lesson during human triage.'
+        recommendations.append(f'Active teacher lesson applies: {title}. {change}')
+    return recommendations
+
+
+def public_teacher_lesson(lesson: dict[str, Any]) -> dict[str, Any]:
+    return {
+        'lesson_id': lesson.get('lesson_id'),
+        'title': lesson.get('title'),
+        'category': lesson.get('category'),
+        'source': lesson.get('source'),
+        'rule_id': lesson.get('rule_id'),
+        'proposed_change': lesson.get('proposed_change'),
+        'learning_influence_allowed': bool(lesson.get('learning_influence_allowed')),
+    }
+
+
+def dedupe_lessons(lessons: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen = set()
+    result = []
+    for lesson in lessons:
+        key = lesson.get('lesson_id') or lesson.get('title')
+        if key and key not in seen:
+            seen.add(key)
+            result.append(lesson)
+    return result
 
 
 def normalized_text(item: dict[str, Any]) -> str:

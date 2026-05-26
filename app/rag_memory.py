@@ -163,15 +163,32 @@ def scan_rag_memory_report(scan_id: str, rebuild: bool = False) -> dict[str, Any
     try:
         report = load_sanitized_scan(scan_id)
     except FileNotFoundError:
-        return {
-            'schema_version': SCHEMA_VERSION,
-            'generated_at': now_iso(),
-            'status': 'missing',
-            'scan_id': scan_id,
-            'items': [],
-            'skipped_reason': 'sanitized report lake record not found',
-            'guardrails': rag_memory_schema()['guardrails'],
-        }
+        if rebuild:
+            try:
+                from .report_lake import save_sanitized_scan
+                from .storage import apply_decisions, load_scan
+
+                report = save_sanitized_scan(apply_decisions(load_scan(scan_id)))
+            except FileNotFoundError:
+                return {
+                    'schema_version': SCHEMA_VERSION,
+                    'generated_at': now_iso(),
+                    'status': 'missing',
+                    'scan_id': scan_id,
+                    'items': [],
+                    'skipped_reason': 'saved scan and sanitized report lake record not found',
+                    'guardrails': rag_memory_schema()['guardrails'],
+                }
+        else:
+            return {
+                'schema_version': SCHEMA_VERSION,
+                'generated_at': now_iso(),
+                'status': 'missing',
+                'scan_id': scan_id,
+                'items': [],
+                'skipped_reason': 'sanitized report lake record not found',
+                'guardrails': rag_memory_schema()['guardrails'],
+            }
     return save_rag_memory_for_report(report) if rebuild else rag_memory_from_report(report)
 
 

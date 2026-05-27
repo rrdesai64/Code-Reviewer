@@ -224,6 +224,18 @@ class ChatNotificationRequest(BaseModel):
     include_findings: int = 10
 
 
+class GatewaySendRequest(BaseModel):
+    channels: list[str] = Field(default_factory=lambda: ['all'])
+    title: str = 'Secure Review update'
+    message: str = ''
+    severity: Literal['info', 'warning', 'critical'] = 'info'
+    scan_id: str | None = None
+    publish: bool = False
+    include_findings: int = 10
+    source: str = 'api'
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
 class CodeHostReviewRequest(BaseModel):
     provider: Literal['all', 'gitlab', 'azure-devops', 'bitbucket'] = 'all'
     publish: bool = False

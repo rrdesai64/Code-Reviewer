@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from .models import BenchmarkLessonRequest, BenchmarkTransitionRequest, ChatNotificationRequest, CodeHostReviewRequest, DecisionRequest, DisposableVmScanRequest, FixApplyRequest, GitHubPrReviewRequest, HermesReviewRequest, HermesRunRequest, IssuePlanRequest, LLMRequest, MemoryRollbackRequest, QuarantineEntryRequest, QuarantineLookupRequest, RagMemoryReindexRequest, ReportLakeReindexRequest, TeachingLoopSessionRequest, TeamCampaignRequest
+from .models import BenchmarkLessonRequest, BenchmarkTransitionRequest, ChatNotificationRequest, CodeHostReviewRequest, DecisionRequest, DisposableVmScanRequest, FixApplyRequest, GatewaySendRequest, GitHubPrReviewRequest, HermesReviewRequest, HermesRunRequest, IssuePlanRequest, LLMRequest, MemoryRollbackRequest, QuarantineEntryRequest, QuarantineLookupRequest, RagMemoryReindexRequest, ReportLakeReindexRequest, TeachingLoopSessionRequest, TeamCampaignRequest
 from .advanced_ai import advanced_ai_status, build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, gpu_profile, local_runtime_status, phase_g_report, run_multi_agent_review, semantic_search
 from .benchmark_gate import benchmark_corpus_report, benchmark_gate_report_for_recommendations, benchmark_gate_status, list_benchmark_lessons, transition_benchmark_lesson, upsert_benchmark_lesson
 from .chat_agents import ChatAgentError, build_chat_notification, chat_agent_status, handle_slack_command, handle_teams_command, verify_slack_signature, verify_teams_command_secret
@@ -28,6 +28,7 @@ from .fix_workflow import apply_fix_bundle, build_fix_bundle
 from .ingestion import scanner_mesh_report, scanner_mesh_status
 from .issue_planning import IssuePlanningError, build_issue_plan, issue_planning_status
 from .memory import load_memory, memory_summary, repository_memory, repository_memory_for_scan, update_repository_memory
+from .messaging_gateway import GatewayError, build_scan_gateway_report, gateway_channels, gateway_events, gateway_status, handle_gateway_webhook, send_gateway_message
 from .rag import add_knowledge_document, build_index, finding_context, index_stats, retrieve_response
 from .rag_memory import list_memory_versions, list_rag_memory_items, list_scan_rag_memory, query_rag_memory, rag_memory_for_scan, rag_memory_schema, rag_memory_status, reindex_rag_memory, rollback_rag_memory_version, save_rag_memory_for_report, scan_rag_memory_report
 from .refactor import build_fix_proposal, build_remediation_plan
@@ -65,7 +66,7 @@ def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
 
 @app.get('/api/health')
 def health() -> dict:
-    return {'ok': True, 'phase': 'phase-s', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'sonarqube-issue-ingestion', 'sonarqube-quality-gate', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'local-gitleaks-tool', 'local-trufflehog-tool', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'scanner-mesh', 'scanner-depth', 'expanded-semgrep-rules', 'semgrep-multi-config', 'codeql-query-depth', 'codeql-no-build-defaults', 'codeql-go-local-toolchain', 'sonarcloud-organization-config', 'dashboard-scan-state', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'go-module-dependency-review', 'govulncheck-adapter', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run', 'ide-cli-parity', 'vscode-extension-parity', 'ide-evidence-export', 'issue-planning', 'jira-planning', 'linear-planning', 'issue-plan-dry-run', 'slack-teams-agent', 'chat-notifications', 'slack-agent', 'teams-agent', 'chat-bot-commands', 'gitlab-review', 'azure-devops-review', 'bitbucket-review', 'multi-code-host-review', 'team-learning-dashboard', 'security-campaigns', 'learning-recommendations', 'risk-trend-dashboard', 'recursive-learning', 'scanner-improvement-recommendations', 'human-approved-tuning-workflow', 'benchmark-promotion-gates', 'benchmark-gate', 'language-benchmark-corpus', 'rule-regression-tests', 'false-positive-tests', 'fix-validation-tests', 'benchmark-lesson-promotion', 'approved-benchmarked-learning-only', 'quarantine-registry', 'host-scan-blocking', 'quarantined-learning-exclusion', 'disposable-vm-worker', 'windows-sandbox-job-export', 'vm-artifact-whitelist', 'sanitized-report-lake', 'report-lake-reindex', 'learning-eligibility-labels', 'rag-memory-schema', 'rag-memory-index', 'rag-memory-query', 'rag-memory-versioning', 'rag-memory-rollback', 'hermes-orchestrator', 'hermes-agent-registry', 'hermes-policy-gates', 'hermes-durable-runs', 'hermes-python-agent', 'python-specialist-review', 'python-dependency-agent', 'python-scanner-coverage-agent', 'enterprise-governance', 'governance-agent-audit-trail', 'governance-approval-lineage', 'governance-memory-version-lineage', 'governance-compliance-evidence-export', 'finding-ai-review', 'dynamic-prompt-templates', 'ai-vulnerability-explanations', 'ai-remediation-suggestions'], 'llm_providers': provider_status(), 'auth': auth_status()}
+    return {'ok': True, 'phase': 'phase-s', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'sonarqube-issue-ingestion', 'sonarqube-quality-gate', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'local-gitleaks-tool', 'local-trufflehog-tool', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'scanner-mesh', 'scanner-depth', 'expanded-semgrep-rules', 'semgrep-multi-config', 'codeql-query-depth', 'codeql-no-build-defaults', 'codeql-go-local-toolchain', 'sonarcloud-organization-config', 'dashboard-scan-state', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'go-module-dependency-review', 'govulncheck-adapter', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run', 'ide-cli-parity', 'vscode-extension-parity', 'ide-evidence-export', 'issue-planning', 'jira-planning', 'linear-planning', 'issue-plan-dry-run', 'slack-teams-agent', 'chat-notifications', 'slack-agent', 'teams-agent', 'chat-bot-commands', 'secure-review-messaging-gateway', 'gateway-slack', 'gateway-teams', 'gateway-email', 'gateway-telegram', 'gateway-dry-run', 'gateway-inbound-allowlists', 'gitlab-review', 'azure-devops-review', 'bitbucket-review', 'multi-code-host-review', 'team-learning-dashboard', 'security-campaigns', 'learning-recommendations', 'risk-trend-dashboard', 'recursive-learning', 'scanner-improvement-recommendations', 'human-approved-tuning-workflow', 'benchmark-promotion-gates', 'benchmark-gate', 'language-benchmark-corpus', 'rule-regression-tests', 'false-positive-tests', 'fix-validation-tests', 'benchmark-lesson-promotion', 'approved-benchmarked-learning-only', 'quarantine-registry', 'host-scan-blocking', 'quarantined-learning-exclusion', 'disposable-vm-worker', 'windows-sandbox-job-export', 'vm-artifact-whitelist', 'sanitized-report-lake', 'report-lake-reindex', 'learning-eligibility-labels', 'rag-memory-schema', 'rag-memory-index', 'rag-memory-query', 'rag-memory-versioning', 'rag-memory-rollback', 'hermes-orchestrator', 'hermes-agent-registry', 'hermes-policy-gates', 'hermes-durable-runs', 'hermes-python-agent', 'python-specialist-review', 'python-dependency-agent', 'python-scanner-coverage-agent', 'enterprise-governance', 'governance-agent-audit-trail', 'governance-approval-lineage', 'governance-memory-version-lineage', 'governance-compliance-evidence-export', 'finding-ai-review', 'dynamic-prompt-templates', 'ai-vulnerability-explanations', 'ai-remediation-suggestions'], 'llm_providers': provider_status(), 'auth': auth_status()}
 
 
 
@@ -579,6 +580,82 @@ def chat_notification_publish(scan_id: str, request: ChatNotificationRequest, us
         raise HTTPException(status_code=400, detail=str(exc))
     audit(user.username, 'chat.notification_published' if request.publish else 'chat.notification_prepared', scan_id, {'provider': request.provider, 'status': report['status'], 'published': str(request.publish)})
     return report
+
+
+@app.get('/api/gateway/status')
+def messaging_gateway_status(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = gateway_status()
+    audit(user.username, 'gateway.status_reported', 'messaging-gateway', {'active_channels': str(len(report['active_channels']))})
+    return report
+
+
+@app.get('/api/gateway/channels')
+def messaging_gateway_channels(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = gateway_channels()
+    audit(user.username, 'gateway.channels_reported', 'messaging-gateway', {'channels': str(len(report['channels']))})
+    return report
+
+
+@app.get('/api/gateway/events')
+def messaging_gateway_events(limit: int = 100, channel: str | None = None, scan_id: str | None = None, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = gateway_events(limit=limit, channel=channel, scan_id=scan_id)
+    audit(user.username, 'gateway.events_reported', channel or 'all', {'scan_id': scan_id or '', 'events': str(report['count'])})
+    return report
+
+
+@app.post('/api/gateway/send')
+def messaging_gateway_send(request: GatewaySendRequest, user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    try:
+        report = send_gateway_message(request.model_dump(), actor=user.username, persist=True)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    except GatewayError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'gateway.message_published' if request.publish else 'gateway.message_prepared', report['event']['event_id'], {'status': report['status'], 'channels': ','.join(report['channels'])})
+    return report
+
+
+@app.get('/api/scans/{scan_id}/messaging-gateway')
+def scan_messaging_gateway_preview(scan_id: str, channels: str = 'all', include_findings: int = 10, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    try:
+        report = build_scan_gateway_report(scan, channels=channels, include_findings=include_findings, publish=False, persist=False, actor=user.username)
+    except GatewayError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'gateway.scan_previewed', scan_id, {'channels': ','.join(report['channels']), 'status': report['status']})
+    return report
+
+
+@app.post('/api/scans/{scan_id}/messaging-gateway')
+def scan_messaging_gateway_send(scan_id: str, request: GatewaySendRequest, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    if request.publish and 'enterprise:write' not in user.permissions:
+        raise HTTPException(status_code=403, detail='Missing permission: enterprise:write')
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    payload = request.model_dump()
+    payload['scan_id'] = scan_id
+    try:
+        report = send_gateway_message(payload, actor=user.username, scan=scan, persist=True)
+    except GatewayError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'gateway.scan_published' if request.publish else 'gateway.scan_prepared', scan_id, {'channels': ','.join(report['channels']), 'status': report['status'], 'published': str(request.publish)})
+    return report
+
+
+@app.post('/api/gateway/webhook/{channel}')
+async def messaging_gateway_webhook(channel: str, request: Request) -> dict:
+    body = await request.body()
+    try:
+        result = handle_gateway_webhook(channel, body, {key.lower(): value for key, value in request.headers.items()})
+    except GatewayError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+    audit(f'gateway-{channel}', 'gateway.webhook_received', result.get('command') or 'unknown', {'accepted': str(result.get('accepted', False)), 'status': result.get('status', '')})
+    return result
 
 
 @app.post('/api/integrations/slack/command')

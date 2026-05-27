@@ -41,6 +41,7 @@
     "onCommand:secureCodeReview.showRemediationPlan",
     "onCommand:secureCodeReview.showIssuePlan",
     "onCommand:secureCodeReview.showChatNotification",
+    "onCommand:secureCodeReview.showMessagingGateway",
     "onCommand:secureCodeReview.showTeamLearning",
     "onCommand:secureCodeReview.showRecursiveLearning",
     "onCommand:secureCodeReview.showBenchmarkGate",
@@ -211,6 +212,10 @@
       {
         "command": "secureCodeReview.showChatNotification",
         "title": "Secure Review: Show Slack/Teams Agent"
+      },
+      {
+        "command": "secureCodeReview.showMessagingGateway",
+        "title": "Secure Review: Show Messaging Gateway"
       },
       {
         "command": "secureCodeReview.showTeamLearning",

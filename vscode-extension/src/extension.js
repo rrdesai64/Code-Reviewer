@@ -49,6 +49,7 @@ function activate(context) {
   register(context, 'secureCodeReview.showRemediationPlan', () => showReportById(context, 'remediation-plan'));
   register(context, 'secureCodeReview.showIssuePlan', () => showReportById(context, 'issue-plan'));
   register(context, 'secureCodeReview.showChatNotification', () => showReportById(context, 'chat-notification'));
+  register(context, 'secureCodeReview.showMessagingGateway', () => showReportById(context, 'messaging-gateway'));
   register(context, 'secureCodeReview.showTeamLearning', () => showReportById(context, 'team-learning'));
   register(context, 'secureCodeReview.showRecursiveLearning', () => showReportById(context, 'recursive-learning'));
   register(context, 'secureCodeReview.showBenchmarkGate', () => showReportById(context, 'benchmark-gate'));
@@ -430,6 +431,7 @@ function reportDefinitions(scan) {
     jsonReport('remediation-plan', 'Remediation Plan', `/api/scans/${scanId}/remediation-plan`, 'remediation-plan.json', 'Prioritized remediation plan.'),
     jsonReport('issue-plan', 'Jira/Linear Issue Plan', `/api/scans/${scanId}/issue-plan`, 'issue-plan.json', 'Dry-run Jira and Linear work item payloads.'),
     jsonReport('chat-notification', 'Slack/Teams Agent', `/api/scans/${scanId}/chat/notification`, 'chat-notification.json', 'Dry-run Slack and Teams notification payloads.'),
+    jsonReport('messaging-gateway', 'Messaging Gateway', `/api/scans/${scanId}/messaging-gateway`, 'messaging-gateway.json', 'First-party Slack, Teams, Email, and Telegram gateway payloads.'),
     jsonReport('team-learning', 'Team Learning Dashboard', '/api/team-learning/dashboard', 'team-learning-dashboard.json', 'Team learning trends, campaign recommendations, and security behavior dashboard.'),
     jsonReport('recursive-learning', 'Recursive Scanner Learning', `/api/scans/${scanId}/recursive-learning`, 'recursive-learning.json', 'Controlled scanner improvement recommendations from scan evidence.'),
     jsonReport('benchmark-gate', 'Benchmark Gate', `/api/scans/${scanId}/benchmark-gate`, 'benchmark-gate.json', 'Promotion gate for benchmarked, approved scanner lessons.'),

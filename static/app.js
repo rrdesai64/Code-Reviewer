@@ -142,6 +142,7 @@ function renderScan(scan) {
     <button class="ghost" onclick="showAiScanReview('${scan.scan_id}')">AI Review</button>
     <button class="ghost" onclick="showIssuePlan('${scan.scan_id}')">Issue Plan</button>
     <button class="ghost" onclick="showChatNotification('${scan.scan_id}')">Chat Agent</button>
+    <button class="ghost" onclick="showMessagingGateway('${scan.scan_id}')">Gateway</button>
     <button class="ghost" onclick="showTeamLearning()">Team Learning</button>
     <button class="ghost" onclick="showRecursiveLearning()">Recursive Learning</button>
     <button class="ghost" onclick="showTeamLearningBrief('${scan.scan_id}')">Learning Brief</button>
@@ -386,6 +387,14 @@ async function showChatNotification(scanId) {
     return;
   }
   showJsonPanel('Slack/Teams Chat Agent', await response.json());
+}
+async function showMessagingGateway(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/messaging-gateway`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not load messaging gateway report.';
+    return;
+  }
+  showJsonPanel('Messaging Gateway', await response.json());
 }
 async function showCompliance(scanId) {
   const response = await fetch(`/api/scans/${scanId}/compliance`);

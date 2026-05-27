@@ -838,7 +838,7 @@ Implemented:
 
 - VS Code command palette and activity-bar commands for workspace scans, health checks, refresh, baseline save, and web app launch
 - Finding tree with source navigation, RAG context, fix proposals, and finding decision updates
-- Report picker for scanner mesh, dependency review, SonarQube quality gate, scanner depth, quarantine policy, sanitized report lake records, RAG memory records, Hermes orchestration, enterprise governance evidence, secret policy, push protection, CycloneDX, SPDX, SPDX compliance, SBOM policy, SBOM comparison, GitHub PR review, PR comment, remediation plan, memory context, recursive scanner learning, advanced AI report, compliance, SARIF, Markdown, and HTML
+- Report picker for scanner mesh, dependency review, SonarQube quality gate, scanner depth, quarantine policy, sanitized report lake records, RAG memory records, Hermes orchestration, messaging gateway, enterprise governance evidence, secret policy, push protection, CycloneDX, SPDX, SPDX compliance, SBOM policy, SBOM comparison, GitHub PR review, PR comment, remediation plan, memory context, recursive scanner learning, advanced AI report, compliance, SARIF, Markdown, and HTML
 - Safe fix workflow parity through IDE-accessible fix proposals, fix bundles, and dry-run fix apply reports
 - Evidence bundle export to `.secure-review-artifacts/{scan_id}` using the same core artifacts emitted by `scan.ps1` and `app.cli`
 - Extension settings for backend URL, optional bearer token, extra request headers, default fix provider, and fix bundle limit
@@ -974,6 +974,59 @@ $env:TEAMS_DRY_RUN="true"
 ```
 
 For Slack slash commands, point the Slack app command URL to `/api/integrations/slack/command` and set `SLACK_SIGNING_SECRET`. For Teams, use an Azure Bot, workflow, or secure relay that forwards command payloads to `/api/integrations/teams/command` with `x-secure-review-teams-secret`. Keep unsigned commands disabled in production.
+## Secure Review Messaging Gateway
+
+The first-party messaging gateway replaces external gateway framework dependency risk with local, auditable adapters. The initial channel set is Slack, Microsoft Teams, Email, and Telegram. It is notification/control-plane only: it can prepare or publish scan updates and answer safe read-only commands, but it cannot mutate scanner rules, suppressions, parser code, scanner config, or repository files.
+
+Implemented:
+
+- Shared gateway event model, channel registry, delivery artifacts, and governance-audited event log
+- Slack, Teams, Email, and Telegram outbound payloads
+- Dry-run by default for every channel through `GATEWAY_DRY_RUN`
+- Inbound webhook normalization for Slack, Teams, Telegram, and Email relay payloads
+- Safe read-only commands: `help`, `status`, `latest`, `scan <scan_id>`, and `explain <scan_id> <finding_id>`
+- Strict inbound allowlists by default through `GATEWAY_ALLOWED_USERS` or `GATEWAY_<CHANNEL>_ALLOWED_USERS`
+- API, CLI, browser UI, VS Code report picker, report bundle, disposable VM export, and GitHub Actions artifact support for `messaging-gateway.json`
+
+Useful endpoints:
+
+- `GET /api/gateway/status`
+- `GET /api/gateway/channels`
+- `GET /api/gateway/events`
+- `POST /api/gateway/send`
+- `POST /api/gateway/webhook/{channel}`
+- `GET /api/scans/{scan_id}/messaging-gateway`
+- `POST /api/scans/{scan_id}/messaging-gateway`
+
+CLI dry-run export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --messaging-gateway-out messaging-gateway.json --gateway-channels all
+```
+
+CLI publish, once credentials are configured and dry-run is intentionally disabled:
+
+```powershell
+$env:GATEWAY_DRY_RUN="false"
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --messaging-gateway-out messaging-gateway.json --gateway-publish
+```
+
+Core configuration examples:
+
+```powershell
+$env:GATEWAY_DRY_RUN="true"
+$env:GATEWAY_ALLOWED_USERS="trusted-user-id,security-lead@example.com"
+$env:GATEWAY_SLACK_WEBHOOK_URL="https://hooks.slack.com/services/..."
+$env:GATEWAY_SLACK_SIGNING_SECRET="slack-signing-secret"
+$env:GATEWAY_TEAMS_WEBHOOK_URL="https://your-teams-webhook-url"
+$env:GATEWAY_TEAMS_COMMAND_SECRET="long-random-shared-secret"
+$env:GATEWAY_SMTP_HOST="smtp.example.com"
+$env:GATEWAY_EMAIL_FROM="secure-review@example.com"
+$env:GATEWAY_EMAIL_TO="security-team@example.com"
+$env:GATEWAY_TELEGRAM_BOT_TOKEN="123456:token"
+$env:GATEWAY_TELEGRAM_CHAT_ID="123456789"
+```
+
 ## Roadmap Point 11: GitLab, Azure DevOps, And Bitbucket
 
 Point 11 extends PR/MR review publishing beyond GitHub while keeping one common review artifact and provider-specific payloads for each code host. Publishing remains dry-run by default.
@@ -1447,7 +1500,7 @@ Dashboard scans now write a human-shareable report bundle automatically after ea
 reports\<repo-name>\<scan-id>\
 ```
 
-Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, and safe fix dry-run artifacts.
+Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `messaging-gateway.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, and safe fix dry-run artifacts.
 
 The dashboard shows the saved bundle path after the scan and includes a `Report Bundle` action that opens the manifest. Set `REPORT_BUNDLE_DIR` in `.env` to place bundles somewhere else, for example:
 

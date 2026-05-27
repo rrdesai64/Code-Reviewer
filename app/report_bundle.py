@@ -20,6 +20,7 @@ from .governance import compliance_evidence_export
 from .hermes import hermes_report_for_scan
 from .ingestion import scanner_mesh_report
 from .issue_planning import build_issue_plan
+from .messaging_gateway import build_scan_gateway_report
 from .models import FixApplyRequest, ScanResult
 from .quarantine import quarantine_policy_for_scan
 from .refactor import build_remediation_plan
@@ -84,6 +85,7 @@ def build_report_bundle(scan: ScanResult, base_dir: Path | None = None, ai_revie
     write_json_artifact('recursive-learning.json', lambda: scan_recursive_learning_report(scan))
     write_json_artifact('teacher-student-learning.json', lambda: teaching_loop_report_for_scan(scan))
     write_json_artifact('benchmark-gate.json', lambda: scan_benchmark_gate_artifact(scan))
+    write_json_artifact('messaging-gateway.json', lambda: build_scan_gateway_report(scan))
     write_json_artifact('governance-evidence.json', lambda: compliance_evidence_export(scan_id=scan.scan_id))
     write_json_artifact('secure-review-compliance-evidence.json', lambda: compliance_evidence_bundle(scan_id=scan.scan_id))
     write_json_artifact('fix-bundle.json', lambda: build_fix_bundle(scan, limit=DEFAULT_FIX_BUNDLE_LIMIT, provider='offline'))

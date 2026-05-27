@@ -21,6 +21,7 @@ from .finding_ai import build_scan_ai_review
 from .ingestion import scanner_mesh_report
 from .issue_planning import IssuePlanningError, build_issue_plan
 from .memory import update_repository_memory
+from .messaging_gateway import GatewayError, build_scan_gateway_report
 from .quarantine import blocks_host_scan, quarantine_policy, quarantine_policy_for_scan
 from .rag_memory import save_rag_memory_for_report
 from .refactor import build_fix_proposal, build_remediation_plan
@@ -100,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--recursive-learning-out')
     parser.add_argument('--recursive-learning-limit', type=int, default=100)
     parser.add_argument('--benchmark-gate-out')
+    parser.add_argument('--messaging-gateway-out')
     parser.add_argument('--governance-out')
     parser.add_argument('--quarantine-policy-out')
     parser.add_argument('--sanitized-report-out')
@@ -109,6 +111,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--chat-include-findings', type=int, default=10)
     parser.add_argument('--chat-publish', action='store_true', help='publish the prepared Slack/Teams notification when credentials and dry-run gates allow it')
     parser.add_argument('--fail-on-chat-publish-failure', action='store_true', help='exit with code 11 when Slack/Teams notification publishing fails')
+    parser.add_argument('--gateway-channels', default='all', help='comma-separated gateway channels: all, slack, teams, email, telegram')
+    parser.add_argument('--gateway-include-findings', type=int, default=10)
+    parser.add_argument('--gateway-publish', action='store_true', help='publish through the Secure Review messaging gateway when credentials and dry-run gates allow it')
+    parser.add_argument('--fail-on-gateway-publish-failure', action='store_true', help='exit with code 13 when gateway publishing fails')
     parser.add_argument('--fail-on-issue-plan-publish-failure', action='store_true', help='exit with code 10 when issue planning publish fails')
     parser.add_argument('--fix-bundle-out')
     parser.add_argument('--fix-apply-out')
@@ -292,6 +298,22 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.rag_memory_out).write_text(json.dumps(rag_memory, indent=2), encoding='utf-8')
     if args.hermes_out:
         Path(args.hermes_out).write_text(json.dumps(hermes_run, indent=2), encoding='utf-8')
+    gateway_report = None
+    if args.messaging_gateway_out or args.gateway_publish:
+        try:
+            gateway_report = build_scan_gateway_report(
+                scan,
+                channels=args.gateway_channels,
+                include_findings=args.gateway_include_findings,
+                publish=args.gateway_publish,
+                persist=args.gateway_publish,
+                actor='cli',
+            )
+        except GatewayError as exc:
+            print(f'Messaging gateway failed: {exc}', file=sys.stderr)
+            return 13
+        if args.messaging_gateway_out:
+            Path(args.messaging_gateway_out).write_text(json.dumps(gateway_report, indent=2), encoding='utf-8')
     chat_notification = None
     if args.chat_notification_out or args.chat_publish:
         try:
@@ -352,6 +374,8 @@ def main(argv: list[str] | None = None) -> int:
         return 11
     if args.fail_on_code_host_publish_failure and code_host_review and code_host_review['status'] in {'failed', 'partial'}:
         return 12
+    if args.fail_on_gateway_publish_failure and gateway_report and gateway_report['status'] in {'failed', 'partial'}:
+        return 13
     return 0
 
 

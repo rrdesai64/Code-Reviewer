@@ -116,6 +116,51 @@
         {"case_id": "terraform-false-positive-001", "case_type": "false-positive", "purpose": "Keep module defaults, examples, and test fixtures from increasing scanner noise.", "expected_outcome": "noise-not-increased"},
         {"case_id": "terraform-fix-validation-001", "case_type": "fix-validation", "purpose": "Require terraform validate, policy checks, and scanner rerun evidence for IaC lessons.", "expected_outcome": "validation-passed"}
       ]
+    },
+    {
+      "language": "kotlin",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "kotlin-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve findings for command injection, unsafe deserialization, weak crypto, and vulnerable Gradle dependencies.", "expected_outcome": "finding-preserved"},
+        {"case_id": "kotlin-false-positive-001", "case_type": "false-positive", "purpose": "Keep safe builders, test fixtures, and framework-managed sinks from increasing scanner noise.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "kotlin-fix-validation-001", "case_type": "fix-validation", "purpose": "Require Gradle tests, dependency review, and scanner rerun evidence for Kotlin lessons.", "expected_outcome": "validation-passed"}
+      ]
+    },
+    {
+      "language": "iac-devops",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "iac-devops-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve IaC and CI/CD findings for unsafe permissions, public exposure, unpinned images, and insecure deployment settings.", "expected_outcome": "finding-preserved"},
+        {"case_id": "iac-devops-false-positive-001", "case_type": "false-positive", "purpose": "Keep documented examples, local-only configs, and test fixtures from increasing scanner noise.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "iac-devops-fix-validation-001", "case_type": "fix-validation", "purpose": "Require parser validation, policy checks, and scanner rerun evidence for IaC/DevOps lessons.", "expected_outcome": "validation-passed"}
+      ]
+    },
+    {
+      "language": "dependency-sbom",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "dependency-sbom-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve findings for vulnerable packages, malicious ranges, dependency confusion, and missing SBOM coverage.", "expected_outcome": "finding-preserved"},
+        {"case_id": "dependency-sbom-false-positive-001", "case_type": "false-positive", "purpose": "Keep dev-only fixtures, unreachable packages, and documented examples from increasing dependency-review noise.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "dependency-sbom-fix-validation-001", "case_type": "fix-validation", "purpose": "Require lockfile review, SBOM regeneration, vulnerability scan, and reachability evidence for dependency lessons.", "expected_outcome": "validation-passed"}
+      ]
+    },
+    {
+      "language": "secrets-malware-quarantine",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "secrets-malware-quarantine-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve findings for real secrets, malware indicators, quarantine matches, and push-protection blockers.", "expected_outcome": "finding-preserved"},
+        {"case_id": "secrets-malware-quarantine-false-positive-001", "case_type": "false-positive", "purpose": "Keep synthetic fixtures, documentation examples, and redacted placeholders from increasing secret-scan noise.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "secrets-malware-quarantine-fix-validation-001", "case_type": "fix-validation", "purpose": "Require credential rotation evidence, quarantine review, scanner rerun, and audit evidence before promotion.", "expected_outcome": "validation-passed"}
+      ]
+    },
+    {
+      "language": "scanner-reliability",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "scanner-reliability-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve diagnostics for failed, disabled, skipped, timed-out, and missing scanner coverage.", "expected_outcome": "finding-preserved"},
+        {"case_id": "scanner-reliability-false-positive-001", "case_type": "false-positive", "purpose": "Keep transient informational statuses and intentionally unavailable optional scanners from increasing reliability noise.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "scanner-reliability-fix-validation-001", "case_type": "fix-validation", "purpose": "Require diagnostic command evidence, scanner rerun evidence, and report-lake linkage before reliability lessons are promoted.", "expected_outcome": "validation-passed"}
+      ]
     }
   ]
 }

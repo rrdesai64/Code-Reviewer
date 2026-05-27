@@ -10,11 +10,12 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from .models import BenchmarkLessonRequest, BenchmarkTransitionRequest, ChatNotificationRequest, CodeHostReviewRequest, DecisionRequest, DisposableVmScanRequest, FixApplyRequest, GitHubPrReviewRequest, HermesReviewRequest, HermesRunRequest, IssuePlanRequest, LLMRequest, MemoryRollbackRequest, OpenClawMessageRequest, QuarantineEntryRequest, QuarantineLookupRequest, RagMemoryReindexRequest, ReportLakeReindexRequest, TeamCampaignRequest
+from .models import BenchmarkLessonRequest, BenchmarkTransitionRequest, ChatNotificationRequest, CodeHostReviewRequest, DecisionRequest, DisposableVmScanRequest, FixApplyRequest, GitHubPrReviewRequest, HermesReviewRequest, HermesRunRequest, IssuePlanRequest, LLMRequest, MemoryRollbackRequest, OpenClawMessageRequest, QuarantineEntryRequest, QuarantineLookupRequest, RagMemoryReindexRequest, ReportLakeReindexRequest, TeachingLoopSessionRequest, TeamCampaignRequest
 from .advanced_ai import advanced_ai_status, build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, gpu_profile, local_runtime_status, phase_g_report, run_multi_agent_review, semantic_search
 from .benchmark_gate import benchmark_corpus_report, benchmark_gate_report_for_recommendations, benchmark_gate_status, list_benchmark_lessons, transition_benchmark_lesson, upsert_benchmark_lesson
 from .chat_agents import ChatAgentError, build_chat_notification, chat_agent_status, handle_slack_command, handle_teams_command, verify_slack_signature, verify_teams_command_secret
 from .code_hosts import CodeHostIntegrationError, build_code_host_review, code_host_status
+from .compliance_api import compliance_activity_events, compliance_agent_actions, compliance_api_schema, compliance_api_status, compliance_approvals, compliance_evidence_bundle, compliance_memory_lineage, compliance_partner_manifest, compliance_quarantine_alerts, compliance_scan_inventory
 from .auth import AuthEnforcementMiddleware, AuthUser, auth_config, auth_status, login_user, logout_user, make_oauth, make_saml_auth, normalize_user, require_permission, require_user, saml_metadata_response
 from .enterprise import audit, audit_events, compliance_report, load_enterprise
 from .finding_ai import build_finding_ai_review, build_scan_ai_review, finding_ai_status
@@ -45,6 +46,7 @@ from .quarantine import blocks_host_scan, quarantine_policy, quarantine_policy_f
 from .sonarqube import sonarqube_quality_report
 from .storage import apply_decisions, load_baseline, load_scan, save_baseline, save_decision, save_scan, list_scans
 from .team_learning import create_campaign, load_campaigns, scan_learning_brief_by_id, team_learning_dashboard
+from .teaching_loop import create_teaching_session, list_teaching_sessions, load_teaching_session, teaching_loop_report_for_scan, teaching_loop_status
 from .vm_worker import create_vm_scan_job, list_jobs as list_vm_jobs, load_job as load_vm_job, vm_worker_status
 
 app = FastAPI(title='Secure Code Review Assistant', version='0.26.0')
@@ -982,6 +984,48 @@ def hermes_run_review_record(run_id: str, request: HermesReviewRequest, user: Au
     return report
 
 
+@app.get('/api/teaching-loop/status')
+def teaching_loop_status_endpoint(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    status = teaching_loop_status()
+    audit(user.username, 'teaching_loop.status_reported', 'teaching-loop', {'sessions': str(status['session_count'])})
+    return status
+
+
+@app.get('/api/teaching-loop/sessions')
+def teaching_loop_sessions(limit: int = 100, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    sessions = list_teaching_sessions(limit=limit)
+    audit(user.username, 'teaching_loop.sessions_listed', 'teaching-loop', {'count': str(len(sessions))})
+    return {'sessions': sessions}
+
+
+@app.get('/api/teaching-loop/sessions/{session_id}')
+def teaching_loop_session(session_id: str, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    try:
+        session = load_teaching_session(session_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='Teaching loop session not found')
+    audit(user.username, 'teaching_loop.session_reported', session_id, {'status': session.get('status', '')})
+    return session
+
+
+@app.post('/api/teaching-loop/sessions')
+def teaching_loop_session_create(request: TeachingLoopSessionRequest, user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    try:
+        session = create_teaching_session(
+            scan_id=request.scan_id,
+            requester=user.username,
+            limit=request.limit,
+            max_attempts=request.max_attempts,
+            pass_score=request.pass_score,
+            rebuild_memory=request.rebuild_memory,
+            persist=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'teaching_loop.session_created', session['session_id'], {'scan_id': request.scan_id, 'status': session['status']})
+    return session
+
+
 @app.get('/api/benchmark-gate/status')
 def benchmark_gate_status_endpoint(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
     status = benchmark_gate_status()
@@ -1180,6 +1224,31 @@ def scan_hermes_review(scan_id: str, limit: int = 100, include_decided: bool = F
     return report
 
 
+@app.get('/api/scans/{scan_id}/teaching-loop')
+def scan_teaching_loop(scan_id: str, persist: bool = False, limit: int = 50, max_attempts: int = 3, pass_score: int = 7, rebuild: bool = True, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        session = create_teaching_session(
+            scan_id=scan_id,
+            requester=user.username,
+            limit=limit,
+            max_attempts=max_attempts,
+            pass_score=pass_score,
+            rebuild_memory=rebuild,
+            persist=persist,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'teaching_loop.scan_reported', scan_id, {'status': session['status'], 'persist': str(persist), 'mastered': str((session.get('synthesis') or {}).get('mastered_count', 0))})
+    return session
+
+
+@app.get('/api/scans/{scan_id}/compliance/evidence')
+def scan_compliance_evidence(scan_id: str, limit: int = 250, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = compliance_evidence_bundle(scan_id=scan_id, limit=limit)
+    audit(user.username, 'compliance_api.scan_evidence_exported', scan_id, {'events': str(report['control_summary']['activity_events']), 'agent_actions': str(report['control_summary']['agent_actions'])})
+    return report
+
+
 @app.get('/api/llm/providers')
 def llm_providers(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
     return provider_status()
@@ -1339,6 +1408,76 @@ def scan_governance(scan_id: str, limit: int = 100, user: AuthUser = Depends(req
 @app.get('/api/enterprise')
 def enterprise(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
     return load_enterprise()
+
+
+@app.get('/api/compliance/status')
+def secure_review_compliance_status(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = compliance_api_status()
+    audit(user.username, 'compliance_api.status_reported', 'compliance-api', {'sources': str(len(report['data_sources']))})
+    return report
+
+
+@app.get('/api/compliance/schema')
+def secure_review_compliance_schema(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    schema = compliance_api_schema()
+    audit(user.username, 'compliance_api.schema_reported', 'compliance-api', {'data_products': str(len(schema['data_products']))})
+    return schema
+
+
+@app.get('/api/compliance/manifest')
+def secure_review_compliance_manifest(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    manifest = compliance_partner_manifest()
+    audit(user.username, 'compliance_api.manifest_reported', 'compliance-api', {'endpoints': str(len(manifest['endpoints']))})
+    return manifest
+
+
+@app.get('/api/compliance/events')
+def secure_review_compliance_events(category: str | None = None, scan_id: str | None = None, event_source: str | None = None, limit: int = 100, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = compliance_activity_events(limit=limit, category=category, scan_id=scan_id, event_source=event_source)
+    audit(user.username, 'compliance_api.events_reported', scan_id or category or 'all', {'events': str(report['count']), 'source': event_source or 'all'})
+    return report
+
+
+@app.get('/api/compliance/agent-actions')
+def secure_review_compliance_agent_actions(scan_id: str | None = None, limit: int = 100, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = compliance_agent_actions(limit=limit, scan_id=scan_id)
+    audit(user.username, 'compliance_api.agent_actions_reported', scan_id or 'all', {'events': str(report['count'])})
+    return report
+
+
+@app.get('/api/compliance/approvals')
+def secure_review_compliance_approvals(scan_id: str | None = None, limit: int = 100, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = compliance_approvals(limit=limit, scan_id=scan_id)
+    audit(user.username, 'compliance_api.approvals_reported', scan_id or 'all', {'records': str(report['count'])})
+    return report
+
+
+@app.get('/api/compliance/memory-lineage')
+def secure_review_compliance_memory_lineage(scan_id: str | None = None, limit: int = 100, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = compliance_memory_lineage(limit=limit, scan_id=scan_id)
+    audit(user.username, 'compliance_api.memory_lineage_reported', scan_id or 'all', {'versions': str(report['count'])})
+    return report
+
+
+@app.get('/api/compliance/quarantine-alerts')
+def secure_review_compliance_quarantine_alerts(limit: int = 100, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = compliance_quarantine_alerts(limit=limit)
+    audit(user.username, 'compliance_api.quarantine_alerts_reported', 'quarantine', {'alerts': str(report['count'])})
+    return report
+
+
+@app.get('/api/compliance/scans')
+def secure_review_compliance_scans(limit: int = 100, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = compliance_scan_inventory(limit=limit)
+    audit(user.username, 'compliance_api.scans_reported', 'scan-inventory', {'records': str(report['count'])})
+    return report
+
+
+@app.get('/api/compliance/evidence')
+def secure_review_compliance_evidence(scan_id: str | None = None, limit: int = 250, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = compliance_evidence_bundle(scan_id=scan_id, limit=limit)
+    audit(user.username, 'compliance_api.evidence_exported', scan_id or 'all', {'events': str(report['control_summary']['activity_events']), 'agent_actions': str(report['control_summary']['agent_actions'])})
+    return report
 
 
 @app.get('/api/enterprise/governance')

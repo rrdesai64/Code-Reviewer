@@ -533,7 +533,25 @@ def infer_language(payload: dict[str, Any]) -> str:
         payload.get('proposed_change'),
         payload.get('recommended_change'),
     ]).lower()
-    for language in ['python', 'go', 'javascript', 'typescript', 'java', 'rust', 'php', 'ruby', 'csharp', 'yaml', 'dockerfile', 'terraform']:
+    for language in [
+        'python',
+        'go',
+        'javascript',
+        'typescript',
+        'java',
+        'kotlin',
+        'rust',
+        'php',
+        'ruby',
+        'csharp',
+        'yaml',
+        'dockerfile',
+        'terraform',
+        'iac-devops',
+        'dependency-sbom',
+        'secrets-malware-quarantine',
+        'scanner-reliability',
+    ]:
         if language in text:
             return language
     if 'pip-audit' in text or 'bandit' in text:
@@ -554,8 +572,18 @@ def normalize_language(value: Any) -> str:
         'c': 'c',
         'c-sharp': 'csharp',
         'c#': 'csharp',
+        'dotnet': 'csharp',
+        '.net': 'csharp',
         'docker': 'dockerfile',
         'hcl': 'terraform',
+        'iac': 'iac-devops',
+        'devops': 'iac-devops',
+        'sbom': 'dependency-sbom',
+        'dependencies': 'dependency-sbom',
+        'secrets': 'secrets-malware-quarantine',
+        'malware': 'secrets-malware-quarantine',
+        'quarantine': 'secrets-malware-quarantine',
+        'scanner': 'scanner-reliability',
     }
     return aliases.get(text, text)
 
@@ -594,7 +622,25 @@ def stable_id(*parts: Any) -> str:
 
 def default_benchmark_corpus() -> dict[str, Any]:
     languages = []
-    for language in ['python', 'go', 'javascript', 'typescript', 'java', 'rust', 'php', 'ruby', 'csharp', 'yaml', 'dockerfile', 'terraform']:
+    for language in [
+        'python',
+        'go',
+        'javascript',
+        'typescript',
+        'java',
+        'kotlin',
+        'rust',
+        'php',
+        'ruby',
+        'csharp',
+        'yaml',
+        'dockerfile',
+        'terraform',
+        'iac-devops',
+        'dependency-sbom',
+        'secrets-malware-quarantine',
+        'scanner-reliability',
+    ]:
         languages.append({
             'language': language,
             'maintainer': 'AppSec',

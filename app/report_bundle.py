@@ -10,6 +10,7 @@ from typing import Any, Callable
 from .benchmark_gate import benchmark_gate_report_for_recommendations
 from .chat_agents import build_chat_notification
 from .code_hosts import build_code_host_review
+from .compliance_api import compliance_evidence_bundle
 from .dependency_review import dependency_review_report
 from .enterprise import compliance_report
 from .finding_ai import build_scan_ai_review
@@ -35,6 +36,7 @@ from .secrets import secret_policy_report
 from .sonarqube import sonarqube_quality_report
 from .storage import load_baseline, load_scan
 from .team_learning import team_learning_dashboard
+from .teaching_loop import teaching_loop_report_for_scan
 
 DEFAULT_AI_REVIEW_LIMIT = 25
 DEFAULT_FIX_BUNDLE_LIMIT = 10
@@ -81,9 +83,11 @@ def build_report_bundle(scan: ScanResult, base_dir: Path | None = None, ai_revie
     write_json_artifact('chat-notification.json', lambda: build_chat_notification(scan))
     write_json_artifact('team-learning-dashboard.json', lambda: team_learning_dashboard())
     write_json_artifact('recursive-learning.json', lambda: scan_recursive_learning_report(scan))
+    write_json_artifact('teacher-student-learning.json', lambda: teaching_loop_report_for_scan(scan))
     write_json_artifact('benchmark-gate.json', lambda: scan_benchmark_gate_artifact(scan))
     write_json_artifact('openclaw-control.json', lambda: openclaw_control_for_scan(scan))
     write_json_artifact('governance-evidence.json', lambda: compliance_evidence_export(scan_id=scan.scan_id))
+    write_json_artifact('secure-review-compliance-evidence.json', lambda: compliance_evidence_bundle(scan_id=scan.scan_id))
     write_json_artifact('fix-bundle.json', lambda: build_fix_bundle(scan, limit=DEFAULT_FIX_BUNDLE_LIMIT, provider='offline'))
     write_json_artifact('fix-apply-dry-run.json', lambda: apply_fix_bundle(scan, FixApplyRequest(dry_run=True, approved=True, limit=DEFAULT_FIX_BUNDLE_LIMIT, provider='offline')))
 

@@ -16,6 +16,13 @@ from .hermes_python_agent import (
     python_task_types_for_item,
     run_python_specialist,
 )
+from .hermes_specialist_agents import (
+    SPECIALIST_AGENT_IDS,
+    run_specialist_agent,
+    specialist_agent_matches_task,
+    specialist_agent_registry_entries,
+    specialist_task_types_for_item,
+)
 from .paths import data_dir
 from .rag_memory import rag_memory_for_scan, scan_rag_memory_report
 
@@ -144,6 +151,7 @@ def agent_registry() -> list[dict[str, Any]]:
             'safety_level': 'sanitized-memory-only',
         },
         python_agent_registry_entry(),
+        *specialist_agent_registry_entries(),
     ]
 
 
@@ -367,10 +375,11 @@ def task_types_for_item(item: dict[str, Any], goal: str) -> list[tuple[str, str]
     if item_type == 'scanner-status':
         tasks.append(('scanner-coverage-review', 'Scanner status should be checked for disabled, failed, skipped, or missing tools.'))
     tasks.extend(python_task_types_for_item(item, goal))
+    tasks.extend(specialist_task_types_for_item(item, goal))
     if goal == 'supply-chain-review':
-        return [task for task in tasks if task[0] in {'supply-chain-review', 'release-gate-review', 'python-dependency-review'}] or tasks[:1]
+        return [task for task in tasks if task[0] in {'supply-chain-review', 'release-gate-review'} or task[0].endswith('-dependency-review')] or tasks[:1]
     if goal == 'scanner-improvement-planning':
-        return [task for task in tasks if task[0] in {'scanner-improvement-candidate', 'scanner-coverage-review', 'python-scanner-coverage-review'}] or tasks[:1]
+        return [task for task in tasks if task[0] in {'scanner-improvement-candidate', 'scanner-coverage-review'} or task[0].endswith('-scanner-coverage-review')] or tasks[:1]
     if goal == 'release-readiness':
         return [
             task
@@ -381,10 +390,8 @@ def task_types_for_item(item: dict[str, Any], goal: str) -> list[tuple[str, str]
                 'release-gate-review',
                 'scanner-coverage-review',
                 'supply-chain-review',
-                'python-specialist-review',
-                'python-dependency-review',
-                'python-scanner-coverage-review',
             }
+            or task[0].endswith(('-specialist-review', '-dependency-review', '-scanner-coverage-review'))
         ] or tasks[:1]
     return tasks
 
@@ -410,6 +417,8 @@ def agent_matches_task(agent: dict[str, Any], task: dict[str, Any]) -> bool:
         return False
     if agent.get('agent_id') == PYTHON_AGENT_ID:
         return python_agent_matches_task(task)
+    if agent.get('agent_id') in SPECIALIST_AGENT_IDS:
+        return specialist_agent_matches_task(agent, task)
     if 'audit-evidence' in capabilities:
         return True
     if task_type in {'risk-triage', 'release-gate-review', 'release-readiness-review'}:
@@ -458,6 +467,8 @@ def run_agent(agent: dict[str, Any], task: dict[str, Any], item: dict[str, Any])
         return compliance_governor(agent, task, item)
     if agent_id == PYTHON_AGENT_ID:
         return run_python_specialist(agent, task, item)
+    if agent_id in SPECIALIST_AGENT_IDS:
+        return run_specialist_agent(agent, task, item)
     raise ValueError(f'unknown Hermes agent: {agent_id}')
 
 
@@ -574,15 +585,7 @@ def agent_result(agent: dict[str, Any], task: dict[str, Any], item: dict[str, An
 def synthesize_run(memory: dict[str, Any], tasks: list[dict[str, Any]], results: list[dict[str, Any]], policy: dict[str, Any]) -> dict[str, Any]:
     blockers = [result for result in results if result['status'] in BLOCKING_AGENT_STATUSES]
     review = [result for result in results if result['status'] in REVIEW_AGENT_STATUSES]
-    scanner_candidates = [
-        result
-        for result in results
-        if result['task_type'] == 'scanner-improvement-candidate'
-        or (
-            result['task_type'] == 'python-scanner-coverage-review'
-            and (result['status'] == 'coverage-gap' or result.get('python_review', {}).get('requires_benchmark_gate'))
-        )
-    ]
+    scanner_candidates = [result for result in results if is_scanner_improvement_candidate(result)]
     recommendations: list[str] = []
     for result in results:
         recommendations.extend(result.get('recommendations', []))
@@ -977,6 +980,19 @@ def summary_text(memory: dict[str, Any], blockers: list[dict[str, Any]], review:
     if scanner_candidates:
         return f"Hermes found {len(scanner_candidates)} scanner improvement candidate(s); benchmark before promotion."
     return f"Hermes completed orchestration for {source.get('project_name')} with no blocker results."
+
+
+def is_scanner_improvement_candidate(result: dict[str, Any]) -> bool:
+    task_type = str(result.get('task_type') or '')
+    if task_type == 'scanner-improvement-candidate':
+        return True
+    if not task_type.endswith('-scanner-coverage-review'):
+        return False
+    return (
+        result.get('status') == 'coverage-gap'
+        or bool(result.get('python_review', {}).get('requires_benchmark_gate'))
+        or bool(result.get('specialist_review', {}).get('requires_benchmark_gate'))
+    )
 
 
 def best_tag(tags: set[str], options: list[str]) -> str:

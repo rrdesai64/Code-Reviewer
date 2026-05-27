@@ -292,6 +292,14 @@ class HermesReviewRequest(BaseModel):
     review_item_ids: list[str] = Field(default_factory=list)
 
 
+class TeachingLoopSessionRequest(BaseModel):
+    scan_id: str
+    limit: int = 50
+    max_attempts: int = 3
+    pass_score: int = 7
+    rebuild_memory: bool = True
+
+
 class BenchmarkLessonRequest(BaseModel):
     recommendation_id: str | None = None
     lesson_id: str | None = None

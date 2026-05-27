@@ -22,6 +22,20 @@ class MessagingGatewayTests(unittest.TestCase):
                 'EMAIL_TO',
                 'TELEGRAM_BOT_TOKEN',
                 'TELEGRAM_CHAT_ID',
+                'DISCORD_WEBHOOK_URL',
+                'GOOGLE_CHAT_WEBHOOK_URL',
+                'WHATSAPP_ACCESS_TOKEN',
+                'WHATSAPP_PHONE_NUMBER_ID',
+                'WHATSAPP_TO',
+                'SIGNAL_REST_URL',
+                'SIGNAL_ACCOUNT',
+                'SIGNAL_RECIPIENTS',
+                'HOME_ASSISTANT_URL',
+                'HOME_ASSISTANT_TOKEN',
+                'TWITCH_ACCESS_TOKEN',
+                'TWITCH_CLIENT_ID',
+                'TWITCH_BROADCASTER_ID',
+                'TWITCH_SENDER_ID',
             }:
                 os.environ.pop(key, None)
 
@@ -44,7 +58,22 @@ class MessagingGatewayTests(unittest.TestCase):
         status = self.gateway.gateway_status()
 
         self.assertEqual(status['service'], 'secure-review-messaging-gateway')
-        self.assertEqual(set(status['supported_channels']), {'slack', 'teams', 'email', 'telegram'})
+        self.assertEqual(set(status['supported_channels']), {
+            'slack',
+            'teams',
+            'email',
+            'telegram',
+            'discord',
+            'google-chat',
+            'whatsapp',
+            'signal',
+            'home-assistant',
+            'twitch',
+            'macos',
+            'ios',
+            'android',
+            'ubuntu',
+        })
         self.assertFalse(status['channels']['slack']['configured'])
         self.assertTrue(status['dry_run_default'])
 
@@ -56,8 +85,8 @@ class MessagingGatewayTests(unittest.TestCase):
         governance = self.governance.governance_events(category='messaging-gateway')
 
         self.assertEqual(report['status'], 'dry_run')
-        self.assertEqual(report['delivery']['dry_run'], 4)
-        self.assertEqual(set(report['artifacts']), {'slack', 'teams', 'email', 'telegram'})
+        self.assertEqual(report['delivery']['dry_run'], 14)
+        self.assertEqual(len(report['artifacts']), 14)
         self.assertEqual(events[0]['scan_id'], self.scan.scan_id)
         self.assertTrue(governance)
 
@@ -76,6 +105,27 @@ class MessagingGatewayTests(unittest.TestCase):
         self.assertEqual(report['delivery']['attempted'], 0)
         self.assertIn('Scanner update', report['artifacts']['email']['payload']['subject'])
         self.assertIn('The scanner finished.', report['artifacts']['telegram']['payload']['text'])
+
+    def test_expanded_channels_build_expected_payload_shapes(self):
+        configure_all_channels()
+
+        report = self.gateway.send_gateway_message({
+            'channels': ['discord', 'google-chat', 'whatsapp', 'signal', 'home-assistant', 'twitch', 'macos', 'ios', 'android', 'ubuntu'],
+            'title': 'Expanded gateway update',
+            'message': 'The scanner finished.',
+            'severity': 'warning',
+            'publish': False,
+        }, actor='unit-test', persist=False)
+
+        self.assertEqual(report['status'], 'prepared')
+        self.assertIn('embeds', report['artifacts']['discord']['payload'])
+        self.assertIn('text', report['artifacts']['google-chat']['payload'])
+        self.assertEqual(report['artifacts']['whatsapp']['payload']['messaging_product'], 'whatsapp')
+        self.assertIn('recipients', report['artifacts']['signal']['payload'])
+        self.assertIn('message', report['artifacts']['home-assistant']['payload'])
+        self.assertIn('broadcaster_id', report['artifacts']['twitch']['payload'])
+        self.assertEqual(report['artifacts']['ios']['payload']['channel'], 'ios')
+        self.assertEqual(report['artifacts']['ubuntu']['payload']['channel'], 'ubuntu')
 
     def test_telegram_webhook_requires_allowlisted_user(self):
         body = json.dumps({
@@ -103,6 +153,24 @@ def configure_all_channels():
     os.environ['GATEWAY_EMAIL_TO'] = 'security@example.test'
     os.environ['GATEWAY_TELEGRAM_BOT_TOKEN'] = '123456:test-token'
     os.environ['GATEWAY_TELEGRAM_CHAT_ID'] = '987654321'
+    os.environ['GATEWAY_DISCORD_WEBHOOK_URL'] = 'https://discord.example/webhook'
+    os.environ['GATEWAY_GOOGLE_CHAT_WEBHOOK_URL'] = 'https://chat.googleapis.example/webhook'
+    os.environ['GATEWAY_WHATSAPP_ACCESS_TOKEN'] = 'whatsapp-token'
+    os.environ['GATEWAY_WHATSAPP_PHONE_NUMBER_ID'] = 'phone-number-id'
+    os.environ['GATEWAY_WHATSAPP_TO'] = '+15551234567'
+    os.environ['GATEWAY_SIGNAL_REST_URL'] = 'http://signal.example'
+    os.environ['GATEWAY_SIGNAL_ACCOUNT'] = '+15557654321'
+    os.environ['GATEWAY_SIGNAL_RECIPIENTS'] = '+15551234567'
+    os.environ['GATEWAY_HOME_ASSISTANT_URL'] = 'http://homeassistant.local:8123'
+    os.environ['GATEWAY_HOME_ASSISTANT_TOKEN'] = 'ha-token'
+    os.environ['GATEWAY_TWITCH_ACCESS_TOKEN'] = 'twitch-token'
+    os.environ['GATEWAY_TWITCH_CLIENT_ID'] = 'twitch-client-id'
+    os.environ['GATEWAY_TWITCH_BROADCASTER_ID'] = 'broadcaster-id'
+    os.environ['GATEWAY_TWITCH_SENDER_ID'] = 'sender-id'
+    os.environ['GATEWAY_MACOS_WEBHOOK_URL'] = 'http://macos-relay.example/notify'
+    os.environ['GATEWAY_IOS_WEBHOOK_URL'] = 'http://ios-relay.example/notify'
+    os.environ['GATEWAY_ANDROID_WEBHOOK_URL'] = 'http://android-relay.example/notify'
+    os.environ['GATEWAY_UBUNTU_WEBHOOK_URL'] = 'http://ubuntu-relay.example/notify'
 
 
 def sample_scan() -> ScanResult:

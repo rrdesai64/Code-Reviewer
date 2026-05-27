@@ -976,14 +976,14 @@ $env:TEAMS_DRY_RUN="true"
 For Slack slash commands, point the Slack app command URL to `/api/integrations/slack/command` and set `SLACK_SIGNING_SECRET`. For Teams, use an Azure Bot, workflow, or secure relay that forwards command payloads to `/api/integrations/teams/command` with `x-secure-review-teams-secret`. Keep unsigned commands disabled in production.
 ## Secure Review Messaging Gateway
 
-The first-party messaging gateway replaces external gateway framework dependency risk with local, auditable adapters. The initial channel set is Slack, Microsoft Teams, Email, and Telegram. It is notification/control-plane only: it can prepare or publish scan updates and answer safe read-only commands, but it cannot mutate scanner rules, suppressions, parser code, scanner config, or repository files.
+The first-party messaging gateway replaces external gateway framework dependency risk with local, auditable adapters. The supported channel set is Slack, Microsoft Teams, Email, Telegram, Discord, Google Chat, WhatsApp, Signal, Home Assistant, Twitch, macOS, iOS, Android, and Ubuntu. It is notification/control-plane only: it can prepare or publish scan updates and answer safe read-only commands, but it cannot mutate scanner rules, suppressions, parser code, scanner config, or repository files.
 
 Implemented:
 
 - Shared gateway event model, channel registry, delivery artifacts, and governance-audited event log
-- Slack, Teams, Email, and Telegram outbound payloads
+- Slack, Teams, Email, Telegram, Discord, Google Chat, WhatsApp, Signal, Home Assistant, Twitch, macOS, iOS, Android, and Ubuntu outbound payloads
 - Dry-run by default for every channel through `GATEWAY_DRY_RUN`
-- Inbound webhook normalization for Slack, Teams, Telegram, and Email relay payloads
+- Inbound webhook normalization for all gateway channels, using native signatures where implemented and shared-secret relay payloads elsewhere
 - Safe read-only commands: `help`, `status`, `latest`, `scan <scan_id>`, and `explain <scan_id> <finding_id>`
 - Strict inbound allowlists by default through `GATEWAY_ALLOWED_USERS` or `GATEWAY_<CHANNEL>_ALLOWED_USERS`
 - API, CLI, browser UI, VS Code report picker, report bundle, disposable VM export, and GitHub Actions artifact support for `messaging-gateway.json`
@@ -1025,7 +1025,27 @@ $env:GATEWAY_EMAIL_FROM="secure-review@example.com"
 $env:GATEWAY_EMAIL_TO="security-team@example.com"
 $env:GATEWAY_TELEGRAM_BOT_TOKEN="123456:token"
 $env:GATEWAY_TELEGRAM_CHAT_ID="123456789"
+$env:GATEWAY_DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..."
+$env:GATEWAY_GOOGLE_CHAT_WEBHOOK_URL="https://chat.googleapis.com/v1/spaces/..."
+$env:GATEWAY_WHATSAPP_ACCESS_TOKEN="meta-cloud-api-token"
+$env:GATEWAY_WHATSAPP_PHONE_NUMBER_ID="phone-number-id"
+$env:GATEWAY_WHATSAPP_TO="+15551234567"
+$env:GATEWAY_SIGNAL_REST_URL="http://signal-rest-bridge:8080"
+$env:GATEWAY_SIGNAL_ACCOUNT="+15557654321"
+$env:GATEWAY_SIGNAL_RECIPIENTS="+15551234567"
+$env:GATEWAY_HOME_ASSISTANT_URL="http://homeassistant.local:8123"
+$env:GATEWAY_HOME_ASSISTANT_TOKEN="home-assistant-token"
+$env:GATEWAY_TWITCH_ACCESS_TOKEN="twitch-token"
+$env:GATEWAY_TWITCH_CLIENT_ID="twitch-client-id"
+$env:GATEWAY_TWITCH_BROADCASTER_ID="broadcaster-id"
+$env:GATEWAY_TWITCH_SENDER_ID="sender-id"
+$env:GATEWAY_MACOS_WEBHOOK_URL="https://your-macos-relay.example/notify"
+$env:GATEWAY_IOS_WEBHOOK_URL="https://your-ios-relay.example/notify"
+$env:GATEWAY_ANDROID_WEBHOOK_URL="https://your-android-relay.example/notify"
+$env:GATEWAY_UBUNTU_WEBHOOK_URL="https://your-ubuntu-relay.example/notify"
 ```
+
+Device surfaces use controlled webhook relays or companion notification receivers. That keeps this app server-side and auditable while still allowing macOS, iOS, Android, and Ubuntu notifications through tooling your team owns.
 
 ## Roadmap Point 11: GitLab, Azure DevOps, And Bitbucket
 

@@ -320,15 +320,6 @@ class BenchmarkTransitionRequest(BaseModel):
     delegated_actor: str | None = None
 
 
-class OpenClawMessageRequest(BaseModel):
-    channel: Literal['api', 'whatsapp', 'telegram', 'slack', 'teams'] = 'api'
-    text: str = ''
-    user: str | None = None
-    channel_id: str | None = None
-    thread_id: str | None = None
-    metadata: dict[str, object] = Field(default_factory=dict)
-
-
 class TeamCampaignRequest(BaseModel):
     title: str
     focus_area: str

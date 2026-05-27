@@ -278,7 +278,6 @@ def enterprise_governance_report(scan_id: str | None = None, limit: int = 100) -
             'rollback_supported': True,
             'rollback_endpoint': '/api/rag-memory/versions/{version_id}/rollback',
         },
-        'openclaw': openclaw_dependency_posture(),
         'evidence_export': {
             'endpoint': '/api/enterprise/governance/evidence',
             'scan_endpoint': '/api/scans/{scan_id}/governance',
@@ -303,7 +302,6 @@ def compliance_evidence_export(scan_id: str | None = None, limit: int = 250) -> 
             'approval_traceability': report['approvals']['count'] >= 0,
             'memory_version_lineage': report['memory_lineage']['version_count'] >= 0,
             'memory_rollback_supported': report['memory_lineage']['rollback_supported'],
-            'openclaw_packages_imported': report['openclaw']['local_dependency_status']['package_dependency_present'],
         },
         'evidence': report,
         'attestation': {
@@ -344,54 +342,6 @@ def approval_records_from_lessons(lessons: list[dict[str, Any]], scan_id: str | 
     return records
 
 
-def openclaw_dependency_posture() -> dict[str, Any]:
-    return {
-        'integration_mode': 'external-openclaw-compatible-webhook-backend',
-        'upstream': {
-            'repository': 'openclaw/openclaw',
-            'creator': 'Peter Steinberger',
-            'package_manager': 'npm',
-            'package_name': 'openclaw',
-        },
-        'known_advisories_checked': [
-            {
-                'id': 'GHSA-m3mh-3mpg-37hw',
-                'severity': 'high',
-                'affected_versions': '<= 2025.3.23',
-                'patched_versions': '>= 2026.3.24',
-                'risk': 'installation-time command execution through untrusted local plugin or hook package install paths',
-            }
-        ],
-        'local_dependency_status': {
-            'package_dependency_present': False,
-            'python_package_installed': False,
-            'node_package_installed': False,
-            'runtime_dependency_installed': False,
-            'reason': 'The code reviewer implements a local compatibility surface and does not install or import the OpenClaw runtime package.',
-        },
-        'capabilities_brought_to_code_reviewer': [
-            'Multi-channel operator inbox for WhatsApp, Telegram, Slack, and Teams style messages.',
-            'Human approval request and response loop for Benchmark Gate decisions.',
-            'Quarantine and disposable-VM rerun commands from chat without direct scanner mutation.',
-            'Control-plane routing for explain-finding and scan-status requests.',
-            'Upgradeable frontend layer: new chat commands can be mapped to approved backend APIs.',
-        ],
-        'capabilities_not_granted': [
-            'No scanner rule edits.',
-            'No parser/config mutation.',
-            'No repository writes.',
-            'No OpenClaw plugin or hook installation inside this app.',
-            'No OpenClaw package dependency in Python or Node manifests.',
-        ],
-        'recommended_policy_if_installed_later': [
-            'Use only patched OpenClaw versions at or above 2026.3.24.',
-            'Do not install untrusted local OpenClaw plugins, hooks, archives, or packages.',
-            'Pin and audit the full npm dependency tree before enabling runtime integration.',
-            'Run OpenClaw gateway outside the scanner process boundary and call only authenticated backend APIs.',
-        ],
-    }
-
-
 def filter_scan_rows(rows: list[dict[str, Any]], scan_id: str | None) -> list[dict[str, Any]]:
     if not scan_id:
         return rows
@@ -424,7 +374,6 @@ def governance_guardrails() -> list[str]:
         'Governance exports do not include raw repository code, raw scan reports, patches, or full local paths.',
         'Agent actions are planning/audit outputs only and cannot mutate scanner rules or repository files.',
         'Memory rollback restores sanitized RAG memory records and rebuilds the retrieval index; it does not alter raw scans.',
-        'OpenClaw is treated as an external control surface and is not installed as a runtime dependency.',
     ]
 
 

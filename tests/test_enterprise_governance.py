@@ -47,7 +47,6 @@ class EnterpriseGovernanceTests(unittest.TestCase):
         self.assertEqual(run['source']['memory_version_id'], memory['memory_version']['version_id'])
         self.assertGreater(report['agent_actions']['count'], 0)
         self.assertEqual(report['memory_lineage']['versions'][0]['version_id'], memory['memory_version']['version_id'])
-        self.assertFalse(report['openclaw']['local_dependency_status']['package_dependency_present'])
 
     def test_lesson_approval_records_who_approved_what_and_why(self):
         lesson = self.benchmark_gate.upsert_benchmark_lesson({

@@ -52,7 +52,6 @@ function activate(context) {
   register(context, 'secureCodeReview.showTeamLearning', () => showReportById(context, 'team-learning'));
   register(context, 'secureCodeReview.showRecursiveLearning', () => showReportById(context, 'recursive-learning'));
   register(context, 'secureCodeReview.showBenchmarkGate', () => showReportById(context, 'benchmark-gate'));
-  register(context, 'secureCodeReview.showOpenClaw', () => showReportById(context, 'openclaw'));
   register(context, 'secureCodeReview.showGovernanceEvidence', () => showReportById(context, 'governance-evidence'));
   register(context, 'secureCodeReview.showMemoryContext', () => showReportById(context, 'memory-context'));
   register(context, 'secureCodeReview.showAdvancedAiReport', () => showReportById(context, 'advanced-ai'));
@@ -434,7 +433,6 @@ function reportDefinitions(scan) {
     jsonReport('team-learning', 'Team Learning Dashboard', '/api/team-learning/dashboard', 'team-learning-dashboard.json', 'Team learning trends, campaign recommendations, and security behavior dashboard.'),
     jsonReport('recursive-learning', 'Recursive Scanner Learning', `/api/scans/${scanId}/recursive-learning`, 'recursive-learning.json', 'Controlled scanner improvement recommendations from scan evidence.'),
     jsonReport('benchmark-gate', 'Benchmark Gate', `/api/scans/${scanId}/benchmark-gate`, 'benchmark-gate.json', 'Promotion gate for benchmarked, approved scanner lessons.'),
-    jsonReport('openclaw', 'OpenClaw Control', `/api/scans/${scanId}/openclaw`, 'openclaw-control.json', 'OpenClaw chat approval and disposable-VM control surface.'),
     jsonReport('governance-evidence', 'Enterprise Governance Evidence', `/api/scans/${scanId}/governance`, 'governance-evidence.json', 'Audit, approval, memory lineage, rollback, and compliance evidence.'),
     jsonReport('memory-context', 'Repository Memory Brief', `/api/scans/${scanId}/memory-context`, 'memory-context.json', 'Repository memory attached to this scan.'),
     jsonReport('advanced-ai', 'Advanced AI Report', `/api/scans/${scanId}/advanced-ai/report`, 'advanced-ai.json', 'Embeddings, multi-agent, local runtime, and GPU report.'),

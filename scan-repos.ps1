@@ -214,7 +214,6 @@ function Add-ScanOutputArgs {
     '-TeamLearningOut', (Join-Path $ReportDir 'team-learning-dashboard.json'),
     '-RecursiveLearningOut', (Join-Path $ReportDir 'recursive-learning.json'),
     '-BenchmarkGateOut', (Join-Path $ReportDir 'benchmark-gate.json'),
-    '-OpenClawOut', (Join-Path $ReportDir 'openclaw-control.json'),
     '-GovernanceOut', (Join-Path $ReportDir 'governance-evidence.json'),
     '-QuarantinePolicyOut', (Join-Path $ReportDir 'quarantine-policy.json'),
     '-SanitizedReportOut', (Join-Path $ReportDir 'sanitized-report.json'),

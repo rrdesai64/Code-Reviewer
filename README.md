@@ -838,7 +838,7 @@ Implemented:
 
 - VS Code command palette and activity-bar commands for workspace scans, health checks, refresh, baseline save, and web app launch
 - Finding tree with source navigation, RAG context, fix proposals, and finding decision updates
-- Report picker for scanner mesh, dependency review, SonarQube quality gate, scanner depth, quarantine policy, sanitized report lake records, RAG memory records, Hermes orchestration, OpenClaw control, enterprise governance evidence, secret policy, push protection, CycloneDX, SPDX, SPDX compliance, SBOM policy, SBOM comparison, GitHub PR review, PR comment, remediation plan, memory context, recursive scanner learning, advanced AI report, compliance, SARIF, Markdown, and HTML
+- Report picker for scanner mesh, dependency review, SonarQube quality gate, scanner depth, quarantine policy, sanitized report lake records, RAG memory records, Hermes orchestration, enterprise governance evidence, secret policy, push protection, CycloneDX, SPDX, SPDX compliance, SBOM policy, SBOM comparison, GitHub PR review, PR comment, remediation plan, memory context, recursive scanner learning, advanced AI report, compliance, SARIF, Markdown, and HTML
 - Safe fix workflow parity through IDE-accessible fix proposals, fix bundles, and dry-run fix apply reports
 - Evidence bundle export to `.secure-review-artifacts/{scan_id}` using the same core artifacts emitted by `scan.ps1` and `app.cli`
 - Extension settings for backend URL, optional bearer token, extra request headers, default fix provider, and fix bundle limit
@@ -1375,54 +1375,9 @@ CLI export:
 
 Benchmark evidence must show all known true positives were preserved, false-positive noise did not increase after review, fix validation passed, and scanner status did not fail or silently skip required coverage. The gate does not rewrite scanner rules, parser code, configs, suppressions, or repository files.
 
-## OpenClaw Approval/Chat Frontend
-
-Step 8 adds an OpenClaw-compatible backend control surface for Peter Steinberger's [`openclaw/openclaw`](https://github.com/openclaw/openclaw). OpenClaw is treated as the self-hosted multi-channel gateway and Control UI; this app remains the policy-enforcing backend.
-
-Implemented:
-
-- Channel-ready inbound routes for API, WhatsApp, Telegram, Slack, and Teams payloads
-- Scan status command support
-- Benchmark Gate approval queue support
-- Quarantine alert lookups
-- Per-finding explanation through the existing AI review endpoint
-- Memory lesson approval and activation through Benchmark Gate transition APIs
-- Disposable VM rerun job preparation with offline networking by default
-- Feature registry controlled by `OPENCLAW_FEATURES`, defaulting to `all`
-- `openclaw-control.json` in `scan.ps1`, bulk scan outputs, disposable VM exports, report bundles, GitHub Actions artifacts, and the VS Code report picker
-
-Useful endpoints:
-
-- `GET /api/openclaw/status`
-- `GET /api/openclaw/features`
-- `POST /api/openclaw/messages`
-- `POST /api/openclaw/webhook/{channel}`
-- `GET /api/scans/{scan_id}/openclaw`
-
-Supported chat commands:
-
-```text
-status <scan_id>
-explain <scan_id> <finding_id>
-approvals [state]
-approve lesson <lesson_id>
-review lesson <lesson_id>
-activate lesson <lesson_id>
-quarantine <scan_id-or-repo>
-rerun vm <scan_id>
-```
-
-OpenClaw does not directly mutate scanner rules, parser code, suppressions, scanner config, or repository files. Approval commands call backend APIs, and disposable VM reruns only prepare a job manifest; launching the guest remains a human action.
-
-CLI export:
-
-```powershell
-.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --openclaw-out openclaw-control.json
-```
-
 ## Enterprise Governance
 
-Step 9 adds the team-governance layer around Hermes, RAG memory, Benchmark Gate, and OpenClaw chat approvals. The goal is traceability: what agent ran, what evidence it used, who approved scanner-learning lessons, why a lesson moved forward, which memory version was used, and how to export this for review.
+Step 9 adds the team-governance layer around Hermes, RAG memory, and Benchmark Gate approvals. The goal is traceability: what agent ran, what evidence it used, who approved scanner-learning lessons, why a lesson moved forward, which memory version was used, and how to export this for review.
 
 Implemented:
 
@@ -1434,14 +1389,12 @@ Implemented:
 - Memory rollback endpoint that restores sanitized RAG memory and rebuilds the retrieval index
 - Scan-level and enterprise-level governance evidence exports
 - `governance-evidence.json` in `scan.ps1`, bulk scan outputs, disposable VM exports, report bundles, GitHub Actions artifacts, browser UI, and the VS Code report picker
-- OpenClaw supply-chain posture report that confirms this app does not install or import the OpenClaw npm package
 
 Useful endpoints:
 
 - `GET /api/enterprise/governance`
 - `GET /api/enterprise/governance/events`
 - `GET /api/enterprise/governance/evidence`
-- `GET /api/enterprise/openclaw/supply-chain`
 - `GET /api/scans/{scan_id}/governance`
 - `GET /api/rag-memory/versions`
 - `POST /api/rag-memory/versions/{version_id}/rollback`
@@ -1459,15 +1412,6 @@ CLI export:
 ```powershell
 .\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --governance-out governance-evidence.json
 ```
-
-OpenClaw dependency decision:
-
-- Local dependency check: no OpenClaw Python package and no OpenClaw npm dependency are used by this app.
-- The integration is a backend-compatible webhook/control surface only.
-- The known upstream OpenClaw advisory `GHSA-m3mh-3mpg-37hw` affects npm `openclaw` versions `<= 2025.3.23` and is patched in `>= 2026.3.24`.
-- If OpenClaw runtime installation is approved later, use only patched pinned versions, audit the full npm tree, do not install untrusted plugins/hooks, and run it outside the scanner process boundary.
-
-What OpenClaw brings here: multi-channel operator access, chat approval requests, quarantine alerts, finding explanations, scan status, and disposable-VM rerun requests. It does not bring scanner engines, rule mutation, code execution inside this app, or package dependencies.
 
 ## AI Finding Review Layer
 
@@ -1503,7 +1447,7 @@ Dashboard scans now write a human-shareable report bundle automatically after ea
 reports\<repo-name>\<scan-id>\
 ```
 
-Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `openclaw-control.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, and safe fix dry-run artifacts.
+Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, and safe fix dry-run artifacts.
 
 The dashboard shows the saved bundle path after the scan and includes a `Report Bundle` action that opens the manifest. Set `REPORT_BUNDLE_DIR` in `.env` to place bundles somewhere else, for example:
 

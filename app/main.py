@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from .models import BenchmarkLessonRequest, BenchmarkTransitionRequest, ChatNotificationRequest, CodeHostReviewRequest, DecisionRequest, DisposableVmScanRequest, FixApplyRequest, GitHubPrReviewRequest, HermesReviewRequest, HermesRunRequest, IssuePlanRequest, LLMRequest, MemoryRollbackRequest, OpenClawMessageRequest, QuarantineEntryRequest, QuarantineLookupRequest, RagMemoryReindexRequest, ReportLakeReindexRequest, TeachingLoopSessionRequest, TeamCampaignRequest
+from .models import BenchmarkLessonRequest, BenchmarkTransitionRequest, ChatNotificationRequest, CodeHostReviewRequest, DecisionRequest, DisposableVmScanRequest, FixApplyRequest, GitHubPrReviewRequest, HermesReviewRequest, HermesRunRequest, IssuePlanRequest, LLMRequest, MemoryRollbackRequest, QuarantineEntryRequest, QuarantineLookupRequest, RagMemoryReindexRequest, ReportLakeReindexRequest, TeachingLoopSessionRequest, TeamCampaignRequest
 from .advanced_ai import advanced_ai_status, build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, gpu_profile, local_runtime_status, phase_g_report, run_multi_agent_review, semantic_search
 from .benchmark_gate import benchmark_corpus_report, benchmark_gate_report_for_recommendations, benchmark_gate_status, list_benchmark_lessons, transition_benchmark_lesson, upsert_benchmark_lesson
 from .chat_agents import ChatAgentError, build_chat_notification, chat_agent_status, handle_slack_command, handle_teams_command, verify_slack_signature, verify_teams_command_secret
@@ -22,13 +22,12 @@ from .finding_ai import build_finding_ai_review, build_scan_ai_review, finding_a
 from .dependency_review import dependency_review_report
 from .llm import generate, provider_status
 from .github_pr import GitHubIntegrationError, build_github_pr_review, github_integration_status, handle_github_webhook, verify_github_webhook_signature
-from .governance import compliance_evidence_export, enterprise_governance_report, governance_events, openclaw_dependency_posture
+from .governance import compliance_evidence_export, enterprise_governance_report, governance_events
 from .hermes import create_hermes_run, hermes_report_for_scan, hermes_review_queue, hermes_run_review_report, hermes_status, list_hermes_runs, load_hermes_run, record_hermes_review
 from .fix_workflow import apply_fix_bundle, build_fix_bundle
 from .ingestion import scanner_mesh_report, scanner_mesh_status
 from .issue_planning import IssuePlanningError, build_issue_plan, issue_planning_status
 from .memory import load_memory, memory_summary, repository_memory, repository_memory_for_scan, update_repository_memory
-from .openclaw_frontend import handle_openclaw_message, openclaw_feature_report, openclaw_status, scan_openclaw_control
 from .rag import add_knowledge_document, build_index, finding_context, index_stats, retrieve_response
 from .rag_memory import list_memory_versions, list_rag_memory_items, list_scan_rag_memory, query_rag_memory, rag_memory_for_scan, rag_memory_schema, rag_memory_status, reindex_rag_memory, rollback_rag_memory_version, save_rag_memory_for_report, scan_rag_memory_report
 from .refactor import build_fix_proposal, build_remediation_plan
@@ -66,7 +65,7 @@ def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
 
 @app.get('/api/health')
 def health() -> dict:
-    return {'ok': True, 'phase': 'phase-s', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'sonarqube-issue-ingestion', 'sonarqube-quality-gate', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'local-gitleaks-tool', 'local-trufflehog-tool', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'scanner-mesh', 'scanner-depth', 'expanded-semgrep-rules', 'semgrep-multi-config', 'codeql-query-depth', 'codeql-no-build-defaults', 'codeql-go-local-toolchain', 'sonarcloud-organization-config', 'dashboard-scan-state', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'go-module-dependency-review', 'govulncheck-adapter', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run', 'ide-cli-parity', 'vscode-extension-parity', 'ide-evidence-export', 'issue-planning', 'jira-planning', 'linear-planning', 'issue-plan-dry-run', 'slack-teams-agent', 'chat-notifications', 'slack-agent', 'teams-agent', 'chat-bot-commands', 'gitlab-review', 'azure-devops-review', 'bitbucket-review', 'multi-code-host-review', 'team-learning-dashboard', 'security-campaigns', 'learning-recommendations', 'risk-trend-dashboard', 'recursive-learning', 'scanner-improvement-recommendations', 'human-approved-tuning-workflow', 'benchmark-promotion-gates', 'benchmark-gate', 'language-benchmark-corpus', 'rule-regression-tests', 'false-positive-tests', 'fix-validation-tests', 'benchmark-lesson-promotion', 'approved-benchmarked-learning-only', 'quarantine-registry', 'host-scan-blocking', 'quarantined-learning-exclusion', 'disposable-vm-worker', 'windows-sandbox-job-export', 'vm-artifact-whitelist', 'sanitized-report-lake', 'report-lake-reindex', 'learning-eligibility-labels', 'rag-memory-schema', 'rag-memory-index', 'rag-memory-query', 'rag-memory-versioning', 'rag-memory-rollback', 'hermes-orchestrator', 'hermes-agent-registry', 'hermes-policy-gates', 'hermes-durable-runs', 'hermes-python-agent', 'python-specialist-review', 'python-dependency-agent', 'python-scanner-coverage-agent', 'openclaw-frontend', 'openclaw-compatible-backend', 'openclaw-whatsapp', 'openclaw-telegram', 'openclaw-slack', 'openclaw-teams', 'openclaw-approval-requests', 'openclaw-quarantine-alerts', 'openclaw-disposable-vm-rerun', 'enterprise-governance', 'governance-agent-audit-trail', 'governance-approval-lineage', 'governance-memory-version-lineage', 'governance-compliance-evidence-export', 'openclaw-supply-chain-isolation', 'finding-ai-review', 'dynamic-prompt-templates', 'ai-vulnerability-explanations', 'ai-remediation-suggestions'], 'llm_providers': provider_status(), 'auth': auth_status()}
+    return {'ok': True, 'phase': 'phase-s', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'sonarqube-issue-ingestion', 'sonarqube-quality-gate', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'local-gitleaks-tool', 'local-trufflehog-tool', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'scanner-mesh', 'scanner-depth', 'expanded-semgrep-rules', 'semgrep-multi-config', 'codeql-query-depth', 'codeql-no-build-defaults', 'codeql-go-local-toolchain', 'sonarcloud-organization-config', 'dashboard-scan-state', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'go-module-dependency-review', 'govulncheck-adapter', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run', 'ide-cli-parity', 'vscode-extension-parity', 'ide-evidence-export', 'issue-planning', 'jira-planning', 'linear-planning', 'issue-plan-dry-run', 'slack-teams-agent', 'chat-notifications', 'slack-agent', 'teams-agent', 'chat-bot-commands', 'gitlab-review', 'azure-devops-review', 'bitbucket-review', 'multi-code-host-review', 'team-learning-dashboard', 'security-campaigns', 'learning-recommendations', 'risk-trend-dashboard', 'recursive-learning', 'scanner-improvement-recommendations', 'human-approved-tuning-workflow', 'benchmark-promotion-gates', 'benchmark-gate', 'language-benchmark-corpus', 'rule-regression-tests', 'false-positive-tests', 'fix-validation-tests', 'benchmark-lesson-promotion', 'approved-benchmarked-learning-only', 'quarantine-registry', 'host-scan-blocking', 'quarantined-learning-exclusion', 'disposable-vm-worker', 'windows-sandbox-job-export', 'vm-artifact-whitelist', 'sanitized-report-lake', 'report-lake-reindex', 'learning-eligibility-labels', 'rag-memory-schema', 'rag-memory-index', 'rag-memory-query', 'rag-memory-versioning', 'rag-memory-rollback', 'hermes-orchestrator', 'hermes-agent-registry', 'hermes-policy-gates', 'hermes-durable-runs', 'hermes-python-agent', 'python-specialist-review', 'python-dependency-agent', 'python-scanner-coverage-agent', 'enterprise-governance', 'governance-agent-audit-trail', 'governance-approval-lineage', 'governance-memory-version-lineage', 'governance-compliance-evidence-export', 'finding-ai-review', 'dynamic-prompt-templates', 'ai-vulnerability-explanations', 'ai-remediation-suggestions'], 'llm_providers': provider_status(), 'auth': auth_status()}
 
 
 
@@ -550,51 +549,6 @@ def issue_planning_integration_status(user: AuthUser = Depends(require_permissio
 @app.get('/api/integrations/chat/status')
 def chat_agent_integration_status(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
     return chat_agent_status()
-
-
-@app.get('/api/openclaw/status')
-def openclaw_status_endpoint(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
-    status = openclaw_status()
-    audit(user.username, 'openclaw.status_reported', 'openclaw', {'features': str(status['feature_count'])})
-    return status
-
-
-@app.get('/api/openclaw/features')
-def openclaw_features_endpoint(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
-    report = openclaw_feature_report()
-    audit(user.username, 'openclaw.features_reported', 'openclaw', {'features': str(len(report['features']))})
-    return report
-
-
-@app.post('/api/openclaw/messages')
-def openclaw_message(request: OpenClawMessageRequest, user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
-    result = handle_openclaw_message(request.model_dump(), actor=user.username)
-    audit(user.username, 'openclaw.message_handled', result.get('feature_id') or 'unknown', {'accepted': str(result.get('accepted', False)), 'status': result.get('status', ''), 'channel': result.get('channel', '')})
-    return result
-
-
-@app.post('/api/openclaw/webhook/{channel}')
-async def openclaw_webhook(channel: str, request: Request, user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
-    try:
-        payload = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail='Invalid OpenClaw webhook JSON payload')
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=400, detail='OpenClaw webhook payload must be a JSON object')
-    payload = {**payload, 'channel': channel}
-    result = handle_openclaw_message(payload, actor=user.username)
-    audit(user.username, 'openclaw.webhook_handled', result.get('feature_id') or 'unknown', {'accepted': str(result.get('accepted', False)), 'status': result.get('status', ''), 'channel': result.get('channel', '')})
-    return result
-
-
-@app.get('/api/scans/{scan_id}/openclaw')
-def scan_openclaw(scan_id: str, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
-    try:
-        report = scan_openclaw_control(scan_id)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail='scan not found')
-    audit(user.username, 'openclaw.scan_control_reported', scan_id, {'approvals': str(report['approval_queue']['count'])})
-    return report
 
 
 @app.get('/api/scans/{scan_id}/chat/notification')
@@ -1498,13 +1452,6 @@ def enterprise_governance_events(category: str | None = None, scan_id: str | Non
 def enterprise_governance_evidence(scan_id: str | None = None, limit: int = 250, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
     report = compliance_evidence_export(scan_id=scan_id, limit=limit)
     audit(user.username, 'enterprise.governance_evidence_exported', scan_id or 'all', {'agent_actions': str(report['evidence']['agent_actions']['count']), 'memory_versions': str(report['evidence']['memory_lineage']['version_count'])})
-    return report
-
-
-@app.get('/api/enterprise/openclaw/supply-chain')
-def enterprise_openclaw_supply_chain(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
-    report = openclaw_dependency_posture()
-    audit(user.username, 'enterprise.openclaw_supply_chain_reported', 'openclaw', {'dependency_present': str(report['local_dependency_status']['package_dependency_present'])})
     return report
 
 

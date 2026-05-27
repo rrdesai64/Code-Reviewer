@@ -14,7 +14,7 @@ This extension connects VS Code to the local Secure Code Review Assistant backen
   - dependency review
   - SonarQube quality gate
   - scanner depth
-  - quarantine policy, sanitized report lake record, RAG memory record, Hermes orchestration, OpenClaw control, and enterprise governance evidence
+  - quarantine policy, sanitized report lake record, RAG memory record, Hermes orchestration, and enterprise governance evidence
   - secret policy and push protection
   - CycloneDX and SPDX SBOMs
   - SPDX compliance and SBOM policy

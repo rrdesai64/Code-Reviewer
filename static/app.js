@@ -125,7 +125,6 @@ function renderScan(scan) {
     <button class="ghost" onclick="showSanitizedReport('${scan.scan_id}')">Sanitized Report</button>
     <button class="ghost" onclick="showRagMemory('${scan.scan_id}')">RAG Memory</button>
     <button class="ghost" onclick="showHermes('${scan.scan_id}')">Hermes</button>
-    <button class="ghost" onclick="showOpenClaw('${scan.scan_id}')">OpenClaw</button>
     <button class="ghost" onclick="showGovernance('${scan.scan_id}')">Governance</button>
     <a class="link-button secondary" href="/api/scans/${scan.scan_id}/github-pr-comment" target="_blank">PR Comment</a>
     <button class="ghost" onclick="saveBaseline('${scan.scan_id}')">Save Baseline</button>
@@ -290,15 +289,6 @@ async function showHermes(scanId) {
     return;
   }
   showJsonPanel('Hermes Orchestration', await response.json());
-}
-
-async function showOpenClaw(scanId) {
-  const response = await fetch(`/api/scans/${scanId}/openclaw`);
-  if (!response.ok) {
-    statusEl.textContent = 'Could not load OpenClaw control.';
-    return;
-  }
-  showJsonPanel('OpenClaw Control', await response.json());
 }
 
 async function showGovernance(scanId) {

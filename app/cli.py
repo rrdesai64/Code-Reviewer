@@ -21,7 +21,6 @@ from .finding_ai import build_scan_ai_review
 from .ingestion import scanner_mesh_report
 from .issue_planning import IssuePlanningError, build_issue_plan
 from .memory import update_repository_memory
-from .openclaw_frontend import openclaw_control_for_scan
 from .quarantine import blocks_host_scan, quarantine_policy, quarantine_policy_for_scan
 from .rag_memory import save_rag_memory_for_report
 from .refactor import build_fix_proposal, build_remediation_plan
@@ -101,7 +100,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--recursive-learning-out')
     parser.add_argument('--recursive-learning-limit', type=int, default=100)
     parser.add_argument('--benchmark-gate-out')
-    parser.add_argument('--openclaw-out')
     parser.add_argument('--governance-out')
     parser.add_argument('--quarantine-policy-out')
     parser.add_argument('--sanitized-report-out')
@@ -284,8 +282,6 @@ def main(argv: list[str] | None = None) -> int:
         gate_report['scan_id'] = scan.scan_id
         gate_report['project_name'] = scan.project_name
         Path(args.benchmark_gate_out).write_text(json.dumps(gate_report, indent=2), encoding='utf-8')
-    if args.openclaw_out:
-        Path(args.openclaw_out).write_text(json.dumps(openclaw_control_for_scan(scan), indent=2), encoding='utf-8')
     if args.governance_out:
         Path(args.governance_out).write_text(json.dumps(compliance_evidence_export(scan_id=scan.scan_id), indent=2), encoding='utf-8')
     if args.quarantine_policy_out:

@@ -44,7 +44,6 @@
     "onCommand:secureCodeReview.showTeamLearning",
     "onCommand:secureCodeReview.showRecursiveLearning",
     "onCommand:secureCodeReview.showBenchmarkGate",
-    "onCommand:secureCodeReview.showOpenClaw",
     "onCommand:secureCodeReview.showGovernanceEvidence",
     "onCommand:secureCodeReview.showMemoryContext",
     "onCommand:secureCodeReview.showAdvancedAiReport",
@@ -224,10 +223,6 @@
       {
         "command": "secureCodeReview.showBenchmarkGate",
         "title": "Secure Review: Show Benchmark Gate"
-      },
-      {
-        "command": "secureCodeReview.showOpenClaw",
-        "title": "Secure Review: Show OpenClaw Control"
       },
       {
         "command": "secureCodeReview.showGovernanceEvidence",

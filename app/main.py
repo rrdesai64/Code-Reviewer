@@ -29,6 +29,7 @@ from .ingestion import scanner_mesh_report, scanner_mesh_status
 from .issue_planning import IssuePlanningError, build_issue_plan, issue_planning_status
 from .memory import load_memory, memory_summary, repository_memory, repository_memory_for_scan, update_repository_memory
 from .messaging_gateway import GatewayError, build_scan_gateway_report, gateway_channels, gateway_events, gateway_status, handle_gateway_webhook, send_gateway_message
+from .pr_automation import PullRequestFeedbackComposerError, PullRequestGovernanceEvidenceError, PullRequestImpactRadiusError, PullRequestIngressError, PullRequestPolicyAgentError, PullRequestPublisherError, PullRequestTicketHydrationError, analyze_pr_impact_radius, compose_pr_feedback, hydrate_pr_state, ingest_pr_webhook, list_pr_states, load_pr_state, pr_automation_ingress_status, pr_automation_schema_report, pr_feedback_composer_status, pr_feedback_publisher_status, pr_governance_evidence, pr_governance_evidence_status, pr_impact_radius_status, pr_policy_agent_status, pr_ticket_hydration_status, publish_pr_feedback, run_pr_policy_agent
 from .rag import add_knowledge_document, build_index, finding_context, index_stats, retrieve_response
 from .rag_memory import list_memory_versions, list_rag_memory_items, list_scan_rag_memory, query_rag_memory, rag_memory_for_scan, rag_memory_schema, rag_memory_status, reindex_rag_memory, rollback_rag_memory_version, save_rag_memory_for_report, scan_rag_memory_report
 from .refactor import build_fix_proposal, build_remediation_plan
@@ -66,7 +67,7 @@ def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
 
 @app.get('/api/health')
 def health() -> dict:
-    return {'ok': True, 'phase': 'phase-s', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'sonarqube-issue-ingestion', 'sonarqube-quality-gate', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'local-gitleaks-tool', 'local-trufflehog-tool', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'scanner-mesh', 'scanner-depth', 'expanded-semgrep-rules', 'semgrep-multi-config', 'codeql-query-depth', 'codeql-no-build-defaults', 'codeql-go-local-toolchain', 'sonarcloud-organization-config', 'dashboard-scan-state', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'go-module-dependency-review', 'govulncheck-adapter', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run', 'ide-cli-parity', 'vscode-extension-parity', 'ide-evidence-export', 'issue-planning', 'jira-planning', 'linear-planning', 'issue-plan-dry-run', 'slack-teams-agent', 'chat-notifications', 'slack-agent', 'teams-agent', 'chat-bot-commands', 'secure-review-messaging-gateway', 'gateway-slack', 'gateway-teams', 'gateway-email', 'gateway-telegram', 'gateway-discord', 'gateway-google-chat', 'gateway-whatsapp', 'gateway-signal', 'gateway-home-assistant', 'gateway-twitch', 'gateway-macos', 'gateway-ios', 'gateway-android', 'gateway-ubuntu', 'gateway-dry-run', 'gateway-inbound-allowlists', 'gitlab-review', 'azure-devops-review', 'bitbucket-review', 'multi-code-host-review', 'team-learning-dashboard', 'security-campaigns', 'learning-recommendations', 'risk-trend-dashboard', 'recursive-learning', 'scanner-improvement-recommendations', 'human-approved-tuning-workflow', 'benchmark-promotion-gates', 'benchmark-gate', 'language-benchmark-corpus', 'rule-regression-tests', 'false-positive-tests', 'fix-validation-tests', 'benchmark-lesson-promotion', 'approved-benchmarked-learning-only', 'quarantine-registry', 'host-scan-blocking', 'quarantined-learning-exclusion', 'disposable-vm-worker', 'windows-sandbox-job-export', 'vm-artifact-whitelist', 'sanitized-report-lake', 'report-lake-reindex', 'learning-eligibility-labels', 'rag-memory-schema', 'rag-memory-index', 'rag-memory-query', 'rag-memory-versioning', 'rag-memory-rollback', 'hermes-orchestrator', 'hermes-agent-registry', 'hermes-policy-gates', 'hermes-durable-runs', 'hermes-python-agent', 'python-specialist-review', 'python-dependency-agent', 'python-scanner-coverage-agent', 'enterprise-governance', 'governance-agent-audit-trail', 'governance-approval-lineage', 'governance-memory-version-lineage', 'governance-compliance-evidence-export', 'finding-ai-review', 'dynamic-prompt-templates', 'ai-vulnerability-explanations', 'ai-remediation-suggestions'], 'llm_providers': provider_status(), 'auth': auth_status()}
+    return {'ok': True, 'phase': 'phase-s', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'sonarqube-issue-ingestion', 'sonarqube-quality-gate', 'pip-audit', 'risk-scoring', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'local-gitleaks-tool', 'local-trufflehog-tool', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'pr-automation-harness', 'pr-state-schema', 'pr-webhook-ingress', 'pr-code-host-normalization', 'pr-state-persistence', 'pr-ticket-hydration', 'pr-intent-hydration', 'pr-impact-radius', 'pr-impact-risk-routing', 'pr-invariant-policy-agent', 'pr-policy-gates', 'pr-feedback-composer', 'pr-review-draft', 'pr-inline-publisher', 'pr-suggestion-publisher', 'pr-publisher-governance', 'pr-governance-evidence', 'pr-action-audit-lineage', 'pr-compliance-export', 'pr-diff-digest', 'pr-intent-ticket-extraction', 'scanner-mesh', 'scanner-depth', 'expanded-semgrep-rules', 'semgrep-multi-config', 'codeql-query-depth', 'codeql-no-build-defaults', 'codeql-go-local-toolchain', 'sonarcloud-organization-config', 'dashboard-scan-state', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'go-module-dependency-review', 'govulncheck-adapter', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run', 'ide-cli-parity', 'vscode-extension-parity', 'ide-evidence-export', 'issue-planning', 'jira-planning', 'linear-planning', 'issue-plan-dry-run', 'slack-teams-agent', 'chat-notifications', 'slack-agent', 'teams-agent', 'chat-bot-commands', 'secure-review-messaging-gateway', 'gateway-slack', 'gateway-teams', 'gateway-email', 'gateway-telegram', 'gateway-discord', 'gateway-google-chat', 'gateway-whatsapp', 'gateway-signal', 'gateway-home-assistant', 'gateway-twitch', 'gateway-macos', 'gateway-ios', 'gateway-android', 'gateway-ubuntu', 'gateway-dry-run', 'gateway-inbound-allowlists', 'gitlab-review', 'azure-devops-review', 'bitbucket-review', 'multi-code-host-review', 'team-learning-dashboard', 'security-campaigns', 'learning-recommendations', 'risk-trend-dashboard', 'recursive-learning', 'scanner-improvement-recommendations', 'human-approved-tuning-workflow', 'benchmark-promotion-gates', 'benchmark-gate', 'language-benchmark-corpus', 'rule-regression-tests', 'false-positive-tests', 'fix-validation-tests', 'benchmark-lesson-promotion', 'approved-benchmarked-learning-only', 'quarantine-registry', 'host-scan-blocking', 'quarantined-learning-exclusion', 'disposable-vm-worker', 'windows-sandbox-job-export', 'vm-artifact-whitelist', 'sanitized-report-lake', 'report-lake-reindex', 'learning-eligibility-labels', 'rag-memory-schema', 'rag-memory-index', 'rag-memory-query', 'rag-memory-versioning', 'rag-memory-rollback', 'hermes-orchestrator', 'hermes-agent-registry', 'hermes-policy-gates', 'hermes-durable-runs', 'hermes-python-agent', 'python-specialist-review', 'python-dependency-agent', 'python-scanner-coverage-agent', 'enterprise-governance', 'governance-agent-audit-trail', 'governance-approval-lineage', 'governance-memory-version-lineage', 'governance-compliance-evidence-export', 'finding-ai-review', 'dynamic-prompt-templates', 'ai-vulnerability-explanations', 'ai-remediation-suggestions'], 'llm_providers': provider_status(), 'auth': auth_status()}
 
 
 
@@ -513,6 +514,194 @@ def github_status(user: AuthUser = Depends(require_permission('scan:read'))) -> 
 @app.get('/api/integrations/code-hosts/status')
 def code_host_integration_status(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
     return code_host_status()
+
+
+@app.get('/api/pr-automation/schema')
+def pr_automation_schema(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    report = pr_automation_schema_report()
+    audit(user.username, 'pr_automation.schema_reported', 'pr-automation', {'providers': str(len(report['providers']))})
+    return report
+
+
+@app.get('/api/pr-automation/status')
+def pr_automation_status(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    report = pr_automation_ingress_status()
+    audit(user.username, 'pr_automation.status_reported', 'pr-automation', {'states': str(report['stored_state_count'])})
+    return report
+
+
+@app.get('/api/pr-automation/hydration/status')
+def pr_automation_hydration_status(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    report = pr_ticket_hydration_status()
+    audit(user.username, 'pr_automation.hydration_status_reported', 'pr-automation', {'states': str(report['stored_state_count'])})
+    return report
+
+
+@app.get('/api/pr-automation/impact-radius/status')
+def pr_automation_impact_radius_status(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    report = pr_impact_radius_status()
+    audit(user.username, 'pr_automation.impact_radius_status_reported', 'pr-automation', {'states': str(report['stored_state_count'])})
+    return report
+
+
+@app.get('/api/pr-automation/policy/status')
+def pr_automation_policy_status(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    report = pr_policy_agent_status()
+    audit(user.username, 'pr_automation.policy_status_reported', 'pr-automation', {'states': str(report['stored_state_count'])})
+    return report
+
+
+@app.get('/api/pr-automation/feedback/status')
+def pr_automation_feedback_status(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    report = pr_feedback_composer_status()
+    audit(user.username, 'pr_automation.feedback_status_reported', 'pr-automation', {'states': str(report['stored_state_count'])})
+    return report
+
+
+@app.get('/api/pr-automation/publisher/status')
+def pr_automation_publisher_status(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    report = pr_feedback_publisher_status()
+    audit(user.username, 'pr_automation.publisher_status_reported', 'pr-automation', {'states': str(report['stored_state_count'])})
+    return report
+
+
+@app.get('/api/pr-automation/governance-evidence/status')
+def pr_automation_governance_evidence_status(user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    report = pr_governance_evidence_status()
+    audit(user.username, 'pr_automation.governance_evidence_status_reported', 'pr-automation', {'states': str(report['stored_state_count'])})
+    return report
+
+
+@app.get('/api/pr-automation/states')
+def pr_automation_states(limit: int = 100, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    states = list_pr_states(limit=limit)
+    audit(user.username, 'pr_automation.states_listed', 'pr-automation', {'states': str(len(states))})
+    return {'schema_version': 1, 'count': len(states), 'states': states}
+
+
+@app.get('/api/pr-automation/states/{state_id}')
+def pr_automation_state(state_id: str, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        state = load_pr_state(state_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='PR automation state not found')
+    audit(user.username, 'pr_automation.state_loaded', state_id, {'repository': state.pull_request.repository, 'pull_request': str(state.pull_request.number)})
+    return state.model_dump(mode='json')
+
+
+@app.post('/api/pr-automation/states/{state_id}/hydrate')
+def pr_automation_state_hydrate(state_id: str, providers: str = 'auto', persist: bool = True, user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    try:
+        report = hydrate_pr_state(state_id, providers=providers, persist=persist)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='PR automation state not found')
+    except PullRequestTicketHydrationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'pr_automation.state_hydrated', state_id, {'status': report['status'], 'tickets': str(report['summary']['total']), 'providers': ','.join(report['providers'])})
+    return report
+
+
+@app.post('/api/pr-automation/states/{state_id}/impact-radius')
+def pr_automation_state_impact_radius(state_id: str, persist: bool = True, user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    try:
+        report = analyze_pr_impact_radius(state_id, persist=persist)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='PR automation state not found')
+    except PullRequestImpactRadiusError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'pr_automation.impact_radius_analyzed', state_id, {'status': report['status'], 'risk': report['summary']['overall_risk'], 'modules': str(report['summary']['modules'])})
+    return report
+
+
+@app.post('/api/pr-automation/states/{state_id}/policy')
+def pr_automation_state_policy(state_id: str, persist: bool = True, user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    try:
+        report = run_pr_policy_agent(state_id, persist=persist)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='PR automation state not found')
+    except PullRequestPolicyAgentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'pr_automation.policy_agent_ran', state_id, {'decision': report['decision'], 'violations': str(report['summary']['violations']), 'warnings': str(report['summary']['warnings'])})
+    return report
+
+
+@app.post('/api/pr-automation/states/{state_id}/feedback')
+def pr_automation_state_feedback(state_id: str, persist: bool = True, user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    try:
+        report = compose_pr_feedback(state_id, persist=persist)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='PR automation state not found')
+    except PullRequestFeedbackComposerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'pr_automation.feedback_composed', state_id, {'publication_state': report['publication_state'], 'comments': str(report['summary']['comment_count'])})
+    return report
+
+
+@app.post('/api/pr-automation/states/{state_id}/publish')
+def pr_automation_state_publish(
+    state_id: str,
+    provider: str = 'auto',
+    publish: bool = False,
+    allow_suggestions: bool = False,
+    force: bool = False,
+    max_inline_comments: int = 25,
+    persist: bool = True,
+    user: AuthUser = Depends(require_permission('enterprise:write')),
+) -> dict:
+    try:
+        report = publish_pr_feedback(
+            state_id,
+            provider=provider,
+            publish=publish,
+            allow_suggestions=allow_suggestions,
+            force=force,
+            max_inline_comments=max_inline_comments,
+            persist=persist,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='PR automation state not found')
+    except PullRequestPublisherError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'pr_automation.feedback_published', state_id, {'status': report['status'], 'publish': str(publish), 'provider': provider})
+    return report
+
+
+@app.post('/api/pr-automation/states/{state_id}/governance-evidence')
+def pr_automation_state_governance_evidence(state_id: str, persist: bool = True, limit: int = 200, user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    try:
+        report = pr_governance_evidence(state_id, persist=persist, limit=limit)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='PR automation state not found')
+    except PullRequestGovernanceEvidenceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'pr_automation.governance_evidence_generated', state_id, {'status': report['status'], 'missing_actions': str(report['summary']['missing_actions'])})
+    return report
+
+
+@app.post('/api/pr-automation/webhook/{provider}')
+async def pr_automation_webhook(provider: str, request: Request, persist: bool = True) -> dict:
+    body = await request.body()
+    try:
+        payload = json.loads(body.decode('utf-8') or '{}')
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail='Invalid JSON PR automation webhook payload')
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail='PR automation webhook payload must be a JSON object')
+    headers = {key.lower(): value for key, value in request.headers.items()}
+    event = (
+        headers.get('x-github-event')
+        or headers.get('x-gitlab-event')
+        or headers.get('x-vss-event')
+        or headers.get('x-event-key')
+        or str(payload.get('eventType') or payload.get('object_kind') or payload.get('eventKey') or '')
+    )
+    try:
+        report = ingest_pr_webhook(provider, event, payload, raw_body=body, headers=headers, persist=persist)
+    except PullRequestIngressError as exc:
+        status_code = 400 if 'Unsupported' in str(exc) else 401
+        raise HTTPException(status_code=status_code, detail=str(exc))
+    audit(f'pr-automation-{provider}', 'pr_automation.webhook_received', report.get('state_id') or report.get('event') or provider, {'accepted': str(report['accepted']), 'reason': report['reason'], 'persisted': str(report['persisted'])})
+    return report
 
 
 @app.get('/api/scans/{scan_id}/code-hosts/review')

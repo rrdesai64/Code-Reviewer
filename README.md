@@ -672,6 +672,106 @@ $env:GITHUB_WEBHOOK_SECRET="long-random-webhook-secret"
 
 For production, keep `GITHUB_WEBHOOK_ALLOW_UNSIGNED=false`, configure a GitHub webhook secret, and start with dry-run artifacts before enabling `--github-pr-publish`. GitHub inline review comments require mapping findings to positions in the PR diff, so findings outside changed lines remain in the review summary.
 
+## PR Automation Harness
+
+This harness is the private, centralized Option A review pipeline. It is implemented sequentially so each layer remains auditable and compatible with the existing scanner, Hermes, RAG, benchmark, and governance systems.
+
+Step 1 adds the provider-neutral PR automation state schema:
+
+- `PullRequestAutomationState` with repository, PR identity, diff digest, file manifest, ticket refs, intent summary, evidence pointers, agent finding buckets, feedback slots, and guardrails
+- GitHub webhook state builder through `build_pr_state_from_github_webhook`
+- Generic state builder through `build_pr_state` for GitLab, Azure DevOps, Bitbucket, and offline tests
+- Diff parsing stores SHA-256 digests, file stats, language hints, and bounded metadata; full raw diff persistence is not required
+- Ticket key extraction for Jira/Linear-style keys and GitHub issue references
+- Schema/status endpoint: `GET /api/pr-automation/schema`
+
+Step 2 adds unified PR ingress:
+
+- Code-host webhook endpoint: `POST /api/pr-automation/webhook/{provider}`
+- Supported providers: `github`, `gitlab`, `azure-devops`, and `bitbucket`
+- Signature/token verification for GitHub HMAC, GitLab webhook token, Azure DevOps shared-secret relays, and Bitbucket HMAC/shared-secret relays
+- Normalized PR state persistence under `SECURE_REVIEW_DATA_DIR\pr-automation\states`
+- Inspection endpoints: `GET /api/pr-automation/status`, `GET /api/pr-automation/states`, and `GET /api/pr-automation/states/{state_id}`
+- Ignored events return an auditable non-persisted ingress result instead of launching work
+
+Step 3 adds ticket and intent hydration:
+
+- Hydration endpoint: `POST /api/pr-automation/states/{state_id}/hydrate`
+- Status endpoint: `GET /api/pr-automation/hydration/status`
+- Supported metadata sources: Jira, Linear, GitHub issues, and Azure DevOps work items
+- Missing credentials produce an auditable `not_configured` result; PR ingress and saved state inspection still work
+- Hydrated ticket data is bounded and redacted before persistence. Raw ticket descriptions are not stored.
+- Hydrated intent updates review focus, business context, risk keywords, and confidence, but it cannot publish comments or mutate scanner rules
+
+Ticket hydration credential examples:
+
+```powershell
+$env:JIRA_BASE_URL="https://your-company.atlassian.net"
+$env:JIRA_EMAIL="security-reviewer@example.com"
+$env:JIRA_API_TOKEN="jira-api-token"
+$env:LINEAR_API_KEY="linear-api-key"
+$env:PR_AUTOMATION_GITHUB_TOKEN="github-token"
+$env:PR_AUTOMATION_AZURE_DEVOPS_ORG="your-azure-org"
+$env:PR_AUTOMATION_AZURE_DEVOPS_PAT="azure-devops-pat"
+```
+
+Step 4 adds the impact-radius analyzer:
+
+- Analyzer endpoint: `POST /api/pr-automation/states/{state_id}/impact-radius`
+- Status endpoint: `GET /api/pr-automation/impact-radius/status`
+- Inputs are limited to PR state metadata: changed paths, file stats, language hints, generated-file markers, ticket metadata, and intent summaries
+- Output includes impacted modules, overall risk, blast radius, critical files, cross-cutting concerns, test recommendations, and recommended specialist agents
+- The analyzer does not inspect cloned repositories, raw source files, raw diff hunks, or quarantined source
+
+Step 5 adds the invariant/policy agent:
+
+- Agent endpoint: `POST /api/pr-automation/states/{state_id}/policy`
+- Status endpoint: `GET /api/pr-automation/policy/status`
+- Checks include raw-code state safety, high-impact review gates, security test evidence, dependency/SBOM obligations, CI/IaC least-privilege review, migration evidence, generated artifact review, ticket context quality, broad-radius integration coverage, and security-sensitive delete/rename blockers
+- Output includes a policy decision: `passed`, `review_required`, or `blocked`
+- Policy findings populate the PR state's invariant findings and required specialist agents, but they do not publish comments, approve PRs, mutate repositories, or alter scanner rules
+
+Step 6 adds the PR feedback composer:
+
+- Composer endpoint: `POST /api/pr-automation/states/{state_id}/feedback`
+- Status endpoint: `GET /api/pr-automation/feedback/status`
+- Output includes a markdown review summary, overview bullets, required actions, validation recommendations, specialist routing, general draft comments, and file-scoped draft comments
+- Publication state is explicit: `ready`, `requires_review`, or `blocked`
+- The composer writes draft feedback into PR state only. It does not publish to any code host and intentionally omits inline code suggestions until safe-fix and publisher governance are implemented
+
+Step 7 adds the governed inline comment/suggestion publisher:
+
+- Publisher endpoint: `POST /api/pr-automation/states/{state_id}/publish`
+- Status endpoint: `GET /api/pr-automation/publisher/status`
+- Dry-run is the default. Real publishing requires `publish=true`, configured provider credentials, and no blocking feedback state unless `force=true` records an explicit override.
+- Supported targets are GitHub, GitLab, Azure DevOps, and Bitbucket. GitHub payloads include review comments for file/line draft feedback; other providers receive a bounded summary comment with file-scoped feedback folded into the body.
+- Suggestions are omitted unless `allow_suggestions=true`, and only already-approved feedback items with a `suggestion` value can render suggestion blocks.
+- The publisher does not inspect repositories, raw diff hunks, or source files. It only sends bounded feedback text and file/line metadata.
+
+Step 8 adds governance evidence for every PR action:
+
+- Evidence endpoint: `POST /api/pr-automation/states/{state_id}/governance-evidence`
+- Status endpoint: `GET /api/pr-automation/governance-evidence/status`
+- The evidence report correlates saved PR state, evidence pointer hashes, and governance events for ingress, ticket hydration, impact radius, invariant policy, feedback composition, and publishing.
+- Exported artifacts are stored under `SECURE_REVIEW_DATA_DIR\pr-automation\governance-evidence` and embedded back into PR state through a `pr-governance-evidence` pointer.
+- Reports are `completed`, `partial`, or `attention_required`. Missing action evidence produces `partial`; raw code persistence, repository mutation, or scanner rule mutation produces `attention_required`.
+- The report is compliance-oriented JSON. It includes action lineage, event IDs, state hashes, safety assertions, and bounded metadata, but excludes raw source code, raw diff hunks, raw ticket descriptions, and provider secrets.
+
+Webhook secret examples:
+
+```powershell
+$env:PR_AUTOMATION_GITHUB_WEBHOOK_SECRET="long-random-github-secret"
+$env:PR_AUTOMATION_GITLAB_WEBHOOK_SECRET="long-random-gitlab-token"
+$env:PR_AUTOMATION_AZURE_DEVOPS_WEBHOOK_SECRET="long-random-azure-relay-secret"
+$env:PR_AUTOMATION_BITBUCKET_WEBHOOK_SECRET="long-random-bitbucket-secret"
+```
+
+Guardrails:
+
+- PR state is a coordination object, not an autonomous publisher.
+- Raw diff/code-heavy evidence should stay out of durable state unless a later approved workflow explicitly needs it.
+- Inline suggestions must still pass safe-fix, benchmark, and governance controls before publication.
+
 ## Roadmap Point 3: Unified Scanner Ingestion Layer
 
 Point 3 adds a scanner mesh so each analyzer feeds one normalized finding schema instead of keeping separate per-tool shapes.

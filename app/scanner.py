@@ -13,6 +13,7 @@ from typing import Any
 
 from .ai import explain, suggest_fix
 from .catalog_scan import run_catalog_native
+from .consolidation import consolidate_scan
 from .dependency_review import enrich_dependency_findings
 from .ingestion import enrich_finding, finding_from_bandit, finding_from_pip_audit, finding_from_semgrep, finding_from_shellcheck, findings_from_sarif_file
 from .ast_scanner import run_ast_analysis
@@ -134,7 +135,8 @@ def run_scan(target_path: Path, project_name: str | None = None, extra_sarif_pat
     scan = score_scan(compare_to_baseline(scan))
     scan.findings = sorted(scan.findings, key=lambda item: (-scope_sort_rank(item), -item.risk.score, -SEVERITY_ORDER.get(item.severity, 0), item.location.path, item.location.line))
     scan.summary = build_summary(files, scan.findings, tools)
-    return apply_decisions(scan)
+    scan = apply_decisions(scan)
+    return consolidate_scan(scan)
 
 
 def iter_source_files(target: Path):

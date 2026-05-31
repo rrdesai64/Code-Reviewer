@@ -15,6 +15,7 @@ Production-shaped secure code review assistant built from the strategic upgrade 
 - Native standalone SQL artifact scanner for migrations, stored procedures, and `.sql` scripts
 - Python dependency vulnerability checks with `pip-audit`
 - Dependency manifest hygiene checks for Python and Node projects
+- Cross-tool finding consolidation with one priority score per semantic issue
 - Normalized findings with CWE/OWASP mapping, severity, confidence, explanation, and fix guidance
 - Markdown and printable HTML reports
 
@@ -818,17 +819,19 @@ Implemented:
 - Post-dedupe enrichment for built-in AST, dependency manifest, and secret findings so all findings expose the same metadata surface
 - External SARIF import through the CLI with repeatable `--sarif-in` flags
 - Scanner mesh status and per-scan coverage reports in API, CLI, and web UI
-- `scan.ps1` now emits `scanner-mesh.json` by default and accepts optional SARIF imports with `-SarifIn`
+- Cross-tool finding consolidation that clusters scanner findings by normalized path, close line range, compatible CWE/sink, and distinct tool agreement
+- `scan.ps1` now emits `scanner-mesh.json` and `finding-consolidation.json` by default and accepts optional SARIF imports with `-SarifIn`
 
 Useful endpoints:
 
 - `GET /api/scanner-mesh/status`
 - `GET /api/scans/{scan_id}/scanner-mesh`
+- `GET /api/scans/{scan_id}/consolidated-findings`
 
 CLI export and SARIF import:
 
 ```powershell
-.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --sarif-in codeql.sarif --scanner-mesh-out scanner-mesh.json
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --sarif-in codeql.sarif --scanner-mesh-out scanner-mesh.json --consolidated-findings-out finding-consolidation.json
 ```
 
 PowerShell wrapper:
@@ -837,7 +840,7 @@ PowerShell wrapper:
 .\scan.ps1 -Path "G:\Path\To\Repo" -SarifIn @("codeql.sarif", "third-party.sarif")
 ```
 
-The scanner mesh is the integration point for future Snyk/GitHub code-scanning/Semgrep Platform ingestion. New adapters should convert into `Finding` through `app.ingestion.normalize_finding()` so policy, risk scoring, SBOM, PR review, and enterprise reporting see one consistent contract.
+The scanner mesh is the integration point for future Snyk/GitHub code-scanning/Semgrep Platform ingestion. New adapters should convert into `Finding` through `app.ingestion.normalize_finding()` so policy, risk scoring, SBOM, PR review, and enterprise reporting see one consistent contract. Raw findings remain stored for auditability; consolidation is a presentation and prioritization layer that turns overlapping scanner evidence into the ranked "fix these first" list.
 
 ## Roadmap Point 4: Dependency Review With Reachability And Risk Scoring
 
@@ -1654,7 +1657,7 @@ Dashboard scans now write a human-shareable report bundle automatically after ea
 reports\<repo-name>\<scan-id>\
 ```
 
-Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `messaging-gateway.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, and safe fix dry-run artifacts.
+Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `finding-consolidation.json`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `messaging-gateway.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, and safe fix dry-run artifacts.
 
 The dashboard shows the saved bundle path after the scan and includes a `Report Bundle` action that opens the manifest. Set `REPORT_BUNDLE_DIR` in `.env` to place bundles somewhere else, for example:
 

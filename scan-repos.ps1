@@ -191,6 +191,7 @@ function Add-ScanOutputArgs {
     '-JsonOut', (Join-Path $ReportDir 'scan.json'),
     '-SarifOut', (Join-Path $ReportDir 'secure-review.sarif'),
     '-ScannerMeshOut', (Join-Path $ReportDir 'scanner-mesh.json'),
+    '-ConsolidatedFindingsOut', (Join-Path $ReportDir 'finding-consolidation.json'),
     '-DependencyReviewOut', (Join-Path $ReportDir 'dependency-review.json'),
     '-SonarQubeOut', (Join-Path $ReportDir 'sonarqube-quality-gate.json'),
     '-ScannerDepthOut', (Join-Path $ReportDir 'scanner-depth.json'),

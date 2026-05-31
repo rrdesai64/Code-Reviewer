@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from .consolidation import top_consolidated_findings
 from .models import Finding, ScanResult
 from .reporting import format_counts
 from .scope import finding_scope, scope_sort_rank
@@ -469,8 +470,27 @@ def scan_summary(scan: ScanResult) -> dict[str, Any]:
 
 
 def top_findings(scan: ScanResult, limit: int) -> list[dict[str, Any]]:
+    consolidated = top_consolidated_findings(scan, limit)
+    if consolidated:
+        return [consolidated_finding_summary(item) for item in consolidated]
     sorted_findings = sorted(scan.findings, key=lambda item: (scope_sort_rank(item), item.risk.score, priority_rank(item)), reverse=True)
     return [finding_summary(finding) for finding in sorted_findings[:limit]]
+
+
+def consolidated_finding_summary(item: Any) -> dict[str, Any]:
+    line_range = str(item.line_start) if item.line_start == item.line_end else f'{item.line_start}-{item.line_end}'
+    return {
+        'id': item.cluster_id,
+        'priority': item.priority,
+        'risk_score': item.priority_score,
+        'severity': item.severity,
+        'scope': 'consolidated',
+        'title': item.title,
+        'source': ','.join(item.sources),
+        'rule_id': ','.join(item.cwe or item.rules[:2]) or item.semantic_key,
+        'location': f'{item.path}:{line_range}',
+        'message': f'{item.agreement_count} tool(s) agree; {item.raw_count} raw finding(s).',
+    }
 
 
 def finding_summary(finding: Finding) -> dict[str, Any]:

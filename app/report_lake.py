@@ -59,9 +59,13 @@ def ensure_report_lake() -> None:
 
 
 def sanitized_scan_report(scan: ScanResult) -> dict[str, Any]:
+    from .consolidation import ensure_consolidated_scan
+
+    scan = ensure_consolidated_scan(scan)
     policy = quarantine_policy_for_scan(scan)
     learning_allowed = bool(policy.get('controls', {}).get('agent_learning', True))
     findings = [sanitize_finding(finding, learning_allowed=learning_allowed) for finding in scan.findings[:MAX_FINDINGS_PER_REPORT]]
+    consolidated = [sanitize_consolidated_finding(item) for item in scan.consolidated_findings[:MAX_FINDINGS_PER_REPORT]]
     target_hint = sanitize_path(scan.target_path, max_parts=3)
     return {
         'schema_version': SCHEMA_VERSION,
@@ -82,8 +86,11 @@ def sanitized_scan_report(scan: ScanResult) -> dict[str, Any]:
         'quarantine': sanitize_quarantine_policy(policy),
         'learning_eligibility': learning_eligibility(policy),
         'findings': findings,
+        'consolidated_findings': consolidated,
         'finding_count': len(scan.findings),
         'stored_finding_count': len(findings),
+        'consolidated_finding_count': len(scan.consolidated_findings),
+        'stored_consolidated_finding_count': len(consolidated),
         'truncated_findings': max(0, len(scan.findings) - len(findings)),
         'lineage': {
             'source': 'saved-scan-result',
@@ -198,6 +205,10 @@ def report_lake_index_record(report: dict[str, Any], path: Path | None = None) -
             'languages': summary.get('languages', {}),
             'risk_tiers': summary.get('risk_tiers', {}),
             'priorities': summary.get('priorities', {}),
+            'consolidated_findings': summary.get('consolidated_findings', 0),
+            'cross_tool_clusters': summary.get('cross_tool_clusters', 0),
+            'consolidated_priorities': summary.get('consolidated_priorities', {}),
+            'top_consolidated_priority_score': summary.get('top_consolidated_priority_score', 0),
             'scope_counts': summary.get('scope_counts', {}),
         },
         'quarantine': report.get('quarantine', {}),
@@ -234,9 +245,67 @@ def sanitize_summary(scan: ScanResult) -> dict[str, Any]:
         'all_avg_risk_score': float(summary.all_avg_risk_score or 0),
         'all_risk_tiers': sanitize_count_map(summary.all_risk_tiers),
         'all_priorities': sanitize_count_map(summary.all_priorities),
+        'consolidated_findings': safe_int(summary.consolidated_findings),
+        'cross_tool_clusters': safe_int(summary.cross_tool_clusters),
+        'consolidated_priorities': sanitize_count_map(summary.consolidated_priorities),
+        'top_consolidated_priority_score': safe_int(summary.top_consolidated_priority_score),
         'new_finding_count': len(scan.new_findings),
         'resolved_finding_count': len(scan.resolved_findings),
         'unchanged_finding_count': len(scan.unchanged_findings),
+    }
+
+
+def sanitize_consolidated_finding(item: Any) -> dict[str, Any]:
+    return {
+        'cluster_id': sanitize_identifier(item.cluster_id),
+        'title': sanitize_text(item.title, max_length=220),
+        'location': {
+            'path': sanitize_path(item.path),
+            'line_start': safe_int(item.line_start),
+            'line_end': safe_int(item.line_end),
+            'full_path_stored': False,
+        },
+        'semantic_key': sanitize_text(item.semantic_key, max_length=120),
+        'cwe': [sanitize_text(value, max_length=40) for value in item.cwe],
+        'sink': sanitize_text(item.sink, max_length=80),
+        'severity': item.severity,
+        'confidence': sanitize_text(item.confidence, max_length=40),
+        'priority_score': safe_int(item.priority_score),
+        'priority': item.priority,
+        'risk_tier': item.risk_tier,
+        'recommended_action': sanitize_text(item.recommended_action, max_length=220),
+        'agreement_count': safe_int(item.agreement_count),
+        'tool_agreement_score': safe_int(item.tool_agreement_score),
+        'raw_count': safe_int(item.raw_count),
+        'sources': [sanitize_text(value, max_length=80) for value in item.sources],
+        'rules': [sanitize_text(value, max_length=160) for value in item.rules],
+        'finding_ids': [sanitize_identifier(value) for value in item.finding_ids],
+        'representative_finding_id': sanitize_identifier(item.representative_finding_id),
+        'factors': [
+            {
+                'name': sanitize_text(factor.name, max_length=80),
+                'label': sanitize_text(factor.label, max_length=120),
+                'points': safe_int(factor.points),
+                'detail': sanitize_text(factor.detail, max_length=220),
+            }
+            for factor in item.factors
+        ],
+        'evidence': [
+            {
+                'finding_id': sanitize_identifier(evidence.finding_id),
+                'source': sanitize_text(evidence.source, max_length=80),
+                'rule_id': sanitize_text(evidence.rule_id, max_length=160),
+                'severity': evidence.severity,
+                'confidence': sanitize_text(evidence.confidence, max_length=40),
+                'path': sanitize_path(evidence.path),
+                'line': safe_int(evidence.line),
+                'cwe': [sanitize_text(value, max_length=40) for value in evidence.cwe],
+                'sink': sanitize_text(evidence.sink, max_length=80),
+                'message': sanitize_text(evidence.message, max_length=220),
+                'decision': evidence.decision,
+            }
+            for evidence in item.evidence[:25]
+        ],
     }
 
 

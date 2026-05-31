@@ -69,6 +69,9 @@ def test_sarif_and_reports(client, scanned):
     sarif = client.get(f"/api/scans/{sid}/sarif")
     assert sarif.status_code == 200
     assert sarif.json()["version"] == "2.1.0"
+    consolidated = client.get(f"/api/scans/{sid}/consolidated-findings")
+    assert consolidated.status_code == 200
+    assert consolidated.json()["schema_version"] == "finding-consolidation-v1"
     assert client.get(f"/api/scans/{sid}/report.md").status_code == 200
     assert client.get(f"/api/scans/{sid}/report.html").status_code == 200
     assert client.get(f"/api/scans/{sid}/github-pr-comment").status_code == 200

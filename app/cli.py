@@ -11,6 +11,7 @@ from .enterprise import audit, compliance_report
 from .dependency_review import dependency_review_report
 from .chat_agents import ChatAgentError, build_chat_notification
 from .code_hosts import CodeHostIntegrationError, build_code_host_review
+from .consolidation import consolidated_findings_report
 from .advanced_ai import build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, phase_g_report, run_multi_agent_review, semantic_search
 from .benchmark_gate import benchmark_gate_report_for_recommendations
 from .catalog_coverage import catalog_coverage_map
@@ -49,6 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--sarif-out')
     parser.add_argument('--sarif-in', action='append', default=[], help='import an external SARIF file into the normalized scanner mesh')
     parser.add_argument('--scanner-mesh-out')
+    parser.add_argument('--consolidated-findings-out')
     parser.add_argument('--dependency-review-out')
     parser.add_argument('--sonarqube-out')
     parser.add_argument('--scanner-depth-out')
@@ -166,6 +168,8 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.sarif_out).write_text(json.dumps(build_sarif(scan), indent=2), encoding='utf-8')
     if args.scanner_mesh_out:
         Path(args.scanner_mesh_out).write_text(json.dumps(scanner_mesh_report(scan), indent=2), encoding='utf-8')
+    if args.consolidated_findings_out:
+        Path(args.consolidated_findings_out).write_text(json.dumps(consolidated_findings_report(scan), indent=2), encoding='utf-8')
     if args.dependency_review_out:
         Path(args.dependency_review_out).write_text(json.dumps(dependency_review_report(scan), indent=2), encoding='utf-8')
     if args.sonarqube_out:
@@ -352,6 +356,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f'Scan {scan.scan_id}: {scan.summary.total_findings} findings across {scan.summary.files_scanned} files')
     print(f'Production gate: findings={scan.summary.production_findings}, hygiene={scan.summary.hygiene_findings}, scopes={scan.summary.scope_counts}')
     print(f'Production risk: max={scan.summary.max_risk_score}, avg={scan.summary.avg_risk_score}, priorities={scan.summary.priorities}')
+    print(f'Consolidated priorities: items={scan.summary.consolidated_findings}, cross-tool={scan.summary.cross_tool_clusters}, top_score={scan.summary.top_consolidated_priority_score}, priorities={scan.summary.consolidated_priorities}')
     print(f"Tools: {', '.join(f'{k}={v}' for k, v in scan.summary.tools.items())}")
     if quarantine.get('matched'):
         print(f"Quarantine: {quarantine['status']} (agent_learning={quarantine['controls'].get('agent_learning')}, report_only={quarantine['controls'].get('report_only')})")

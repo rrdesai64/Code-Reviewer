@@ -11,6 +11,7 @@ from .benchmark_gate import benchmark_gate_report_for_recommendations
 from .catalog_coverage import catalog_coverage_map
 from .chat_agents import build_chat_notification
 from .code_hosts import build_code_host_review
+from .consolidation import consolidated_findings_report
 from .compliance_api import compliance_evidence_bundle
 from .dependency_review import dependency_review_report
 from .enterprise import compliance_report
@@ -61,6 +62,7 @@ def build_report_bundle(scan: ScanResult, base_dir: Path | None = None, ai_revie
     write_text_artifact('secure-review.html', lambda: html_report(scan), 'text/html')
     write_json_artifact('secure-review.sarif', lambda: build_sarif(scan), 'application/sarif+json')
     write_text_artifact('pr-comment.md', lambda: github_pr_comment(scan), 'text/markdown')
+    write_json_artifact('finding-consolidation.json', lambda: consolidated_findings_report(scan))
     write_json_artifact('scanner-mesh.json', lambda: scanner_mesh_report(scan))
     write_json_artifact('dependency-review.json', lambda: dependency_review_report(scan))
     write_json_artifact('sonarqube-quality-gate.json', lambda: sonarqube_quality_report(scan))

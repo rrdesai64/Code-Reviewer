@@ -66,6 +66,48 @@ class Finding(BaseModel):
     decision_reason: str | None = None
 
 
+class ConsolidatedFindingEvidence(BaseModel):
+    finding_id: str
+    source: str
+    rule_id: str
+    title: str
+    severity: Severity
+    confidence: str
+    path: str
+    line: int = 1
+    end_line: int | None = None
+    cwe: list[str] = Field(default_factory=list)
+    sink: str = ''
+    message: str = ''
+    decision: DecisionState = 'open'
+
+
+class ConsolidatedFinding(BaseModel):
+    cluster_id: str
+    title: str
+    path: str
+    line_start: int = 1
+    line_end: int = 1
+    semantic_key: str
+    cwe: list[str] = Field(default_factory=list)
+    sink: str = ''
+    severity: Severity
+    confidence: str = 'MEDIUM'
+    priority_score: int = 0
+    priority: Priority = 'P4'
+    risk_tier: Severity = 'INFO'
+    recommended_action: str = 'Review and triage.'
+    agreement_count: int = 1
+    tool_agreement_score: int = 40
+    raw_count: int = 1
+    sources: list[str] = Field(default_factory=list)
+    rules: list[str] = Field(default_factory=list)
+    finding_ids: list[str] = Field(default_factory=list)
+    representative_finding_id: str
+    evidence: list[ConsolidatedFindingEvidence] = Field(default_factory=list)
+    factors: list[RiskFactor] = Field(default_factory=list)
+
+
 class ScanSummary(BaseModel):
     total_findings: int = 0
     critical: int = 0
@@ -87,6 +129,10 @@ class ScanSummary(BaseModel):
     all_avg_risk_score: float = 0
     all_risk_tiers: dict[str, int] = Field(default_factory=dict)
     all_priorities: dict[str, int] = Field(default_factory=dict)
+    consolidated_findings: int = 0
+    cross_tool_clusters: int = 0
+    consolidated_priorities: dict[str, int] = Field(default_factory=dict)
+    top_consolidated_priority_score: int = 0
 
 
 class ScanResult(BaseModel):
@@ -99,6 +145,7 @@ class ScanResult(BaseModel):
     new_findings: list[str] = Field(default_factory=list)
     resolved_findings: list[str] = Field(default_factory=list)
     unchanged_findings: list[str] = Field(default_factory=list)
+    consolidated_findings: list[ConsolidatedFinding] = Field(default_factory=list)
 
 
 class DecisionRequest(BaseModel):

@@ -289,12 +289,21 @@ def scanner_mesh_status() -> dict[str, Any]:
         'schema_version': NORMALIZATION_VERSION,
         'supported_sources': SUPPORTED_SOURCES,
         'normalized_fields': ['source', 'rule_id', 'severity', 'confidence', 'cwe', 'owasp', 'references', 'scope', 'risk', 'scanner_metadata', 'exploitability', 'reachability', 'policy_impact', 'remediation'],
+        'consolidation': {
+            'enabled': True,
+            'cluster_key': 'normalized path + close line range + compatible CWE/sink token',
+            'presentation_artifact': 'finding-consolidation.json',
+            'api_endpoint': '/api/scans/{scan_id}/consolidated-findings',
+        },
         'sarif_import': {'enabled': True, 'cli_flag': '--sarif-in'},
         'future_connectors': ['snyk-cli', 'snyk-api', 'semgrep-appsec-platform', 'github-code-scanning-sarif'],
     }
 
 
 def scanner_mesh_report(scan: ScanResult) -> dict[str, Any]:
+    from .consolidation import ensure_consolidated_scan
+
+    scan = ensure_consolidated_scan(scan)
     by_source = Counter(finding.source for finding in scan.findings)
     by_family = Counter(source_family(finding.source) for finding in scan.findings)
     exploitability = Counter(finding.exploitability for finding in scan.findings)
@@ -313,6 +322,13 @@ def scanner_mesh_report(scan: ScanResult) -> dict[str, Any]:
         'production_findings': scan.summary.production_findings,
         'hygiene_findings': scan.summary.hygiene_findings,
         'tools': scan.summary.tools,
+        'consolidation': {
+            'schema_version': 'finding-consolidation-v1',
+            'consolidated_findings': scan.summary.consolidated_findings,
+            'cross_tool_clusters': scan.summary.cross_tool_clusters,
+            'top_priority_score': scan.summary.top_consolidated_priority_score,
+            'priority_counts': dict(scan.summary.consolidated_priorities),
+        },
         'coverage': {
             'scanner_metadata': metadata_coverage,
             'exploitability': sum(1 for finding in scan.findings if finding.exploitability != 'unknown'),

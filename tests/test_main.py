@@ -164,3 +164,131 @@ def test_saml_metadata(client):
     resp = client.get("/auth/saml/metadata")
     assert resp.status_code == 200
     assert "EntityDescriptor" in resp.text
+
+
+def test_oidc_callback_exchanges_token_and_logs_in(client, monkeypatch):
+    from app import main
+
+    class FakeOidcClient:
+        async def authorize_access_token(self, request):
+            return {"id_token": "signed-id-token"}
+
+        async def parse_id_token(self, request, token):
+            assert token["id_token"] == "signed-id-token"
+            return {
+                "preferred_username": "alice",
+                "email": "alice@example.test",
+                "name": "Alice Reviewer",
+                "groups": ["Security Team"],
+            }
+
+    class FakeOAuth:
+        oidc = FakeOidcClient()
+
+    monkeypatch.setattr(main, "oauth", FakeOAuth())
+    monkeypatch.setenv("AUTH_REQUIRED", "true")
+    monkeypatch.setenv("AUTH_GROUP_ROLE_MAP", "Security Team:security_reviewer")
+
+    blocked = client.get("/api/scans")
+    assert blocked.status_code == 401
+
+    callback = client.get("/auth/callback/oidc")
+    assert callback.status_code == 303
+    assert callback.headers["location"] == "/"
+
+    me = client.get("/auth/me")
+    assert me.status_code == 200
+    body = me.json()
+    assert body["username"] == "alice"
+    assert body["provider"] == "oidc"
+    assert body["roles"] == ["security_reviewer"]
+    assert "id_token" not in body["raw_claims"]
+
+
+def test_saml_acs_consumes_signed_assertion_and_logs_in(client, monkeypatch):
+    from app import main
+
+    signed_saml_response = "base64-encoded-signed-saml-fixture"
+
+    class FakeSamlAuth:
+        def __init__(self):
+            self.processed = False
+
+        def process_response(self):
+            self.processed = True
+
+        def get_errors(self):
+            assert self.processed is True
+            return []
+
+        def is_authenticated(self):
+            return True
+
+        def get_last_error_reason(self):
+            return ""
+
+        def get_attributes(self):
+            return {
+                "email": ["saml-user@example.test"],
+                "name": ["SAML Reviewer"],
+                "groups": ["Auditors"],
+            }
+
+        def get_nameid(self):
+            return "saml-user"
+
+    async def fake_make_saml_auth(request):
+        form = await request.form()
+        assert form["SAMLResponse"] == signed_saml_response
+        return FakeSamlAuth()
+
+    monkeypatch.setattr(main, "make_saml_auth", fake_make_saml_auth)
+    monkeypatch.setenv("AUTH_REQUIRED", "true")
+    monkeypatch.setenv("AUTH_MODE", "saml")
+    monkeypatch.setenv("AUTH_GROUP_ROLE_MAP", "Auditors:auditor")
+
+    callback = client.post("/auth/saml/acs", data={"SAMLResponse": signed_saml_response})
+    assert callback.status_code == 303
+    assert callback.headers["location"] == "/"
+
+    me = client.get("/auth/me")
+    assert me.status_code == 200
+    body = me.json()
+    assert body["username"] == "saml-user"
+    assert body["provider"] == "saml"
+    assert body["roles"] == ["auditor"]
+
+
+def test_saml_acs_rejects_failed_assertion(client, monkeypatch):
+    from app import main
+
+    class FailedSamlAuth:
+        def process_response(self):
+            return None
+
+        def get_errors(self):
+            return ["invalid_response"]
+
+        def is_authenticated(self):
+            return False
+
+        def get_last_error_reason(self):
+            return "signature validation failed"
+
+    async def fake_make_saml_auth(request):
+        return FailedSamlAuth()
+
+    monkeypatch.setattr(main, "make_saml_auth", fake_make_saml_auth)
+
+    resp = client.post("/auth/saml/acs", data={"SAMLResponse": "bad-fixture"})
+    assert resp.status_code == 401
+    assert resp.json()["detail"]["errors"] == ["invalid_response"]
+
+
+def test_catalog_coverage_map_endpoint(client):
+    resp = client.get("/api/catalog/coverage-map?include_rules=false")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["rule_count"] >= 150
+    assert "rules" not in body
+    assert body["summary"]["covered"] > 0

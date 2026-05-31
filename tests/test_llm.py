@@ -1,6 +1,4 @@
 """Tests for llm.py. Network is always stubbed via monkeypatching post_json."""
-import pytest
-
 from app import llm
 from app.models import KnowledgeChunk, LLMRequest
 

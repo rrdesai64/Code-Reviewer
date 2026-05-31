@@ -5,8 +5,6 @@ import json
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
-
 from .paths import data_dir
 from .models import Finding, ScanResult
 
@@ -61,7 +59,6 @@ def update_repository_memory(scan: ScanResult) -> dict:
     finding_memory = repo.get('finding_memory', {})
     previous_active = set(repo.get('active_fingerprints') or [fp for fp, item in finding_memory.items() if item.get('status') == 'active'])
     current_fingerprints = {finding.fingerprint for finding in scan.findings}
-    current_by_fingerprint = {finding.fingerprint: finding for finding in scan.findings}
     scan_already_recorded = scan_seen(memory, repo, scan.scan_id)
 
     for fingerprint in sorted(previous_active - current_fingerprints):

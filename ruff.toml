@@ -1,0 +1,16 @@
+target-version = "py311"
+line-length = 160
+
+extend-exclude = [
+    ".venv",
+    "data",
+    "reports",
+    "scan-workspace",
+]
+
+[lint]
+select = [
+    "E9",
+    "F",
+    "W605",
+]

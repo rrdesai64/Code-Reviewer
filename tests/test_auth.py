@@ -8,7 +8,6 @@ cleanly where those are absent.
 import pytest
 
 auth = pytest.importorskip("app.auth")
-from app.models import Finding  # noqa: E402  (after importorskip)
 
 
 class FakeRequest:

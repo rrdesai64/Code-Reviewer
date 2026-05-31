@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .benchmark_gate import benchmark_gate_report_for_recommendations
+from .catalog_coverage import catalog_coverage_map
 from .chat_agents import build_chat_notification
 from .code_hosts import build_code_host_review
 from .compliance_api import compliance_evidence_bundle
@@ -64,6 +65,7 @@ def build_report_bundle(scan: ScanResult, base_dir: Path | None = None, ai_revie
     write_json_artifact('dependency-review.json', lambda: dependency_review_report(scan))
     write_json_artifact('sonarqube-quality-gate.json', lambda: sonarqube_quality_report(scan))
     write_json_artifact('scanner-depth.json', lambda: scanner_depth_report(scan))
+    write_json_artifact('catalog-coverage-map.json', lambda: catalog_coverage_map())
     write_json_artifact('quarantine-policy.json', lambda: quarantine_policy_for_scan(scan))
     write_json_artifact('sanitized-report.json', lambda: sanitized_scan_report(scan))
     write_json_artifact('rag-memory.json', lambda: rag_memory_for_scan(scan))

@@ -4,7 +4,7 @@ import unittest
 
 from app.ingestion import normalize_finding
 from app.models import ScanResult, ScanSummary
-from app.quarantine import blocks_host_scan, quarantine_policy, quarantine_policy_for_scan, upsert_quarantine_entry
+from app.quarantine import blocks_host_scan, quarantine_policy, upsert_quarantine_entry
 from app.recursive_learning import recursive_learning_from_scans
 
 

@@ -8,7 +8,7 @@ import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 from xml.sax.saxutils import escape
 
 from .paths import ROOT, data_dir, output_root
@@ -35,6 +35,7 @@ ALLOWED_EXPORTS = [
     'dependency-review.json',
     'sonarqube-quality-gate.json',
     'scanner-depth.json',
+    'catalog-coverage-map.json',
     'quarantine-policy.json',
     'sanitized-report.json',
     'rag-memory.json',
@@ -342,7 +343,6 @@ try {{
 
 
 def scan_arguments(manifest: dict[str, Any]) -> str:
-    report = str(GUEST_REPORT_WORK)
     args = [
         '-Path', str(GUEST_REPO_WORK),
         '-JsonOut', str(GUEST_REPORT_WORK / 'scan.json'),
@@ -351,6 +351,7 @@ def scan_arguments(manifest: dict[str, Any]) -> str:
         '-DependencyReviewOut', str(GUEST_REPORT_WORK / 'dependency-review.json'),
         '-SonarQubeOut', str(GUEST_REPORT_WORK / 'sonarqube-quality-gate.json'),
         '-ScannerDepthOut', str(GUEST_REPORT_WORK / 'scanner-depth.json'),
+        '-CatalogCoverageOut', str(GUEST_REPORT_WORK / 'catalog-coverage-map.json'),
         '-QuarantinePolicyOut', str(GUEST_REPORT_WORK / 'quarantine-policy.json'),
         '-SanitizedReportOut', str(GUEST_REPORT_WORK / 'sanitized-report.json'),
         '-RagMemoryOut', str(GUEST_REPORT_WORK / 'rag-memory.json'),

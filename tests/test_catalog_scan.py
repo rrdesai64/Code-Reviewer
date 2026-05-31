@@ -1,6 +1,4 @@
 """Tests for the native byte-level scanner (catalog binary_scan lane)."""
-from pathlib import Path
-
 import pytest
 
 from app import catalog_knowledge as kb

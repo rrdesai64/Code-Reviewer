@@ -13,6 +13,7 @@ from .chat_agents import ChatAgentError, build_chat_notification
 from .code_hosts import CodeHostIntegrationError, build_code_host_review
 from .advanced_ai import build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, phase_g_report, run_multi_agent_review, semantic_search
 from .benchmark_gate import benchmark_gate_report_for_recommendations
+from .catalog_coverage import catalog_coverage_map
 from .github_pr import GitHubIntegrationError, build_github_pr_review
 from .governance import compliance_evidence_export
 from .hermes import run_hermes_on_memory
@@ -51,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--dependency-review-out')
     parser.add_argument('--sonarqube-out')
     parser.add_argument('--scanner-depth-out')
+    parser.add_argument('--catalog-coverage-out')
     parser.add_argument('--advanced-ai-out')
     parser.add_argument('--ai-review-out')
     parser.add_argument('--ai-review-limit', type=int, default=25)
@@ -170,6 +172,8 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.sonarqube_out).write_text(json.dumps(sonarqube_quality_report(scan), indent=2), encoding='utf-8')
     if args.scanner_depth_out:
         Path(args.scanner_depth_out).write_text(json.dumps(scanner_depth_report(scan), indent=2), encoding='utf-8')
+    if args.catalog_coverage_out:
+        Path(args.catalog_coverage_out).write_text(json.dumps(catalog_coverage_map(), indent=2), encoding='utf-8')
     if args.embedding_index_out:
         payload = build_embedding_index(provider=args.embedding_provider, model=args.embedding_model, force=True)
         Path(args.embedding_index_out).write_text(json.dumps({key: value for key, value in payload.items() if key != 'items'}, indent=2), encoding='utf-8')

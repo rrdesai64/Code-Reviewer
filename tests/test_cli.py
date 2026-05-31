@@ -9,10 +9,13 @@ def test_cli_clean_repo_returns_zero(isolate_storage, isolate_enterprise, isolat
     repo.mkdir()
     (repo / "ok.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
     out = tmp_path / "scan.json"
-    code = cli_main(["--path", str(repo), "--json-out", str(out)])
+    coverage = tmp_path / "catalog-coverage-map.json"
+    code = cli_main(["--path", str(repo), "--json-out", str(out), "--catalog-coverage-out", str(coverage)])
     assert code == 0
     data = json.loads(out.read_text(encoding="utf-8"))
     assert data["summary"]["files_scanned"] >= 1
+    coverage_data = json.loads(coverage.read_text(encoding="utf-8"))
+    assert coverage_data["rule_count"] >= 150
 
 
 def test_cli_fail_on_high_returns_2_and_writes_all_outputs(

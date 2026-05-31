@@ -17,7 +17,7 @@ jobs:
           python -m pip install -r requirements.txt
       - name: Run secure review
         run: |
-          python -m app.cli --path . --sarif-out secure-review.sarif --report-out secure-review.md --pr-comment-out pr-comment.md --fail-on high
+          python -m app.cli --path . --sarif-out secure-review.sarif --report-out secure-review.md --pr-comment-out pr-comment.md --sonarqube-out sonarqube-quality-gate.json --scanner-depth-out scanner-depth.json --sanitized-report-out sanitized-report.json --rag-memory-out rag-memory.json --hermes-out hermes-orchestration.json --ai-review-out ai-review.json --fix-bundle-out fix-bundle.json --issue-plan-out issue-plan.json --chat-notification-out chat-notification.json --messaging-gateway-out messaging-gateway.json --team-learning-out team-learning-dashboard.json --benchmark-gate-out benchmark-gate.json --governance-out governance-evidence.json --code-host-review-out code-host-review.json --fix-apply-out fix-apply-dry-run.json --fail-on high
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
         with:
@@ -31,4 +31,19 @@ jobs:
             secure-review.sarif
             secure-review.md
             pr-comment.md
+            sonarqube-quality-gate.json
+            scanner-depth.json
+            sanitized-report.json
+            rag-memory.json
+            hermes-orchestration.json
+            ai-review.json
+            fix-bundle.json
+            fix-apply-dry-run.json
+            issue-plan.json
+            chat-notification.json
+            messaging-gateway.json
+            team-learning-dashboard.json
+            benchmark-gate.json
+            governance-evidence.json
+            code-host-review.json
         if: always()

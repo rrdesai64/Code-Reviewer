@@ -4,10 +4,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .paths import data_dir
 from .models import ScanResult
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT / 'data'
+DATA_DIR = data_dir()
 SCANS_DIR = DATA_DIR / 'scans'
 BASELINE_PATH = DATA_DIR / 'baseline.json'
 DECISIONS_PATH = DATA_DIR / 'decisions.json'
@@ -16,6 +17,17 @@ DECISIONS_PATH = DATA_DIR / 'decisions.json'
 def ensure_data_dirs() -> None:
     SCANS_DIR.mkdir(parents=True, exist_ok=True)
     (DATA_DIR / 'uploads').mkdir(parents=True, exist_ok=True)
+
+
+def normalize_loaded_scan(scan: ScanResult) -> ScanResult:
+    from .risk import score_scan
+    from .scope import apply_finding_scope, scope_sort_rank
+
+    severity_order = {'CRITICAL': 4, 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1, 'INFO': 0}
+    scan.findings = [apply_finding_scope(finding) for finding in scan.findings]
+    scan = score_scan(scan)
+    scan.findings = sorted(scan.findings, key=lambda item: (-scope_sort_rank(item), -item.risk.score, -severity_order.get(item.severity, 0), item.location.path, item.location.line))
+    return scan
 
 
 def save_scan(scan: ScanResult) -> None:
@@ -28,14 +40,14 @@ def load_scan(scan_id: str) -> ScanResult:
     path = SCANS_DIR / f'{scan_id}.json'
     if not path.exists():
         raise FileNotFoundError(scan_id)
-    return ScanResult.model_validate_json(path.read_text(encoding='utf-8'))
+    return normalize_loaded_scan(ScanResult.model_validate_json(path.read_text(encoding='utf-8')))
 
 
 def list_scans() -> list[ScanResult]:
     ensure_data_dirs()
     scans: list[ScanResult] = []
     for path in sorted(SCANS_DIR.glob('*.json'), key=lambda p: p.stat().st_mtime, reverse=True):
-        scans.append(ScanResult.model_validate_json(path.read_text(encoding='utf-8')))
+        scans.append(normalize_loaded_scan(ScanResult.model_validate_json(path.read_text(encoding='utf-8'))))
     return scans
 
 

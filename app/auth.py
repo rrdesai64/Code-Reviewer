@@ -17,8 +17,8 @@ from .enterprise import audit, load_enterprise
 
 SESSION_USER_KEY = 'secure_review_user'
 SESSION_ID_TOKEN_KEY = 'secure_review_id_token'
-AUTH_EXEMPT_PREFIXES = ('/auth', '/static')
-AUTH_EXEMPT_PATHS = {'/api/health', '/favicon.ico'}
+AUTH_EXEMPT_PREFIXES = ('/auth', '/static', '/api/pr-automation/webhook')
+AUTH_EXEMPT_PATHS = {'/api/health', '/api/integrations/github/webhook', '/favicon.ico'}
 
 
 class AuthUser(BaseModel):

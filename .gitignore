@@ -22,11 +22,37 @@ env/
 
 # Runtime data and generated scan artifacts
 data/
+reports/
+test-repos/
+scan-workspace/
+saved-scan-validation/
+repo-list*.txt
+repo_list*.txt
+!repo-list.example.txt
 *.sarif
+scan.json
 *report.md
 *pr-comment.md
+secure-review.md
 compliance.json
+secret-policy.json
+github-pr-review.json
 fix-proposals.json
+advanced-ai.json
+cyclonedx-sbom.json
+recursive-learning.json
+quarantine-policy.json
+sanitized-report.json
+rag-memory.json
+hermes-orchestration.json
+vm-worker-status.json
+vm-worker.log
+vm-job*.json
+remediation-plan.json
+sbom-compare.json
+sbom-policy.json
+spdx-compliance.json
+spdx-sbom.json
 
 # OS/editor noise
 .DS_Store
@@ -39,3 +65,30 @@ Thumbs.db
 
 # Empty scratch scaffold from initial setup
 secure-review-assistant/
+node_modules/
+tools/codeql/
+tools/downloads/
+
+# VS Code extension packaging
+vscode-extension/node_modules/
+vscode-extension/*.vsix
+scanner-mesh.json
+dependency-review.json
+fix-bundle.json
+fix-apply-dry-run.json
+fix-apply.json
+.secure-review-backups/
+sonarqube-quality-gate.json
+scanner-depth.json
+.secure-review-artifacts/
+issue-plan.json
+chat-notification.json
+code-host-review.json
+team-learning-dashboard.json
+ai-review.json
+hs_err_pid*.log
+replay_pid*.log
+tools/gitleaks/
+tools/trufflehog/
+tools/go/
+tools/go-tools/

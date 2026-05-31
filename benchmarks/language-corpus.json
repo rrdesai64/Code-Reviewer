@@ -1,0 +1,166 @@
+{
+  "schema_version": 1,
+  "name": "secure-review-language-benchmark-corpus",
+  "description": "Inert benchmark expectations used by the benchmark gate. These are not executable repositories and they do not contain source payloads.",
+  "guardrails": [
+    "Benchmark corpus entries are expectations and validation metadata only.",
+    "Do not add raw hostile source or malware samples to this corpus.",
+    "Scanner/rule lessons must pass rule-regression, false-positive, and fix-validation evidence before promotion.",
+    "Only active lessons with passing benchmark evidence and human approval can influence future scanner/rule recommendations."
+  ],
+  "languages": [
+    {
+      "language": "python",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "python-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve Bandit/Semgrep findings for subprocess shell execution and unsafe deserialization.", "expected_outcome": "finding-preserved"},
+        {"case_id": "python-false-positive-001", "case_type": "false-positive", "purpose": "Keep safe subprocess argument-list and typed yaml.safe_load examples from becoming noisy findings.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "python-fix-validation-001", "case_type": "fix-validation", "purpose": "Require compileall, Bandit, pip-audit, and pytest evidence for Python remediation lessons.", "expected_outcome": "validation-passed"}
+      ]
+    },
+    {
+      "language": "go",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "go-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve govulncheck, Semgrep, and CodeQL findings for command execution, TLS, and vulnerable modules.", "expected_outcome": "finding-preserved"},
+        {"case_id": "go-false-positive-001", "case_type": "false-positive", "purpose": "Keep safe exec.Command argument use and intentionally local test helpers from creating scanner noise.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "go-fix-validation-001", "case_type": "fix-validation", "purpose": "Require go test, go vet, govulncheck, and dependency review evidence for Go remediation lessons.", "expected_outcome": "validation-passed"}
+      ]
+    },
+    {
+      "language": "javascript",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "javascript-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve Semgrep/CodeQL findings for eval, prototype pollution, XSS, and vulnerable packages.", "expected_outcome": "finding-preserved"},
+        {"case_id": "javascript-false-positive-001", "case_type": "false-positive", "purpose": "Keep safe DOM APIs, test fixtures, and escaped template rendering from becoming noisy findings.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "javascript-fix-validation-001", "case_type": "fix-validation", "purpose": "Require npm test, lockfile review, and dependency audit evidence for JavaScript remediation lessons.", "expected_outcome": "validation-passed"}
+      ]
+    },
+    {
+      "language": "typescript",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "typescript-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve TypeScript findings for unsafe dynamic execution, SSRF, XSS, and vulnerable packages.", "expected_outcome": "finding-preserved"},
+        {"case_id": "typescript-false-positive-001", "case_type": "false-positive", "purpose": "Keep typed-safe parsing, sanitized rendering, and mocks from becoming noisy findings.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "typescript-fix-validation-001", "case_type": "fix-validation", "purpose": "Require typecheck, tests, lockfile review, and dependency audit evidence for TypeScript lessons.", "expected_outcome": "validation-passed"}
+      ]
+    },
+    {
+      "language": "java",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "java-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve findings for command injection, XXE, deserialization, and vulnerable Maven dependencies.", "expected_outcome": "finding-preserved"},
+        {"case_id": "java-false-positive-001", "case_type": "false-positive", "purpose": "Keep safe XML parser configuration and test-only scaffolding from increasing noise.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "java-fix-validation-001", "case_type": "fix-validation", "purpose": "Require unit tests, build evidence, dependency review, and scanner rerun evidence for Java lessons.", "expected_outcome": "validation-passed"}
+      ]
+    },
+    {
+      "language": "rust",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "rust-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve findings for unsafe blocks, command execution, weak crypto, and vulnerable crates.", "expected_outcome": "finding-preserved"},
+        {"case_id": "rust-false-positive-001", "case_type": "false-positive", "purpose": "Keep safe wrapper abstractions and test fixtures from increasing scanner noise.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "rust-fix-validation-001", "case_type": "fix-validation", "purpose": "Require cargo test, cargo audit, and scanner rerun evidence for Rust lessons.", "expected_outcome": "validation-passed"}
+      ]
+    },
+    {
+      "language": "php",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "php-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve findings for SQL injection, command execution, file inclusion, and vulnerable Composer packages.", "expected_outcome": "finding-preserved"},
+        {"case_id": "php-false-positive-001", "case_type": "false-positive", "purpose": "Keep parameterized queries and framework-safe routing examples from increasing noise.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "php-fix-validation-001", "case_type": "fix-validation", "purpose": "Require PHPUnit, Composer audit, and scanner rerun evidence for PHP lessons.", "expected_outcome": "validation-passed"}
+      ]
+    },
+    {
+      "language": "ruby",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "ruby-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve findings for command execution, unsafe deserialization, SQL injection, and vulnerable gems.", "expected_outcome": "finding-preserved"},
+        {"case_id": "ruby-false-positive-001", "case_type": "false-positive", "purpose": "Keep parameterized ActiveRecord patterns and test helpers from increasing noise.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "ruby-fix-validation-001", "case_type": "fix-validation", "purpose": "Require bundle audit, tests, and scanner rerun evidence for Ruby lessons.", "expected_outcome": "validation-passed"}
+      ]
+    },
+    {
+      "language": "csharp",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "csharp-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve findings for SQL injection, command execution, insecure deserialization, and vulnerable NuGet packages.", "expected_outcome": "finding-preserved"},
+        {"case_id": "csharp-false-positive-001", "case_type": "false-positive", "purpose": "Keep safe LINQ, parameterized SQL, and test scaffolding from increasing noise.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "csharp-fix-validation-001", "case_type": "fix-validation", "purpose": "Require dotnet test, dependency review, and scanner rerun evidence for C# lessons.", "expected_outcome": "validation-passed"}
+      ]
+    },
+    {
+      "language": "yaml",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "yaml-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve findings for unsafe CI permissions, secret exposure, and insecure deployment settings.", "expected_outcome": "finding-preserved"},
+        {"case_id": "yaml-false-positive-001", "case_type": "false-positive", "purpose": "Keep documented examples and intentionally scoped local configs from increasing noise.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "yaml-fix-validation-001", "case_type": "fix-validation", "purpose": "Require parser validation, policy checks, and scanner rerun evidence for YAML lessons.", "expected_outcome": "validation-passed"}
+      ]
+    },
+    {
+      "language": "dockerfile",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "dockerfile-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve findings for privileged containers, unpinned images, secrets, and unsafe package install patterns.", "expected_outcome": "finding-preserved"},
+        {"case_id": "dockerfile-false-positive-001", "case_type": "false-positive", "purpose": "Keep pinned digest examples and non-root container patterns from increasing noise.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "dockerfile-fix-validation-001", "case_type": "fix-validation", "purpose": "Require Dockerfile linting, policy checks, and scanner rerun evidence for container lessons.", "expected_outcome": "validation-passed"}
+      ]
+    },
+    {
+      "language": "terraform",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "terraform-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve findings for public storage, weak IAM, insecure networks, and missing encryption.", "expected_outcome": "finding-preserved"},
+        {"case_id": "terraform-false-positive-001", "case_type": "false-positive", "purpose": "Keep module defaults, examples, and test fixtures from increasing scanner noise.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "terraform-fix-validation-001", "case_type": "fix-validation", "purpose": "Require terraform validate, policy checks, and scanner rerun evidence for IaC lessons.", "expected_outcome": "validation-passed"}
+      ]
+    },
+    {
+      "language": "kotlin",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "kotlin-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve findings for command injection, unsafe deserialization, weak crypto, and vulnerable Gradle dependencies.", "expected_outcome": "finding-preserved"},
+        {"case_id": "kotlin-false-positive-001", "case_type": "false-positive", "purpose": "Keep safe builders, test fixtures, and framework-managed sinks from increasing scanner noise.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "kotlin-fix-validation-001", "case_type": "fix-validation", "purpose": "Require Gradle tests, dependency review, and scanner rerun evidence for Kotlin lessons.", "expected_outcome": "validation-passed"}
+      ]
+    },
+    {
+      "language": "iac-devops",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "iac-devops-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve IaC and CI/CD findings for unsafe permissions, public exposure, unpinned images, and insecure deployment settings.", "expected_outcome": "finding-preserved"},
+        {"case_id": "iac-devops-false-positive-001", "case_type": "false-positive", "purpose": "Keep documented examples, local-only configs, and test fixtures from increasing scanner noise.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "iac-devops-fix-validation-001", "case_type": "fix-validation", "purpose": "Require parser validation, policy checks, and scanner rerun evidence for IaC/DevOps lessons.", "expected_outcome": "validation-passed"}
+      ]
+    },
+    {
+      "language": "dependency-sbom",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "dependency-sbom-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve findings for vulnerable packages, malicious ranges, dependency confusion, and missing SBOM coverage.", "expected_outcome": "finding-preserved"},
+        {"case_id": "dependency-sbom-false-positive-001", "case_type": "false-positive", "purpose": "Keep dev-only fixtures, unreachable packages, and documented examples from increasing dependency-review noise.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "dependency-sbom-fix-validation-001", "case_type": "fix-validation", "purpose": "Require lockfile review, SBOM regeneration, vulnerability scan, and reachability evidence for dependency lessons.", "expected_outcome": "validation-passed"}
+      ]
+    },
+    {
+      "language": "secrets-malware-quarantine",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "secrets-malware-quarantine-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve findings for real secrets, malware indicators, quarantine matches, and push-protection blockers.", "expected_outcome": "finding-preserved"},
+        {"case_id": "secrets-malware-quarantine-false-positive-001", "case_type": "false-positive", "purpose": "Keep synthetic fixtures, documentation examples, and redacted placeholders from increasing secret-scan noise.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "secrets-malware-quarantine-fix-validation-001", "case_type": "fix-validation", "purpose": "Require credential rotation evidence, quarantine review, scanner rerun, and audit evidence before promotion.", "expected_outcome": "validation-passed"}
+      ]
+    },
+    {
+      "language": "scanner-reliability",
+      "maintainer": "AppSec",
+      "cases": [
+        {"case_id": "scanner-reliability-rule-regression-001", "case_type": "rule-regression", "purpose": "Preserve diagnostics for failed, disabled, skipped, timed-out, and missing scanner coverage.", "expected_outcome": "finding-preserved"},
+        {"case_id": "scanner-reliability-false-positive-001", "case_type": "false-positive", "purpose": "Keep transient informational statuses and intentionally unavailable optional scanners from increasing reliability noise.", "expected_outcome": "noise-not-increased"},
+        {"case_id": "scanner-reliability-fix-validation-001", "case_type": "fix-validation", "purpose": "Require diagnostic command evidence, scanner rerun evidence, and report-lake linkage before reliability lessons are promoted.", "expected_outcome": "validation-passed"}
+      ]
+    }
+  ]
+}

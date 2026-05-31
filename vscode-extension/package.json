@@ -1,0 +1,345 @@
+{
+  "name": "secure-code-review-assistant",
+  "displayName": "Secure Code Review Assistant",
+  "description": "Run Secure Code Review Assistant scans and review risk findings from VS Code.",
+  "version": "0.2.0",
+  "publisher": "secure-review-local",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:secureCodeReviewFindings",
+    "onCommand:secureCodeReview.configureApi",
+    "onCommand:secureCodeReview.health",
+    "onCommand:secureCodeReview.scanWorkspace",
+    "onCommand:secureCodeReview.refreshFindings",
+    "onCommand:secureCodeReview.showLastScan",
+    "onCommand:secureCodeReview.showReportPicker",
+    "onCommand:secureCodeReview.exportEvidenceBundle",
+    "onCommand:secureCodeReview.saveBaseline",
+    "onCommand:secureCodeReview.showScannerMesh",
+    "onCommand:secureCodeReview.showDependencyReview",
+    "onCommand:secureCodeReview.showSonarQubeReport",
+    "onCommand:secureCodeReview.showScannerDepth",
+    "onCommand:secureCodeReview.showSecretPolicy",
+    "onCommand:secureCodeReview.showPushProtection",
+    "onCommand:secureCodeReview.showCycloneDx",
+    "onCommand:secureCodeReview.showSpdx",
+    "onCommand:secureCodeReview.showSbomPolicy",
+    "onCommand:secureCodeReview.showSpdxCompliance",
+    "onCommand:secureCodeReview.showCompliance",
+    "onCommand:secureCodeReview.showGithubPrReview",
+    "onCommand:secureCodeReview.showCodeHostReview",
+    "onCommand:secureCodeReview.showFixProposals",
+    "onCommand:secureCodeReview.showFixBundle",
+    "onCommand:secureCodeReview.dryRunFixApply",
+    "onCommand:secureCodeReview.showRemediationPlan",
+    "onCommand:secureCodeReview.showIssuePlan",
+    "onCommand:secureCodeReview.showChatNotification",
+    "onCommand:secureCodeReview.showMessagingGateway",
+    "onCommand:secureCodeReview.showTeamLearning",
+    "onCommand:secureCodeReview.showRecursiveLearning",
+    "onCommand:secureCodeReview.showBenchmarkGate",
+    "onCommand:secureCodeReview.showGovernanceEvidence",
+    "onCommand:secureCodeReview.showMemoryContext",
+    "onCommand:secureCodeReview.showAdvancedAiReport",
+    "onCommand:secureCodeReview.showAiReview",
+    "onCommand:secureCodeReview.showAiFindingReview",
+    "onCommand:secureCodeReview.proposeFix",
+    "onCommand:secureCodeReview.showRagContext",
+    "onCommand:secureCodeReview.setDecision",
+    "onCommand:secureCodeReview.openFinding",
+    "onCommand:secureCodeReview.openWebApp"
+  ],
+  "main": "./src/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Secure Code Review Assistant",
+      "properties": {
+        "secureCodeReview.apiBaseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8000",
+          "description": "Base URL for the Secure Code Review Assistant backend."
+        },
+        "secureCodeReview.projectName": {
+          "type": "string",
+          "default": "",
+          "description": "Optional project display name to send with scans. Defaults to the VS Code workspace folder name."
+        },
+        "secureCodeReview.bearerToken": {
+          "type": "string",
+          "default": "",
+          "description": "Optional bearer token for API gateways or reverse proxies in front of the backend."
+        },
+        "secureCodeReview.requestHeaders": {
+          "type": "object",
+          "default": {},
+          "description": "Optional extra HTTP headers to send to the backend API.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "secureCodeReview.fixProvider": {
+          "type": "string",
+          "default": "offline",
+          "enum": [
+            "offline",
+            "ollama",
+            "openai",
+            "openai_compatible"
+          ],
+          "description": "Default fix proposal provider used by IDE commands."
+        },
+        "secureCodeReview.fixBundleLimit": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum number of findings to include in fix bundles and IDE-generated fix proposal exports."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "secureCodeReview.configureApi",
+        "title": "Secure Review: Configure API URL"
+      },
+      {
+        "command": "secureCodeReview.health",
+        "title": "Secure Review: Check Backend Health"
+      },
+      {
+        "command": "secureCodeReview.scanWorkspace",
+        "title": "Secure Review: Scan Workspace"
+      },
+      {
+        "command": "secureCodeReview.refreshFindings",
+        "title": "Secure Review: Refresh Findings"
+      },
+      {
+        "command": "secureCodeReview.showLastScan",
+        "title": "Secure Review: Show Last Scan Summary"
+      },
+      {
+        "command": "secureCodeReview.showReportPicker",
+        "title": "Secure Review: Show Report"
+      },
+      {
+        "command": "secureCodeReview.exportEvidenceBundle",
+        "title": "Secure Review: Export Evidence Bundle"
+      },
+      {
+        "command": "secureCodeReview.saveBaseline",
+        "title": "Secure Review: Save Baseline"
+      },
+      {
+        "command": "secureCodeReview.showScannerMesh",
+        "title": "Secure Review: Show Scanner Mesh"
+      },
+      {
+        "command": "secureCodeReview.showDependencyReview",
+        "title": "Secure Review: Show Dependency Review"
+      },
+      {
+        "command": "secureCodeReview.showSonarQubeReport",
+        "title": "Secure Review: Show SonarQube Quality Gate"
+      },
+      {
+        "command": "secureCodeReview.showScannerDepth",
+        "title": "Secure Review: Show Scanner Depth"
+      },
+      {
+        "command": "secureCodeReview.showSecretPolicy",
+        "title": "Secure Review: Show Secret Policy"
+      },
+      {
+        "command": "secureCodeReview.showPushProtection",
+        "title": "Secure Review: Show Push Protection"
+      },
+      {
+        "command": "secureCodeReview.showCycloneDx",
+        "title": "Secure Review: Show CycloneDX SBOM"
+      },
+      {
+        "command": "secureCodeReview.showSpdx",
+        "title": "Secure Review: Show SPDX SBOM"
+      },
+      {
+        "command": "secureCodeReview.showSbomPolicy",
+        "title": "Secure Review: Show SBOM Policy"
+      },
+      {
+        "command": "secureCodeReview.showSpdxCompliance",
+        "title": "Secure Review: Show SPDX Compliance"
+      },
+      {
+        "command": "secureCodeReview.showCompliance",
+        "title": "Secure Review: Show Enterprise Compliance"
+      },
+      {
+        "command": "secureCodeReview.showGithubPrReview",
+        "title": "Secure Review: Show GitHub PR Review"
+      },
+      {
+        "command": "secureCodeReview.showCodeHostReview",
+        "title": "Secure Review: Show GitLab/Azure/Bitbucket Review"
+      },
+      {
+        "command": "secureCodeReview.showFixProposals",
+        "title": "Secure Review: Show Fix Proposals"
+      },
+      {
+        "command": "secureCodeReview.showFixBundle",
+        "title": "Secure Review: Show Fix Bundle"
+      },
+      {
+        "command": "secureCodeReview.dryRunFixApply",
+        "title": "Secure Review: Dry Run Fix Apply"
+      },
+      {
+        "command": "secureCodeReview.showRemediationPlan",
+        "title": "Secure Review: Show Remediation Plan"
+      },
+      {
+        "command": "secureCodeReview.showIssuePlan",
+        "title": "Secure Review: Show Jira/Linear Issue Plan"
+      },
+      {
+        "command": "secureCodeReview.showChatNotification",
+        "title": "Secure Review: Show Slack/Teams Agent"
+      },
+      {
+        "command": "secureCodeReview.showMessagingGateway",
+        "title": "Secure Review: Show Messaging Gateway"
+      },
+      {
+        "command": "secureCodeReview.showTeamLearning",
+        "title": "Secure Review: Show Team Learning Dashboard"
+      },
+      {
+        "command": "secureCodeReview.showRecursiveLearning",
+        "title": "Secure Review: Show Recursive Scanner Learning"
+      },
+      {
+        "command": "secureCodeReview.showBenchmarkGate",
+        "title": "Secure Review: Show Benchmark Gate"
+      },
+      {
+        "command": "secureCodeReview.showGovernanceEvidence",
+        "title": "Secure Review: Show Governance Evidence"
+      },
+      {
+        "command": "secureCodeReview.showMemoryContext",
+        "title": "Secure Review: Show Memory Context"
+      },
+      {
+        "command": "secureCodeReview.showAdvancedAiReport",
+        "title": "Secure Review: Show Advanced AI Report"
+      },
+      {
+        "command": "secureCodeReview.showAiReview",
+        "title": "Secure Review: Show AI Finding Review"
+      },
+      {
+        "command": "secureCodeReview.showAiFindingReview",
+        "title": "Secure Review: Explain Finding With AI"
+      },
+      {
+        "command": "secureCodeReview.proposeFix",
+        "title": "Secure Review: Propose Fix"
+      },
+      {
+        "command": "secureCodeReview.showRagContext",
+        "title": "Secure Review: Show RAG Context"
+      },
+      {
+        "command": "secureCodeReview.setDecision",
+        "title": "Secure Review: Set Finding Decision"
+      },
+      {
+        "command": "secureCodeReview.openFinding",
+        "title": "Secure Review: Open Finding"
+      },
+      {
+        "command": "secureCodeReview.openWebApp",
+        "title": "Secure Review: Open Web App"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "secureCodeReview",
+          "title": "Secure Review",
+          "icon": "resources/secure-review.svg"
+        }
+      ]
+    },
+    "views": {
+      "secureCodeReview": [
+        {
+          "id": "secureCodeReviewFindings",
+          "name": "Findings"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "secureCodeReview.scanWorkspace",
+          "when": "view == secureCodeReviewFindings",
+          "group": "navigation@1"
+        },
+        {
+          "command": "secureCodeReview.refreshFindings",
+          "when": "view == secureCodeReviewFindings",
+          "group": "navigation@2"
+        },
+        {
+          "command": "secureCodeReview.showReportPicker",
+          "when": "view == secureCodeReviewFindings",
+          "group": "navigation@3"
+        },
+        {
+          "command": "secureCodeReview.exportEvidenceBundle",
+          "when": "view == secureCodeReviewFindings",
+          "group": "navigation@4"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "secureCodeReview.openFinding",
+          "when": "view == secureCodeReviewFindings && viewItem == finding",
+          "group": "inline@1"
+        },
+        {
+          "command": "secureCodeReview.proposeFix",
+          "when": "view == secureCodeReviewFindings && viewItem == finding",
+          "group": "navigation@1"
+        },
+        {
+          "command": "secureCodeReview.showRagContext",
+          "when": "view == secureCodeReviewFindings && viewItem == finding",
+          "group": "navigation@2"
+        },
+        {
+          "command": "secureCodeReview.showAiFindingReview",
+          "when": "view == secureCodeReviewFindings && viewItem == finding",
+          "group": "navigation@3"
+        },
+        {
+          "command": "secureCodeReview.setDecision",
+          "when": "view == secureCodeReviewFindings && viewItem == finding",
+          "group": "navigation@4"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "check": "node --check src/extension.js"
+  }
+}

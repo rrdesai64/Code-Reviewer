@@ -55,3 +55,218 @@ rules:
       cwe: ["CWE-79"]
       owasp: ["A03:2021-Injection"]
     pattern: $EL.innerHTML = $VALUE
+
+  - id: javascript-child-process-exec
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Avoid child_process.exec with dynamic command strings; use execFile/spawn with argument arrays.
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021-Injection"]
+    pattern-either:
+      - pattern: require('child_process').exec(...)
+      - pattern: child_process.exec(...)
+  - id: javascript-hardcoded-secret
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: Potential hardcoded secret in JavaScript/TypeScript source.
+    metadata:
+      cwe: ["CWE-798"]
+      owasp: ["A07:2021-Identification and Authentication Failures"]
+    patterns:
+      - pattern-regex: (?i)(password|passwd|api[_-]?key|secret|token)\s*[:=]\s*['\"][^'\"]{8,}['\"]
+  - id: java-runtime-exec
+    languages: [java]
+    severity: ERROR
+    message: Avoid Runtime.exec with untrusted input; use safer APIs and strict allowlists.
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021-Injection"]
+    pattern-either:
+      - pattern: Runtime.getRuntime().exec(...)
+      - pattern: new ProcessBuilder(...)
+  - id: java-xxe-document-builder
+    languages: [java]
+    severity: WARNING
+    message: XML parsers should disable external entities to prevent XXE.
+    metadata:
+      cwe: ["CWE-611"]
+      owasp: ["A05:2021-Security Misconfiguration"]
+    pattern: DocumentBuilderFactory.newInstance()
+  - id: go-shell-command-exec
+    languages: [go]
+    severity: ERROR
+    message: Avoid invoking shell interpreters through os/exec; pass fixed command arguments directly.
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021-Injection"]
+    pattern-either:
+      - pattern: exec.Command("sh", "-c", ...)
+      - pattern: exec.Command("bash", "-c", ...)
+      - pattern: exec.Command("cmd", "/C", ...)
+      - pattern: exec.CommandContext($CTX, "sh", "-c", ...)
+      - pattern: exec.CommandContext($CTX, "bash", "-c", ...)
+      - pattern: exec.CommandContext($CTX, "cmd", "/C", ...)
+  - id: go-dynamic-command-exec
+    languages: [go]
+    severity: WARNING
+    message: Review dynamic os/exec command names; use fixed allowlisted commands and argument arrays.
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021-Injection"]
+    patterns:
+      - pattern-either:
+          - pattern: exec.Command($CMD, ...)
+          - pattern: exec.CommandContext($CTX, $CMD, ...)
+      - pattern-not: exec.Command("...", ...)
+      - pattern-not: exec.CommandContext($CTX, "...", ...)
+  - id: go-sql-string-format
+    languages: [go]
+    severity: WARNING
+    message: Avoid constructing SQL with fmt.Sprintf; use parameterized queries.
+    metadata:
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021-Injection"]
+    patterns:
+      - pattern: fmt.Sprintf($QUERY, ...)
+      - metavariable-regex:
+          metavariable: $QUERY
+          regex: (?i).*(select\s+.+\s+from|insert\s+into|update\s+.+\s+set|delete\s+from|drop\s+(table|database|index)|alter\s+table|create\s+(table|database|index|view)|replace\s+into)\b.*
+  - id: rust-command-spawn
+    languages: [rust]
+    severity: WARNING
+    message: Review Command usage for user-controlled command or argument injection.
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021-Injection"]
+    pattern: Command::new(...)
+  - id: yaml-hardcoded-secret
+    languages: [yaml]
+    severity: WARNING
+    message: Potential hardcoded secret in YAML configuration.
+    metadata:
+      cwe: ["CWE-798"]
+      owasp: ["A07:2021-Identification and Authentication Failures"]
+    patterns:
+      - pattern-regex: (?i)(password|passwd|api[_-]?key|secret|token)\s*:\s*['\"]?[^'\"\s]{8,}
+  - id: dockerfile-root-user
+    languages: [dockerfile]
+    severity: WARNING
+    message: Containers should set a non-root USER for runtime stages.
+    metadata:
+      cwe: ["CWE-250"]
+      owasp: ["A05:2021-Security Misconfiguration"]
+    pattern-regex: (?m)^USER\s+root\s*$
+  - id: python-yaml-unsafe-load
+    languages: [python]
+    severity: ERROR
+    message: Use yaml.safe_load or SafeLoader when parsing YAML.
+    metadata:
+      cwe: ["CWE-502"]
+      owasp: ["A08:2021-Software and Data Integrity Failures"]
+    patterns:
+      - pattern: yaml.load(...)
+      - pattern-not: yaml.load(..., Loader=yaml.SafeLoader, ...)
+      - pattern-not: yaml.load(..., Loader=SafeLoader, ...)
+  - id: python-pickle-load
+    languages: [python]
+    severity: ERROR
+    message: Avoid loading pickle data from untrusted sources.
+    metadata:
+      cwe: ["CWE-502"]
+      owasp: ["A08:2021-Software and Data Integrity Failures"]
+    pattern-either:
+      - pattern: pickle.load(...)
+      - pattern: pickle.loads(...)
+  - id: python-requests-verify-false
+    languages: [python]
+    severity: ERROR
+    message: Do not disable TLS certificate verification for HTTP requests.
+    metadata:
+      cwe: ["CWE-295"]
+      owasp: ["A02:2021-Cryptographic Failures"]
+    pattern-either:
+      - pattern: requests.$METHOD(..., verify=False, ...)
+      - pattern: $SESSION.$METHOD(..., verify=False, ...)
+  - id: python-tempfile-mktemp
+    languages: [python]
+    severity: WARNING
+    message: tempfile.mktemp is race-prone; use NamedTemporaryFile or mkstemp instead.
+    metadata:
+      cwe: ["CWE-377"]
+      owasp: ["A04:2021-Insecure Design"]
+    pattern: tempfile.mktemp(...)
+  - id: python-weak-hash
+    languages: [python]
+    severity: WARNING
+    message: Avoid MD5/SHA1 for security-sensitive hashing.
+    metadata:
+      cwe: ["CWE-327"]
+      owasp: ["A02:2021-Cryptographic Failures"]
+    pattern-either:
+      - pattern: hashlib.md5(...)
+      - pattern: hashlib.sha1(...)
+  - id: python-django-debug-true
+    languages: [python]
+    severity: WARNING
+    message: Django DEBUG should be disabled in deployable settings.
+    metadata:
+      cwe: ["CWE-489"]
+      owasp: ["A05:2021-Security Misconfiguration"]
+    pattern-regex: (?m)^\s*DEBUG\s*=\s*True\s*$
+  - id: python-sql-string-format
+    languages: [python]
+    severity: ERROR
+    message: Avoid string-formatted SQL; use parameterized queries.
+    metadata:
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021-Injection"]
+    pattern-either:
+      - pattern: $CURSOR.execute($SQL % ...)
+      - pattern: $CURSOR.execute($SQL.format(...))
+  - id: javascript-child-process-execsync
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Avoid child_process.execSync with dynamic command strings; use execFile/spawn with argument arrays.
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021-Injection"]
+    pattern-either:
+      - pattern: require('child_process').execSync(...)
+      - pattern: child_process.execSync(...)
+  - id: javascript-weak-hash
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: Avoid MD5/SHA1 for security-sensitive hashing.
+    metadata:
+      cwe: ["CWE-327"]
+      owasp: ["A02:2021-Cryptographic Failures"]
+    pattern-either:
+      - pattern: crypto.createHash('md5')
+      - pattern: crypto.createHash("md5")
+      - pattern: crypto.createHash('sha1')
+      - pattern: crypto.createHash("sha1")
+  - id: javascript-tls-verification-disabled
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Do not disable Node.js TLS certificate verification.
+    metadata:
+      cwe: ["CWE-295"]
+      owasp: ["A02:2021-Cryptographic Failures"]
+    pattern-regex: NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*['"]0['"]
+  - id: yaml-privileged-container
+    languages: [yaml]
+    severity: ERROR
+    message: Avoid privileged containers unless there is a documented exception.
+    metadata:
+      cwe: ["CWE-250"]
+      owasp: ["A05:2021-Security Misconfiguration"]
+    pattern-regex: (?im)^\s*privileged:\s*true\s*$
+  - id: dockerfile-latest-tag
+    languages: [dockerfile]
+    severity: WARNING
+    message: Pin container base images instead of using the latest tag.
+    metadata:
+      cwe: ["CWE-1104"]
+      owasp: ["A06:2021-Vulnerable and Outdated Components"]
+    pattern-regex: (?im)^FROM\s+\S+:latest(?:\s|$)

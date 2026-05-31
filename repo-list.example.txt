@@ -1,0 +1,6 @@
+# Format: repository_url,branch,sonar_project_key
+# Leave branch blank to use the repository default branch.
+# Blank lines and # comments are ignored.
+https://github.com/example-org/example-service.git,,adsflaunt-enterprises_example-org__example-service
+https://github.com/example-org/example-api.git,main,adsflaunt-enterprises_example-org__example-api
+https://github.com/example-org/example-worker.git,develop,adsflaunt-enterprises_example-org__example-worker

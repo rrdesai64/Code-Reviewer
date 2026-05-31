@@ -211,6 +211,8 @@ def report_lake_index_record(report: dict[str, Any], path: Path | None = None) -
             'cross_tool_clusters': summary.get('cross_tool_clusters', 0),
             'consolidated_priorities': summary.get('consolidated_priorities', {}),
             'top_consolidated_priority_score': summary.get('top_consolidated_priority_score', 0),
+            'finding_priority_counts': summary.get('finding_priority_counts', {}),
+            'top_finding_priority_score': summary.get('top_finding_priority_score', 0),
             'suppressed_findings': summary.get('suppressed_findings', 0),
             'invalid_suppression_annotations': summary.get('invalid_suppression_annotations', 0),
             'scope_counts': summary.get('scope_counts', {}),
@@ -253,6 +255,10 @@ def sanitize_summary(scan: ScanResult) -> dict[str, Any]:
         'cross_tool_clusters': safe_int(summary.cross_tool_clusters),
         'consolidated_priorities': sanitize_count_map(summary.consolidated_priorities),
         'top_consolidated_priority_score': safe_int(summary.top_consolidated_priority_score),
+        'finding_priority_counts': sanitize_count_map(summary.finding_priority_counts),
+        'top_finding_priority_score': float(summary.top_finding_priority_score or 0),
+        'active_prioritized_findings': safe_int(summary.active_prioritized_findings),
+        'suppressed_prioritized_findings': safe_int(summary.suppressed_prioritized_findings),
         'suppressed_findings': safe_int(summary.suppressed_findings),
         'invalid_suppression_annotations': safe_int(summary.invalid_suppression_annotations),
         'reachability_counts': sanitize_count_map(summary.reachability_counts),
@@ -385,6 +391,10 @@ def sanitize_finding(finding: Finding, learning_allowed: bool) -> dict[str, Any]
         'dropped_metadata_keys': dropped,
         'exploitability': sanitize_text(finding.exploitability, max_length=80),
         'reachability': sanitize_text(finding.reachability, max_length=80),
+        'dataflow': sanitize_dataflow(finding),
+        'priority_context': sanitize_priority_context(finding),
+        'priority': sanitize_finding_priority(finding),
+        'cluster_id': sanitize_identifier(finding.cluster_id) if finding.cluster_id else '',
         'policy_impact': [sanitize_text(item, max_length=160) for item in finding.policy_impact],
         'remediation': [sanitize_text(item, max_length=220) for item in finding.remediation],
         'scope': finding.scope,
@@ -403,6 +413,60 @@ def sanitize_finding(finding: Finding, learning_allowed: bool) -> dict[str, Any]
             'raw_code_available': False,
             'requires_human_review_before_training': True,
         },
+    }
+
+
+def sanitize_dataflow(finding: Finding) -> dict[str, Any]:
+    dataflow = finding.dataflow
+    return {
+        'has_dataflow': bool(dataflow.has_dataflow),
+        'source': sanitize_location(dataflow.source),
+        'sink': sanitize_location(dataflow.sink),
+        'steps': safe_int(dataflow.steps) if dataflow.steps is not None else None,
+        'tool_precision': sanitize_text(dataflow.tool_precision, max_length=40) if dataflow.tool_precision else None,
+    }
+
+
+def sanitize_priority_context(finding: Finding) -> dict[str, Any]:
+    context = finding.priority_context
+    return {
+        'path_class': context.path_class,
+        'in_pr_diff': context.in_pr_diff,
+        'last_modified_days': safe_int(context.last_modified_days) if context.last_modified_days is not None else None,
+        'execution': context.execution,
+        'execution_source': sanitize_text(context.execution_source, max_length=80) if context.execution_source else None,
+        'execution_hits': safe_int(context.execution_hits) if context.execution_hits is not None else None,
+        'corroborating_tools': [sanitize_text(item, max_length=80) for item in context.corroborating_tools],
+    }
+
+
+def sanitize_finding_priority(finding: Finding) -> dict[str, Any] | None:
+    priority = finding.priority
+    if not priority:
+        return None
+    return {
+        'tier': priority.tier,
+        'score': float(priority.score or 0),
+        'factors': [
+            {
+                'name': sanitize_text(factor.name, max_length=80),
+                'delta': float(factor.delta),
+                'reason': sanitize_text(factor.reason, max_length=220),
+            }
+            for factor in priority.factors
+        ],
+    }
+
+
+def sanitize_location(location: Any) -> dict[str, Any] | None:
+    if not location:
+        return None
+    return {
+        'path': sanitize_path(location.path),
+        'line': safe_int(location.line),
+        'column': safe_int(location.column),
+        'end_line': safe_int(location.end_line) if location.end_line else None,
+        'full_path_stored': False,
     }
 
 

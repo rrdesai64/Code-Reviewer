@@ -25,7 +25,7 @@ def test_cli_fail_on_high_returns_2_and_writes_all_outputs(
     # Curly quotes -> ENC-009 (HIGH) from the native catalog scanner.
     (repo / "mod.py").write_bytes(b'x = \xe2\x80\x9chi\xe2\x80\x9d\n')
     outs = {name: tmp_path / f"{name}" for name in
-            ("out.json", "out.sarif", "report.md", "pr.md", "compliance.json", "fixes.json")}
+            ("out.json", "out.sarif", "report.md", "pr.md", "compliance.json", "fixes.json", "prioritization.json")}
     code = cli_main([
         "--path", str(repo),
         "--json-out", str(outs["out.json"]),
@@ -34,6 +34,7 @@ def test_cli_fail_on_high_returns_2_and_writes_all_outputs(
         "--pr-comment-out", str(outs["pr.md"]),
         "--compliance-out", str(outs["compliance.json"]),
         "--fix-proposals-out", str(outs["fixes.json"]),
+        "--prioritization-out", str(outs["prioritization.json"]),
         "--save-baseline",
         "--fail-on", "high",
     ])
@@ -42,6 +43,7 @@ def test_cli_fail_on_high_returns_2_and_writes_all_outputs(
         assert path.exists() and path.stat().st_size > 0
     assert isinstance(json.loads(outs["out.sarif"].read_text()), dict)
     assert isinstance(json.loads(outs["fixes.json"].read_text()), list)
+    assert json.loads(outs["prioritization.json"].read_text())["schema_version"] == "finding-prioritization-v1"
 
 
 def test_cli_clean_repo_with_fail_on_high_returns_zero(

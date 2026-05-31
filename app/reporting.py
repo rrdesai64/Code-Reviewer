@@ -25,6 +25,8 @@ def markdown_report(scan: ScanResult) -> str:
         f'- Consolidated priority items: {scan.summary.consolidated_findings}',
         f'- Cross-tool agreement clusters: {scan.summary.cross_tool_clusters}',
         f'- Consolidated priorities: {format_counts(scan.summary.consolidated_priorities)}',
+        f'- Finding priorities: {format_counts(scan.summary.finding_priority_counts)}',
+        f'- Top finding priority score: {scan.summary.top_finding_priority_score}',
         f'- In-code suppressions: {scan.summary.suppressed_findings}',
         f'- Invalid suppression annotations: {scan.summary.invalid_suppression_annotations}',
         f'- Reachability context: {format_counts(scan.summary.reachability_counts)}',
@@ -87,10 +89,14 @@ def append_consolidated_finding(lines: list[str], item: ConsolidatedFinding) -> 
 
 def append_finding(lines: list[str], finding: Finding) -> None:
     factors = ', '.join(f'{factor.label} {format_points(factor.points)}' for factor in finding.risk.factors) or 'n/a'
+    priority = finding.priority
+    priority_label = f'{priority.tier or "suppressed"} / {priority.score}' if priority else 'n/a'
+    priority_factors = ', '.join(f'{factor.name} {factor.delta:+g}' for factor in priority.factors[:6]) if priority else 'n/a'
     lines.extend([
         '', f'### [{finding.risk.priority} / {finding.risk.score}] {finding.title}', f'- ID: `{finding.id}`',
         f'- Tool: `{finding.source}` / `{finding.rule_id}`', f'- Location: `{finding.location.path}:{finding.location.line}`',
         f'- Scope: {finding_scope(finding)}', f'- Severity: {finding.severity}', f'- Risk tier: {finding.risk.tier}',
+        f'- Finding priority: {priority_label}', f'- Finding priority factors: {priority_factors or "n/a"}',
         f'- Reachability: {finding.reachability}', f'- Exploitability: {finding.exploitability}',
         f'- Recommended action: {finding.risk.recommended_action}', f'- Risk factors: {factors}', f'- Confidence: {finding.confidence}',
         f'- CWE: {", ".join(finding.cwe) if finding.cwe else "n/a"}', f'- OWASP: {", ".join(finding.owasp) if finding.owasp else "n/a"}',
@@ -111,6 +117,7 @@ def github_pr_comment(scan: ScanResult) -> str:
         f'Production/gate findings: **{scan.summary.production_findings}** | Hygiene findings: **{scan.summary.hygiene_findings}** | Scopes: **{format_counts(scan.summary.scope_counts)}**',
         f'Production max risk: **{scan.summary.max_risk_score}** | Production average risk: **{scan.summary.avg_risk_score}** | Production priorities: **{format_counts(scan.summary.priorities)}**',
         f'Consolidated priorities: **{scan.summary.consolidated_findings}** | Cross-tool agreement clusters: **{scan.summary.cross_tool_clusters}** | Priority mix: **{format_counts(scan.summary.consolidated_priorities)}**',
+        f'Finding priorities: **{format_counts(scan.summary.finding_priority_counts)}** | Top finding priority score: **{scan.summary.top_finding_priority_score}**',
         f'In-code suppressions: **{scan.summary.suppressed_findings}** | Invalid suppression annotations: **{scan.summary.invalid_suppression_annotations}**',
         f'Reachability: **{format_counts(scan.summary.reachability_counts)}** | Exploitability: **{format_counts(scan.summary.exploitability_counts)}**',
         f'Changed-file findings: **{scan.summary.changed_file_findings}** | Request-handler findings: **{scan.summary.request_handler_findings}**',

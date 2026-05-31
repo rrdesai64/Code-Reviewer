@@ -9,6 +9,7 @@ def build_sarif(scan: ScanResult) -> dict:
     results = []
     for finding in scan.findings:
         rules.setdefault(finding.rule_id, rule_from_finding(finding))
+        priority_rank = finding.priority.score if finding.priority and finding.priority.score is not None else finding.risk.score
         results.append({
             'ruleId': finding.rule_id,
             'level': sarif_level(finding.risk.tier),
@@ -20,6 +21,7 @@ def build_sarif(scan: ScanResult) -> dict:
                 }
             }],
             'partialFingerprints': {'secureReviewFingerprint': finding.fingerprint},
+            'rank': max(0, min(100, priority_rank)),
             'properties': {
                 'source': finding.source,
                 'severity': finding.severity,
@@ -34,6 +36,12 @@ def build_sarif(scan: ScanResult) -> dict:
                 'priority': finding.risk.priority,
                 'recommended_action': finding.risk.recommended_action,
                 'risk_factors': [factor.model_dump() for factor in finding.risk.factors],
+                'priorityTier': finding.priority.tier if finding.priority else None,
+                'priorityScore': finding.priority.score if finding.priority else None,
+                'priorityFactors': [factor.model_dump(mode='json') for factor in finding.priority.factors] if finding.priority else [],
+                'dataflow': finding.dataflow.model_dump(mode='json'),
+                'priorityContext': finding.priority_context.model_dump(mode='json'),
+                'cluster_id': finding.cluster_id or '',
                 'cwe': finding.cwe,
                 'owasp': finding.owasp,
                 'decision': finding.decision,
@@ -59,6 +67,8 @@ def build_sarif(scan: ScanResult) -> dict:
                 'hygiene_findings': scan.summary.hygiene_findings,
                 'all_max_risk_score': scan.summary.all_max_risk_score,
                 'all_priorities': scan.summary.all_priorities,
+                'finding_priority_counts': scan.summary.finding_priority_counts,
+                'top_finding_priority_score': scan.summary.top_finding_priority_score,
             },
         }],
     }

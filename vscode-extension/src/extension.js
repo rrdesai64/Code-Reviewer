@@ -408,6 +408,7 @@ function reportDefinitions(scan) {
   return [
     jsonReport('scan-json', 'Scan JSON', `/api/scans/${scanId}`, 'scan.json', 'Raw normalized scan result.'),
     jsonReport('scanner-mesh', 'Scanner Mesh', `/api/scans/${scanId}/scanner-mesh`, 'scanner-mesh.json', 'Unified scanner ingestion and source coverage.'),
+    jsonReport('prioritization', 'Finding Prioritization', `/api/scans/${scanId}/prioritization`, 'prioritization.json', 'Ranked finding priority with dataflow, tool agreement, and coverage evidence.'),
     jsonReport('reachability-context', 'Reachability Context', `/api/scans/${scanId}/reachability-context`, 'reachability-context.json', 'Request-handler, changed-file, and exploitability context without raw code.'),
     jsonReport('dependency-review', 'Dependency Review', `/api/scans/${scanId}/dependencies/review`, 'dependency-review.json', 'Reachability and dependency risk scoring.'),
     jsonReport('sonarqube', 'SonarQube Quality Gate', `/api/scans/${scanId}/sonarqube/report`, 'sonarqube-quality-gate.json', 'SonarQube issue and quality gate ingestion.'),

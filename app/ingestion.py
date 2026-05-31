@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .ai import explain, suggest_fix
-from .models import Finding, Location, ScanResult
+from .models import Finding, FindingDataflow, Location, ScanResult
 from .scope import apply_finding_scope, scope_counts
 
 NORMALIZATION_VERSION = 'scanner-mesh-v1'
@@ -120,11 +120,81 @@ def finding_from_semgrep(item: dict[str, Any], target: Path) -> Finding:
     start = item.get('start', {}) or {}
     rule_id = item.get('check_id', 'semgrep-rule')
     message = extra.get('message') or rule_id
-    return normalize_finding(
+    finding = normalize_finding(
         source='semgrep', rule_id=rule_id, title=title_from_rule(rule_id), severity=extra.get('severity'), confidence='HIGH',
         path=relpath(item.get('path', ''), target), line=int(start.get('line') or 1), column=int(start.get('col') or 1),
         message=message, cwe=metadata.get('cwe'), owasp=metadata.get('owasp'), references=metadata.get('references'),
         raw=item, raw_severity=extra.get('severity'), metadata={'engine': 'semgrep'},
+    )
+    apply_semgrep_dataflow(finding, item, target)
+    return finding
+
+
+def apply_semgrep_dataflow(finding: Finding, item: dict[str, Any], target: Path) -> None:
+    extra = item.get('extra', {}) or {}
+    metadata = extra.get('metadata', {}) if isinstance(extra.get('metadata'), dict) else {}
+    precision = precision_from_value(metadata.get('confidence') or metadata.get('likelihood') or extra.get('confidence'))
+    trace = extra.get('dataflow_trace')
+    if not isinstance(trace, dict):
+        if precision:
+            finding.dataflow.tool_precision = precision
+        return
+
+    source = first_semgrep_location(trace.get('taint_source'), target)
+    sink = last_semgrep_location(trace.get('taint_sink'), target) or Location(
+        path=finding.location.path,
+        line=finding.location.line,
+        column=finding.location.column,
+        end_line=finding.location.end_line,
+    )
+    steps = len(semgrep_locations(trace, target)) or None
+    finding.dataflow = FindingDataflow(
+        has_dataflow=True,
+        source=source,
+        sink=sink,
+        steps=steps,
+        tool_precision=precision or finding.dataflow.tool_precision,
+    )
+    finding.scanner_metadata['dataflow_trace'] = 'source-to-sink'
+
+
+def first_semgrep_location(value: Any, target: Path) -> Location | None:
+    locations = semgrep_locations(value, target)
+    return locations[0] if locations else None
+
+
+def last_semgrep_location(value: Any, target: Path) -> Location | None:
+    locations = semgrep_locations(value, target)
+    return locations[-1] if locations else None
+
+
+def semgrep_locations(value: Any, target: Path) -> list[Location]:
+    locations: list[Location] = []
+    if isinstance(value, dict):
+        location = semgrep_location_from_dict(value, target)
+        if location:
+            locations.append(location)
+        for nested in value.values():
+            locations.extend(semgrep_locations(nested, target))
+    elif isinstance(value, list):
+        for item in value:
+            locations.extend(semgrep_locations(item, target))
+    return locations
+
+
+def semgrep_location_from_dict(value: dict[str, Any], target: Path) -> Location | None:
+    node = value.get('location') if isinstance(value.get('location'), dict) else value
+    start = node.get('start') if isinstance(node.get('start'), dict) else {}
+    end = node.get('end') if isinstance(node.get('end'), dict) else {}
+    path = node.get('path') or node.get('file') or node.get('filename')
+    line = start.get('line') or node.get('line') or node.get('startLine')
+    if not path and not line:
+        return None
+    return Location(
+        path=relpath(str(path or ''), target),
+        line=safe_positive_int(line, 1),
+        column=safe_positive_int(start.get('col') or start.get('column') or node.get('column') or node.get('startColumn'), 1),
+        end_line=safe_optional_positive_int(end.get('line') or node.get('endLine')),
     )
 
 
@@ -239,7 +309,7 @@ def findings_from_sarif_payload(payload: dict[str, Any], source: str = 'sarif-im
             props = result.get('properties', {}) if isinstance(result.get('properties'), dict) else {}
             source_name = source or str(props.get('source') or tool_name or 'sarif-import')
             raw_metadata = {'engine': tool_name, 'sarif_rule_name': str(rule.get('name') or ''), **stringify_metadata(metadata or {})}
-            findings.append(normalize_finding(
+            finding = normalize_finding(
                 source=source_name,
                 rule_id=str(rule_id),
                 title=rule.get('name') or title_from_rule(str(rule_id)),
@@ -255,8 +325,64 @@ def findings_from_sarif_payload(payload: dict[str, Any], source: str = 'sarif-im
                 raw=result,
                 raw_severity=result.get('level'),
                 metadata=raw_metadata,
-            ))
+            )
+            apply_sarif_dataflow(finding, result, rule)
+            findings.append(finding)
     return findings
+
+
+def apply_sarif_dataflow(finding: Finding, result: dict[str, Any], rule: dict[str, Any]) -> None:
+    props = result.get('properties', {}) if isinstance(result.get('properties'), dict) else {}
+    rule_props = rule.get('properties', {}) if isinstance(rule.get('properties'), dict) else {}
+    precision = precision_from_value(props.get('precision') or rule_props.get('precision') or props.get('confidence'))
+    locations = sarif_codeflow_locations(result)
+    if not locations:
+        if precision:
+            finding.dataflow.tool_precision = precision
+        return
+    parsed = [location for item in locations if (location := location_from_sarif_codeflow(item))]
+    if not parsed:
+        return
+    finding.dataflow = FindingDataflow(
+        has_dataflow=True,
+        source=parsed[0],
+        sink=parsed[-1],
+        steps=len(parsed),
+        tool_precision=precision or finding.dataflow.tool_precision,
+    )
+    finding.scanner_metadata['dataflow_trace'] = 'sarif-code-flow'
+
+
+def sarif_codeflow_locations(result: dict[str, Any]) -> list[dict[str, Any]]:
+    locations: list[dict[str, Any]] = []
+    for code_flow in result.get('codeFlows', []) or []:
+        if not isinstance(code_flow, dict):
+            continue
+        for thread_flow in code_flow.get('threadFlows', []) or []:
+            if not isinstance(thread_flow, dict):
+                continue
+            for item in thread_flow.get('locations', []) or []:
+                if not isinstance(item, dict):
+                    continue
+                location = item.get('location') if isinstance(item.get('location'), dict) else item
+                locations.append(location)
+    return locations
+
+
+def location_from_sarif_codeflow(location: dict[str, Any]) -> Location | None:
+    physical = location.get('physicalLocation', {}) if isinstance(location.get('physicalLocation'), dict) else {}
+    artifact = physical.get('artifactLocation', {}) if isinstance(physical.get('artifactLocation'), dict) else {}
+    region = physical.get('region', {}) if isinstance(physical.get('region'), dict) else {}
+    path = artifact.get('uri') or location.get('uri')
+    line = region.get('startLine') or location.get('line')
+    if not path and not line:
+        return None
+    return Location(
+        path=normalize_path(str(path or '')),
+        line=safe_positive_int(line, 1),
+        column=safe_positive_int(region.get('startColumn') or location.get('column'), 1),
+        end_line=safe_optional_positive_int(region.get('endLine')),
+    )
 
 
 def findings_from_snyk_payload(payload: dict[str, Any], target: Path | None = None) -> list[Finding]:
@@ -288,12 +414,17 @@ def scanner_mesh_status() -> dict[str, Any]:
     return {
         'schema_version': NORMALIZATION_VERSION,
         'supported_sources': SUPPORTED_SOURCES,
-        'normalized_fields': ['source', 'rule_id', 'severity', 'confidence', 'cwe', 'owasp', 'references', 'scope', 'risk', 'scanner_metadata', 'exploitability', 'reachability', 'policy_impact', 'remediation'],
+        'normalized_fields': ['source', 'rule_id', 'severity', 'confidence', 'cwe', 'owasp', 'references', 'scope', 'risk', 'dataflow', 'priority_context', 'priority', 'scanner_metadata', 'exploitability', 'reachability', 'policy_impact', 'remediation'],
         'consolidation': {
             'enabled': True,
             'cluster_key': 'normalized path + close line range + compatible CWE/sink token',
             'presentation_artifact': 'finding-consolidation.json',
             'api_endpoint': '/api/scans/{scan_id}/consolidated-findings',
+        },
+        'prioritization': {
+            'enabled': True,
+            'api_endpoint': '/api/scans/{scan_id}/prioritization',
+            'presentation_artifact': 'prioritization.json',
         },
         'sarif_import': {'enabled': True, 'cli_flag': '--sarif-in'},
         'future_connectors': ['snyk-cli', 'snyk-api', 'semgrep-appsec-platform', 'github-code-scanning-sarif'],
@@ -459,6 +590,33 @@ def normalize_confidence(value: Any) -> str:
     if text in {'LOW', 'MEDIUM'}:
         return text
     return 'MEDIUM'
+
+
+def precision_from_value(value: Any) -> str | None:
+    text = str(value or '').strip().lower().replace('_', '-')
+    if text in {'very-high', 'veryhigh'}:
+        return 'very-high'
+    if text in {'high', 'medium', 'low'}:
+        return text
+    if text in {'precise', 'very-precise'}:
+        return 'very-high'
+    return None
+
+
+def safe_positive_int(value: Any, default: int = 1) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(1, number)
+
+
+def safe_optional_positive_int(value: Any) -> int | None:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return max(1, number) if number else None
 
 
 def normalize_taxonomy(value: Any, prefix: str) -> list[str]:

@@ -2,9 +2,11 @@ param(
   [Parameter(Mandatory=$true)][string]$Path,
   [string]$JsonOut = "scan.json",
   [string[]]$SarifIn = @(),
+  [string[]]$CoverageIn = @(),
   [string]$SarifOut = "secure-review.sarif",
   [string]$ScannerMeshOut = "scanner-mesh.json",
   [string]$ConsolidatedFindingsOut = "finding-consolidation.json",
+  [string]$PrioritizationOut = "prioritization.json",
   [string]$ReachabilityContextOut = "reachability-context.json",
   [string]$DependencyReviewOut = "dependency-review.json",
   [string]$SonarQubeOut = "sonarqube-quality-gate.json",
@@ -110,6 +112,7 @@ $argsList = @(
   '--sarif-out', $SarifOut,
   '--scanner-mesh-out', $ScannerMeshOut,
   '--consolidated-findings-out', $ConsolidatedFindingsOut,
+  '--prioritization-out', $PrioritizationOut,
   '--reachability-context-out', $ReachabilityContextOut,
   '--dependency-review-out', $DependencyReviewOut,
   '--sonarqube-out', $SonarQubeOut,
@@ -149,6 +152,10 @@ $argsList = @(
 
 foreach ($item in $SarifIn) {
   $argsList += @('--sarif-in', $item)
+}
+
+foreach ($item in $CoverageIn) {
+  $argsList += @('--coverage-in', $item)
 }
 
 & .\.venv\Scripts\python.exe @argsList

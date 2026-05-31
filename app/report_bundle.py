@@ -24,6 +24,7 @@ from .ingestion import scanner_mesh_report
 from .issue_planning import build_issue_plan
 from .messaging_gateway import build_scan_gateway_report
 from .models import FixApplyRequest, ScanResult, VerifiedAutofixRequest
+from .priority import prioritization_report
 from .quarantine import quarantine_policy_for_scan
 from .reachability import reachability_context_report
 from .refactor import build_remediation_plan
@@ -66,6 +67,7 @@ def build_report_bundle(scan: ScanResult, base_dir: Path | None = None, ai_revie
     write_json_artifact('secure-review.sarif', lambda: build_sarif(scan), 'application/sarif+json')
     write_text_artifact('pr-comment.md', lambda: github_pr_comment(scan), 'text/markdown')
     write_json_artifact('finding-consolidation.json', lambda: consolidated_findings_report(scan))
+    write_json_artifact('prioritization.json', lambda: prioritization_report(scan))
     write_json_artifact('reachability-context.json', lambda: reachability_context_report(scan))
     write_json_artifact('scanner-mesh.json', lambda: scanner_mesh_report(scan))
     write_json_artifact('dependency-review.json', lambda: dependency_review_report(scan))

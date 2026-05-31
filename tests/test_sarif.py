@@ -20,8 +20,9 @@ def test_results_match_findings(make_scan, make_finding):
     r = results[0]
     assert r["ruleId"] and r["message"]["text"]
     assert r["partialFingerprints"]["secureReviewFingerprint"] == "fa"
-    for key in ("source", "severity", "confidence", "cwe", "owasp", "decision"):
+    for key in ("source", "severity", "confidence", "cwe", "owasp", "decision", "priorityTier", "dataflow", "priorityContext"):
         assert key in r["properties"]
+    assert "rank" in r
 
 
 def test_rules_are_deduplicated(make_scan, make_finding):

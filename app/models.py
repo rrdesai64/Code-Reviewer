@@ -19,6 +19,42 @@ class Location(BaseModel):
     end_line: int | None = None
 
 
+class FindingDataflow(BaseModel):
+    has_dataflow: bool = False
+    source: Location | None = None
+    sink: Location | None = None
+    steps: int | None = None
+    tool_precision: Literal['very-high', 'high', 'medium', 'low'] | None = None
+
+
+class ExecutionEvidence(BaseModel):
+    state: Literal['executed', 'not_executed', 'unknown'] = 'unknown'
+    source: str | None = None
+    hits: int | None = None
+
+
+class FindingPriorityContext(BaseModel):
+    path_class: FindingScope = 'unknown'
+    in_pr_diff: bool | None = None
+    last_modified_days: int | None = None
+    execution: Literal['executed', 'not_executed', 'unknown'] = 'unknown'
+    execution_source: str | None = None
+    execution_hits: int | None = None
+    corroborating_tools: list[str] = Field(default_factory=list)
+
+
+class PriorityDecisionFactor(BaseModel):
+    name: str
+    delta: float
+    reason: str
+
+
+class FindingPriority(BaseModel):
+    tier: Literal['P0', 'P1', 'P2', 'P3'] | None = None
+    score: float | None = None
+    factors: list[PriorityDecisionFactor] = Field(default_factory=list)
+
+
 class FixSuggestion(BaseModel):
     summary: str
     guidance: list[str] = Field(default_factory=list)
@@ -58,6 +94,10 @@ class Finding(BaseModel):
     scanner_metadata: dict[str, str] = Field(default_factory=dict)
     exploitability: str = 'unknown'
     reachability: str = 'unknown'
+    dataflow: FindingDataflow = Field(default_factory=FindingDataflow)
+    priority_context: FindingPriorityContext = Field(default_factory=FindingPriorityContext)
+    priority: FindingPriority | None = None
+    cluster_id: str | None = None
     policy_impact: list[str] = Field(default_factory=list)
     remediation: list[str] = Field(default_factory=list)
     scope: FindingScope = 'production'
@@ -160,6 +200,10 @@ class ScanSummary(BaseModel):
     exploitability_counts: dict[str, int] = Field(default_factory=dict)
     changed_file_findings: int = 0
     request_handler_findings: int = 0
+    finding_priority_counts: dict[str, int] = Field(default_factory=dict)
+    top_finding_priority_score: float = 0
+    active_prioritized_findings: int = 0
+    suppressed_prioritized_findings: int = 0
 
 
 class ScanResult(BaseModel):

@@ -321,7 +321,7 @@ def build_inline_comments(scan: ScanResult, diff_map: dict[tuple[str, int], dict
         return inline, summary_only
 
     for finding in scan.findings:
-        reason = inline_rejection_reason(scan, finding, diff_map, cfg, used_locations, finding.risk.score)
+        reason = inline_rejection_reason(scan, finding, diff_map, cfg, used_locations, effective_priority_score(finding))
         if reason:
             if should_include_summary_only(scan, finding, reason):
                 summary_only.append((finding, reason))
@@ -352,7 +352,7 @@ def select_inline_finding_for_cluster(
     candidates = sorted(candidates, key=lambda item: candidate_sort_key(item, diff_map), reverse=True)
     rejections: list[tuple[Finding, str]] = []
     for finding in candidates:
-        risk_score = max(finding.risk.score, cluster.priority_score)
+        risk_score = max(effective_priority_score(finding), cluster.priority_score)
         reason = inline_rejection_reason(scan, finding, diff_map, cfg, used_locations, risk_score)
         if reason:
             rejections.append((finding, reason))
@@ -387,7 +387,7 @@ def inline_rejection_reason(
     diff_map: dict[tuple[str, int], dict[str, Any]],
     cfg: GitHubConfig,
     used_locations: set[tuple[str, int]],
-    risk_score: int,
+    risk_score: float,
 ) -> str:
     if finding.decision == 'suppressed':
         return 'suppressed by in-code annotation'
@@ -423,7 +423,7 @@ def candidate_sort_key(finding: Finding, diff_map: dict[tuple[str, int], dict[st
     return (
         1 if diff_line.get('changed') else 0,
         1 if diff_line else 0,
-        finding.risk.score,
+        int(effective_priority_score(finding)),
         -line,
     )
 
@@ -446,8 +446,8 @@ def review_status(scan: ScanResult) -> dict[str, Any]:
         if finding.decision == 'open' and finding.fingerprint in new_fingerprints and is_production_impacting(finding)
     ]
     blocking_secrets = [finding for finding in open_findings if is_blocking_secret(finding)]
-    p0 = [finding for finding in open_findings if finding.risk.priority == 'P0']
-    p1 = [finding for finding in open_findings if finding.risk.priority == 'P1']
+    p0 = [finding for finding in open_findings if effective_priority_tier(finding) == 'P0']
+    p1 = [finding for finding in open_findings if effective_priority_tier(finding) == 'P1']
     critical = [finding for finding in open_findings if finding.severity == 'CRITICAL']
     high = [finding for finding in open_findings if finding.severity == 'HIGH']
     if blocking_secrets or p0 or critical:
@@ -491,6 +491,7 @@ def build_review_body(scan: ScanResult, status: dict[str, Any], inline: list[dic
         f'Findings: **{scan.summary.total_findings}** across **{scan.summary.files_scanned} files**.',
         f'Production/gate findings: **{scan.summary.production_findings}** | Hygiene findings: **{scan.summary.hygiene_findings}** | Scopes: **{format_counts(scan.summary.scope_counts)}**',
         f'Production max risk: **{scan.summary.max_risk_score}** | Production average risk: **{scan.summary.avg_risk_score}** | Production priorities: **{format_counts(scan.summary.priorities)}**',
+        f'Finding priorities: **{format_counts(scan.summary.finding_priority_counts)}** | Top finding priority score: **{scan.summary.top_finding_priority_score}**',
         f'Inline comments prepared: **{len(inline)}** | Summary-only findings: **{len(summary_only)}** | In-code suppressions: **{scan.summary.suppressed_findings}**',
         'Inline scope: **new findings on added PR lines only**.',
         '',
@@ -514,7 +515,7 @@ def append_diff_scoped_review(lines: list[str], inline: list[dict[str, Any]], su
             cluster_note = f' / {cluster.cluster_id}' if cluster else ''
             location = f'{item["path"]}:{item["line"]}'
             title = truncate(finding.title, 160).replace('|', '\\|')
-            lines.append(f'| {finding.risk.priority} {finding.risk.score}{cluster_note} | `{finding.rule_id}` | `{location}` | {title} |')
+            lines.append(f'| {effective_priority_tier(finding)} {effective_priority_score(finding):g}{cluster_note} | `{finding.rule_id}` | `{location}` | {title} |')
     reason_counts: dict[str, int] = {}
     for _, reason in summary_only:
         reason_counts[reason] = reason_counts.get(reason, 0) + 1
@@ -529,13 +530,14 @@ def inline_comment_body(scan: ScanResult, finding: Finding, cluster: Consolidate
     owasp = ', '.join(finding.owasp) if finding.owasp else 'n/a'
     guidance = finding.fix.guidance[:3]
     lines = [
-        f'**[{finding.risk.priority} / {finding.risk.score}] {finding.title}**',
+        f'**[{effective_priority_tier(finding)} / {effective_priority_score(finding):g}] {finding.title}**',
         '',
         f'- Scan: `{scan.scan_id}`',
         f'- Source: `{finding.source}` / `{finding.rule_id}`',
         f'- Scope: `{finding_scope(finding)}`',
         f'- Reachability: `{finding.reachability}`',
         f'- Exploitability: `{finding.exploitability}`',
+        f'- Finding priority factors: `{priority_factor_summary(finding)}`',
         f'- Severity: `{finding.severity}` | Confidence: `{finding.confidence}`',
         f'- CWE: {cwe}',
         f'- OWASP: {owasp}',
@@ -674,6 +676,8 @@ def finding_summary(finding: Finding, reason: str) -> dict[str, Any]:
         'severity': finding.severity,
         'risk_score': finding.risk.score,
         'priority': finding.risk.priority,
+        'finding_priority': effective_priority_tier(finding),
+        'finding_priority_score': effective_priority_score(finding),
         'scope': finding_scope(finding),
         'location': {'path': finding.location.path, 'line': finding.location.line},
         'message': finding.message,
@@ -690,6 +694,8 @@ def comment_without_payload(comment: dict[str, Any]) -> dict[str, Any]:
         'severity': finding.severity,
         'risk_score': finding.risk.score,
         'priority': finding.risk.priority,
+        'finding_priority': effective_priority_tier(finding),
+        'finding_priority_score': effective_priority_score(finding),
         'scope': finding_scope(finding),
         'path': comment['path'],
         'line': comment['line'],
@@ -697,6 +703,24 @@ def comment_without_payload(comment: dict[str, Any]) -> dict[str, Any]:
         'changed': comment['changed'],
         'cluster_id': comment.get('cluster').cluster_id if comment.get('cluster') else '',
     }
+
+
+def effective_priority_tier(finding: Finding) -> str:
+    if finding.priority and finding.priority.tier:
+        return finding.priority.tier
+    return finding.risk.priority
+
+
+def effective_priority_score(finding: Finding) -> float:
+    if finding.priority and finding.priority.score is not None:
+        return float(finding.priority.score)
+    return float(finding.risk.score)
+
+
+def priority_factor_summary(finding: Finding) -> str:
+    if not finding.priority or not finding.priority.factors:
+        return 'n/a'
+    return ', '.join(f'{factor.name} {factor.delta:+g}' for factor in finding.priority.factors[:5])
 
 
 def response_summary(response: dict[str, Any]) -> dict[str, Any]:

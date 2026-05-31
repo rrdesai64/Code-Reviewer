@@ -21,6 +21,7 @@ def ensure_data_dirs() -> None:
 
 def normalize_loaded_scan(scan: ScanResult) -> ScanResult:
     from .consolidation import consolidate_scan
+    from .priority import apply_priority_scoring
     from .risk import score_scan
     from .scope import apply_finding_scope, scope_sort_rank
 
@@ -28,7 +29,7 @@ def normalize_loaded_scan(scan: ScanResult) -> ScanResult:
     scan.findings = [apply_finding_scope(finding) for finding in scan.findings]
     scan = score_scan(scan)
     scan.findings = sorted(scan.findings, key=lambda item: (-scope_sort_rank(item), -item.risk.score, -severity_order.get(item.severity, 0), item.location.path, item.location.line))
-    return consolidate_scan(scan)
+    return apply_priority_scoring(consolidate_scan(scan))
 
 
 def save_scan(scan: ScanResult) -> None:
@@ -104,5 +105,6 @@ def apply_decisions(scan: ScanResult) -> ScanResult:
             finding.decision = decision.get('state') or 'open'
             finding.decision_reason = decision.get('reason')
     from .consolidation import consolidate_scan
+    from .priority import apply_priority_scoring
 
-    return consolidate_scan(scan)
+    return apply_priority_scoring(consolidate_scan(scan))

@@ -25,6 +25,7 @@ from .issue_planning import IssuePlanningError, build_issue_plan
 from .memory import update_repository_memory
 from .messaging_gateway import GatewayError, build_scan_gateway_report
 from .quarantine import blocks_host_scan, quarantine_policy, quarantine_policy_for_scan
+from .priority import prioritization_report
 from .reachability import reachability_context_report
 from .rag_memory import save_rag_memory_for_report
 from .refactor import build_fix_proposal, build_remediation_plan
@@ -52,8 +53,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--json-out')
     parser.add_argument('--sarif-out')
     parser.add_argument('--sarif-in', action='append', default=[], help='import an external SARIF file into the normalized scanner mesh')
+    parser.add_argument('--coverage-in', action='append', default=[], help='coverage evidence file (Cobertura XML, Istanbul JSON, LCOV, or Go coverprofile) for priority context')
     parser.add_argument('--scanner-mesh-out')
     parser.add_argument('--consolidated-findings-out')
+    parser.add_argument('--prioritization-out')
     parser.add_argument('--reachability-context-out')
     parser.add_argument('--dependency-review-out')
     parser.add_argument('--sonarqube-out')
@@ -164,7 +167,12 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(policy, indent=2), file=sys.stderr)
         return 13
 
-    scan = run_scan(target, project_name=args.project_name, extra_sarif_paths=[Path(item) for item in args.sarif_in])
+    scan = run_scan(
+        target,
+        project_name=args.project_name,
+        extra_sarif_paths=[Path(item) for item in args.sarif_in],
+        coverage_paths=[Path(item) for item in args.coverage_in],
+    )
     quarantine = quarantine_policy_for_scan(scan)
     save_scan(scan)
     sanitized = save_sanitized_scan(scan)
@@ -186,6 +194,8 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.scanner_mesh_out).write_text(json.dumps(scanner_mesh_report(scan), indent=2), encoding='utf-8')
     if args.consolidated_findings_out:
         Path(args.consolidated_findings_out).write_text(json.dumps(consolidated_findings_report(scan), indent=2), encoding='utf-8')
+    if args.prioritization_out:
+        Path(args.prioritization_out).write_text(json.dumps(prioritization_report(scan), indent=2), encoding='utf-8')
     if args.reachability_context_out:
         Path(args.reachability_context_out).write_text(json.dumps(reachability_context_report(scan), indent=2), encoding='utf-8')
     if args.dependency_review_out:
@@ -398,6 +408,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f'Production gate: findings={scan.summary.production_findings}, hygiene={scan.summary.hygiene_findings}, scopes={scan.summary.scope_counts}')
     print(f'Production risk: max={scan.summary.max_risk_score}, avg={scan.summary.avg_risk_score}, priorities={scan.summary.priorities}')
     print(f'Consolidated priorities: items={scan.summary.consolidated_findings}, cross-tool={scan.summary.cross_tool_clusters}, top_score={scan.summary.top_consolidated_priority_score}, priorities={scan.summary.consolidated_priorities}')
+    print(f'Finding priorities: top_score={scan.summary.top_finding_priority_score}, active={scan.summary.active_prioritized_findings}, priorities={scan.summary.finding_priority_counts}')
     print(f'Reachability context: reachability={scan.summary.reachability_counts}, exploitability={scan.summary.exploitability_counts}, changed_files={scan.summary.changed_file_findings}, request_handlers={scan.summary.request_handler_findings}')
     print(f"Tools: {', '.join(f'{k}={v}' for k, v in scan.summary.tools.items())}")
     if quarantine.get('matched'):

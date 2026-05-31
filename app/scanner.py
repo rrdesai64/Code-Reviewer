@@ -15,11 +15,13 @@ from .ai import explain, suggest_fix
 from .catalog_scan import run_catalog_native
 from .consolidation import consolidate_scan
 from .dependency_review import enrich_dependency_findings
+from .execution_evidence import coverage_provider_from_paths
 from .ingestion import enrich_finding, finding_from_bandit, finding_from_pip_audit, finding_from_semgrep, finding_from_shellcheck, findings_from_sarif_file
 from .ast_scanner import run_ast_analysis
 from .external_scanners import run_codeql, run_sonarqube
 from .go_tools import govulncheck_executable, go_tool_env
 from .models import Finding, Location, ScanResult, ScanSummary
+from .priority import apply_priority_scoring
 from .reachability import apply_reachability_context, update_reachability_summary
 from .risk import score_scan
 from .secrets import run_secret_scan
@@ -70,7 +72,7 @@ def scanner_disabled(env_name: str) -> bool:
     return os.getenv(env_name, '').lower() in {'0', 'false', 'no', 'off', 'disabled'}
 
 
-def run_scan(target_path: Path, project_name: str | None = None, extra_sarif_paths: list[Path] | None = None) -> ScanResult:
+def run_scan(target_path: Path, project_name: str | None = None, extra_sarif_paths: list[Path] | None = None, coverage_paths: list[Path] | None = None) -> ScanResult:
     target = target_path.resolve()
     scan_id = uuid.uuid4().hex[:12]
     files = list(iter_source_files(target))
@@ -143,7 +145,8 @@ def run_scan(target_path: Path, project_name: str | None = None, extra_sarif_pat
     update_suppression_summary(scan)
     update_reachability_summary(scan)
     scan = apply_decisions(scan)
-    return consolidate_scan(scan)
+    scan = consolidate_scan(scan)
+    return apply_priority_scoring(scan, provider=coverage_provider_from_paths(coverage_paths or []))
 
 
 def iter_source_files(target: Path):
@@ -207,6 +210,8 @@ def run_semgrep(target: Path) -> tuple[list[Finding], str]:
         return [], 'not installed'
     configs = unique_nonempty([str(RULES_PATH), *split_semicolon_env('SEMGREP_CONFIGS')])
     command = [semgrep, 'scan', '--json', '--quiet', '--disable-version-check', '--metrics=off']
+    if os.getenv('SEMGREP_DATAFLOW_TRACES', 'true').lower() not in {'0', 'false', 'no', 'off'}:
+        command.append('--dataflow-traces')
     for config in configs:
         command.extend(['--config', config])
     command.append(str(target))

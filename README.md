@@ -841,25 +841,28 @@ Implemented:
 - Scanner mesh status and per-scan coverage reports in API, CLI, and web UI
 - Cross-tool finding consolidation that clusters scanner findings by normalized path, close line range, compatible CWE/sink, and distinct tool agreement
 - Source reachability context report that records request-handler, untrusted-input, changed-file, recent-change, generated-file, and non-production context without storing raw code
-- `scan.ps1` now emits `scanner-mesh.json`, `finding-consolidation.json`, and `reachability-context.json` by default and accepts optional SARIF imports with `-SarifIn`
+- Finding prioritization that ranks raw findings with dataflow evidence, cross-tool corroboration, path class, PR/change context, and optional test coverage evidence while keeping existing `RiskScore` fields backward compatible
+- Semgrep dataflow trace and SARIF code-flow ingestion without storing raw trace bodies in reports
+- `scan.ps1` now emits `scanner-mesh.json`, `finding-consolidation.json`, `prioritization.json`, and `reachability-context.json` by default and accepts optional SARIF imports with `-SarifIn`
 
 Useful endpoints:
 
 - `GET /api/scanner-mesh/status`
 - `GET /api/scans/{scan_id}/scanner-mesh`
 - `GET /api/scans/{scan_id}/consolidated-findings`
+- `GET /api/scans/{scan_id}/prioritization`
 - `GET /api/scans/{scan_id}/reachability-context`
 
-CLI export and SARIF import:
+CLI export, SARIF import, and optional coverage evidence:
 
 ```powershell
-.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --sarif-in codeql.sarif --scanner-mesh-out scanner-mesh.json --consolidated-findings-out finding-consolidation.json --reachability-context-out reachability-context.json
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --sarif-in codeql.sarif --coverage-in coverage.xml --scanner-mesh-out scanner-mesh.json --consolidated-findings-out finding-consolidation.json --prioritization-out prioritization.json --reachability-context-out reachability-context.json
 ```
 
 PowerShell wrapper:
 
 ```powershell
-.\scan.ps1 -Path "G:\Path\To\Repo" -SarifIn @("codeql.sarif", "third-party.sarif")
+.\scan.ps1 -Path "G:\Path\To\Repo" -SarifIn @("codeql.sarif", "third-party.sarif") -CoverageIn @("coverage.xml")
 ```
 
 The scanner mesh is the integration point for future Snyk/GitHub code-scanning/Semgrep Platform ingestion. New adapters should convert into `Finding` through `app.ingestion.normalize_finding()` so policy, risk scoring, SBOM, PR review, and enterprise reporting see one consistent contract. Raw findings remain stored for auditability; consolidation is a presentation and prioritization layer that turns overlapping scanner evidence into the ranked "fix these first" list.
@@ -1020,7 +1023,7 @@ Implemented:
 
 - VS Code command palette and activity-bar commands for workspace scans, health checks, refresh, baseline save, and web app launch
 - Finding tree with source navigation, RAG context, fix proposals, and finding decision updates
-- Report picker for scanner mesh, dependency review, SonarQube quality gate, scanner depth, quarantine policy, sanitized report lake records, RAG memory records, Hermes orchestration, messaging gateway, enterprise governance evidence, secret policy, push protection, CycloneDX, SPDX, SPDX compliance, SBOM policy, SBOM comparison, GitHub PR review, PR comment, remediation plan, memory context, recursive scanner learning, advanced AI report, compliance, SARIF, Markdown, and HTML
+- Report picker for scanner mesh, finding prioritization, dependency review, SonarQube quality gate, scanner depth, quarantine policy, sanitized report lake records, RAG memory records, Hermes orchestration, messaging gateway, enterprise governance evidence, secret policy, push protection, CycloneDX, SPDX, SPDX compliance, SBOM policy, SBOM comparison, GitHub PR review, PR comment, remediation plan, memory context, recursive scanner learning, advanced AI report, compliance, SARIF, Markdown, and HTML
 - Safe fix workflow parity through IDE-accessible fix proposals, fix bundles, and dry-run fix apply reports
 - Evidence bundle export to `.secure-review-artifacts/{scan_id}` using the same core artifacts emitted by `scan.ps1` and `app.cli`
 - Extension settings for backend URL, optional bearer token, extra request headers, default fix provider, and fix bundle limit
@@ -1702,7 +1705,7 @@ Dashboard scans now write a human-shareable report bundle automatically after ea
 reports\<repo-name>\<scan-id>\
 ```
 
-Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `finding-consolidation.json`, `reachability-context.json`, `inline-suppressions.json`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `messaging-gateway.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, safe fix dry-run artifacts, and verified autofix dry-run evidence.
+Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `finding-consolidation.json`, `prioritization.json`, `reachability-context.json`, `inline-suppressions.json`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `messaging-gateway.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, safe fix dry-run artifacts, and verified autofix dry-run evidence.
 
 The dashboard shows the saved bundle path after the scan and includes a `Report Bundle` action that opens the manifest. Set `REPORT_BUNDLE_DIR` in `.env` to place bundles somewhere else, for example:
 

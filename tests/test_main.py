@@ -102,6 +102,9 @@ def test_fix_proposal(client, scanned):
     resp = client.post(f"/api/scans/{sid}/findings/{fid}/fix-proposal?provider=offline")
     assert resp.status_code == 200
     assert resp.json()["requires_human_approval"] is True
+    autofix = client.post(f"/api/scans/{sid}/fixes/verified-autofix", json={"dry_run": True})
+    assert autofix.status_code == 200
+    assert autofix.json()["schema_version"] == "verified-autofix-v1"
 
 
 def test_compliance(client, scanned):

@@ -5,7 +5,7 @@ import json
 import sys
 from pathlib import Path
 
-from .models import FixApplyRequest
+from .models import FixApplyRequest, VerifiedAutofixRequest
 
 from .enterprise import audit, compliance_report
 from .dependency_review import dependency_review_report
@@ -40,6 +40,7 @@ from .secrets import secret_policy_report
 from .storage import load_baseline, load_scan, save_baseline, save_scan
 from .suppressions import inline_suppression_report, record_suppression_governance
 from .team_learning import team_learning_dashboard
+from .verified_autofix import run_verified_autofix
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -124,12 +125,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--fail-on-issue-plan-publish-failure', action='store_true', help='exit with code 10 when issue planning publish fails')
     parser.add_argument('--fix-bundle-out')
     parser.add_argument('--fix-apply-out')
+    parser.add_argument('--verified-autofix-out')
     parser.add_argument('--fix-bundle-limit', type=int, default=10)
     parser.add_argument('--fix-finding-id', action='append', default=[])
     parser.add_argument('--apply-fixes', action='store_true', help='apply eligible fixes when FIX_APPLY_ENABLED=true and --fix-apply-approved is set')
     parser.add_argument('--fix-apply-approved', action='store_true', help='confirm human approval for non-dry-run fix apply')
     parser.add_argument('--allow-placeholder-fixes', action='store_true', help='allow TODO/placeholder proposals in fix apply')
     parser.add_argument('--fix-provider', default='offline')
+    parser.add_argument('--verified-autofix', action='store_true', help='create an autofix branch, apply eligible fixes, run tests, and optionally push/open a PR when green')
+    parser.add_argument('--verified-autofix-approved', action='store_true', help='confirm human approval for non-dry-run verified autofix')
+    parser.add_argument('--verified-autofix-test-command', action='append', default=[], help='test command to run in the autofix worktree; repeat for multiple commands')
+    parser.add_argument('--verified-autofix-timeout', type=int, default=900)
+    parser.add_argument('--verified-autofix-branch')
+    parser.add_argument('--verified-autofix-base-branch')
+    parser.add_argument('--verified-autofix-push', action='store_true')
+    parser.add_argument('--verified-autofix-publish-pr', action='store_true')
+    parser.add_argument('--verified-autofix-pr-title')
     parser.add_argument('--advanced-ai-provider', default='offline')
     parser.add_argument('--advanced-ai-model')
     parser.add_argument('--embedding-provider', default='local')
@@ -357,6 +368,27 @@ def main(argv: list[str] | None = None) -> int:
         if args.apply_fixes and apply_report['status'] == 'blocked':
             print(f"Fix apply blocked: {', '.join(apply_report['blocked_reasons'])}", file=sys.stderr)
             return 8
+    if args.verified_autofix_out or args.verified_autofix:
+        autofix_report = run_verified_autofix(scan, VerifiedAutofixRequest(
+            finding_ids=args.fix_finding_id or [],
+            limit=args.fix_bundle_limit,
+            provider=args.fix_provider,
+            dry_run=not args.verified_autofix,
+            approved=args.verified_autofix_approved,
+            allow_placeholders=args.allow_placeholder_fixes,
+            branch_name=args.verified_autofix_branch,
+            base_branch=args.verified_autofix_base_branch,
+            test_commands=args.verified_autofix_test_command or [],
+            test_timeout_seconds=args.verified_autofix_timeout,
+            push_branch=args.verified_autofix_push,
+            publish_pr=args.verified_autofix_publish_pr,
+            pr_title=args.verified_autofix_pr_title,
+        ), actor='cli')
+        if args.verified_autofix_out:
+            Path(args.verified_autofix_out).write_text(json.dumps(autofix_report, indent=2), encoding='utf-8')
+        if args.verified_autofix and autofix_report['status'] in {'blocked', 'failed', 'tests_failed', 'push_failed', 'pr_failed'}:
+            print(f"Verified autofix failed: {autofix_report['status']} ({autofix_report['gate']})", file=sys.stderr)
+            return 14
 
     print(f'Scan {scan.scan_id}: {scan.summary.total_findings} findings across {scan.summary.files_scanned} files')
     print(f'Production gate: findings={scan.summary.production_findings}, hygiene={scan.summary.hygiene_findings}, scopes={scan.summary.scope_counts}')

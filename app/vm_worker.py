@@ -66,6 +66,7 @@ ALLOWED_EXPORTS = [
     'governance-evidence.json',
     'fix-bundle.json',
     'fix-apply-dry-run.json',
+    'verified-autofix-dry-run.json',
     'vm-worker-status.json',
     'vm-worker.log',
 ]
@@ -384,6 +385,7 @@ def scan_arguments(manifest: dict[str, Any]) -> str:
         '-GovernanceOut', str(GUEST_REPORT_WORK / 'governance-evidence.json'),
         '-FixBundleOut', str(GUEST_REPORT_WORK / 'fix-bundle.json'),
         '-FixApplyOut', str(GUEST_REPORT_WORK / 'fix-apply-dry-run.json'),
+        '-VerifiedAutofixOut', str(GUEST_REPORT_WORK / 'verified-autofix-dry-run.json'),
     ]
     sonar = manifest.get('sonar', {})
     if sonar.get('project_key'):

@@ -223,7 +223,8 @@ function Add-ScanOutputArgs {
     '-RagMemoryOut', (Join-Path $ReportDir 'rag-memory.json'),
     '-HermesOut', (Join-Path $ReportDir 'hermes-orchestration.json'),
     '-FixBundleOut', (Join-Path $ReportDir 'fix-bundle.json'),
-    '-FixApplyOut', (Join-Path $ReportDir 'fix-apply-dry-run.json')
+    '-FixApplyOut', (Join-Path $ReportDir 'fix-apply-dry-run.json'),
+    '-VerifiedAutofixOut', (Join-Path $ReportDir 'verified-autofix-dry-run.json')
   )
 }
 

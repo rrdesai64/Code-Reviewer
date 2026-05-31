@@ -38,6 +38,7 @@ param(
   [string]$HermesOut = "hermes-orchestration.json",
   [string]$FixBundleOut = "fix-bundle.json",
   [string]$FixApplyOut = "fix-apply-dry-run.json",
+  [string]$VerifiedAutofixOut = "verified-autofix-dry-run.json",
   [string]$SonarProjectKey = "",
   [string]$SonarProjectName = "",
   [string]$SonarBranchName = ""
@@ -140,7 +141,8 @@ $argsList = @(
   '--rag-memory-out', $RagMemoryOut,
   '--hermes-out', $HermesOut,
   '--fix-bundle-out', $FixBundleOut,
-  '--fix-apply-out', $FixApplyOut
+  '--fix-apply-out', $FixApplyOut,
+  '--verified-autofix-out', $VerifiedAutofixOut
 )
 
 foreach ($item in $SarifIn) {

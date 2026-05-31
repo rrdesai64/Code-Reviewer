@@ -23,7 +23,7 @@ from .hermes import hermes_report_for_scan
 from .ingestion import scanner_mesh_report
 from .issue_planning import build_issue_plan
 from .messaging_gateway import build_scan_gateway_report
-from .models import FixApplyRequest, ScanResult
+from .models import FixApplyRequest, ScanResult, VerifiedAutofixRequest
 from .quarantine import quarantine_policy_for_scan
 from .refactor import build_remediation_plan
 from .recursive_learning import scan_recursive_learning_report
@@ -40,6 +40,7 @@ from .storage import load_baseline, load_scan
 from .suppressions import inline_suppression_report
 from .team_learning import team_learning_dashboard
 from .teaching_loop import teaching_loop_report_for_scan
+from .verified_autofix import run_verified_autofix
 
 DEFAULT_AI_REVIEW_LIMIT = 25
 DEFAULT_FIX_BUNDLE_LIMIT = 10
@@ -96,6 +97,7 @@ def build_report_bundle(scan: ScanResult, base_dir: Path | None = None, ai_revie
     write_json_artifact('secure-review-compliance-evidence.json', lambda: compliance_evidence_bundle(scan_id=scan.scan_id))
     write_json_artifact('fix-bundle.json', lambda: build_fix_bundle(scan, limit=DEFAULT_FIX_BUNDLE_LIMIT, provider='offline'))
     write_json_artifact('fix-apply-dry-run.json', lambda: apply_fix_bundle(scan, FixApplyRequest(dry_run=True, approved=True, limit=DEFAULT_FIX_BUNDLE_LIMIT, provider='offline')))
+    write_json_artifact('verified-autofix-dry-run.json', lambda: run_verified_autofix(scan, VerifiedAutofixRequest(dry_run=True, approved=True, limit=DEFAULT_FIX_BUNDLE_LIMIT, provider='offline')))
 
     manifest = report_bundle_manifest(scan, bundle_dir, artifacts, errors)
     manifest_path = bundle_dir / 'manifest.json'

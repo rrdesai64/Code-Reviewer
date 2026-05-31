@@ -283,6 +283,27 @@ class FixApplyRequest(BaseModel):
     create_backups: bool = True
 
 
+class VerifiedAutofixRequest(BaseModel):
+    finding_ids: list[str] = Field(default_factory=list)
+    limit: int = 5
+    provider: str = 'offline'
+    model: str | None = None
+    dry_run: bool = True
+    approved: bool = False
+    allow_placeholders: bool = False
+    branch_name: str | None = None
+    base_branch: str | None = None
+    remote: str = 'origin'
+    test_commands: list[str] = Field(default_factory=list)
+    test_timeout_seconds: int = 900
+    allow_auto_detect_tests: bool = True
+    push_branch: bool = False
+    publish_pr: bool = False
+    pr_title: str | None = None
+    pr_body: str | None = None
+    commit_message: str | None = None
+
+
 class IssuePlanRequest(BaseModel):
     provider: Literal['all', 'jira', 'linear'] = 'all'
     publish: bool = False

@@ -125,7 +125,7 @@ def deterministic_patch(lines: list[str], finding: Finding) -> tuple[list[str], 
     if 'shell' in lower or 'subprocess' in lower or 'os.system' in lower or 'child_process' in lower:
         if idx < len(patched):
             indent = current[:len(current) - len(current.lstrip())]
-            patched[idx] = indent + prefix + ' TODO: Replace shell string execution with argument-list execution and validated inputs.\n'
+            patched[idx] = indent + prefix + ' TODO: Replace shell string execution with argument list execution and validated inputs.\n'
             patched.insert(idx + 1, safe_execution_example(finding.location.path, indent))
         return patched, 'Replace shell-based process execution with validated argument-list execution.', notes
 

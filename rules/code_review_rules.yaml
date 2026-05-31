@@ -1,0 +1,2289 @@
+# =============================================================================
+# Code Review Rule Catalog
+# -----------------------------------------------------------------------------
+# A language-agnostic catalog of code-review checks (best practices, security
+# vulnerabilities, null handling, concurrency, encoding, etc.) intended to be
+# loaded directly by a code-review application.
+#
+# Schema for each rule:
+#   id               Stable unique identifier (PREFIX-NNN). Never reuse/renumber.
+#   name             Short human-readable title.
+#   category         One of the keys under `categories`.
+#   severity         One of the keys under `severities`.
+#   languages        List of applicable languages, or ["*"] for all.
+#   detection        One of the keys under `detection_methods`.
+#   cwe              Related CWE id(s) where applicable (else null).
+#   owasp            Related OWASP Top 10 (2021) id where applicable (else null).
+#   description      What the rule looks for.
+#   rationale        Why it matters.
+#   bad              Example of the problem (illustrative, may be pseudo-code).
+#   good             Recommended fix (illustrative).
+#   remediation      Short guidance string.
+# =============================================================================
+
+catalog_version: "1.0.0"
+updated: "2026-05-30"
+
+# -----------------------------------------------------------------------------
+# Reference vocabularies
+# -----------------------------------------------------------------------------
+languages_supported:
+  - python
+  - java
+  - kotlin
+  - javascript
+  - typescript
+  - c
+  - cpp
+  - kernel        # Linux-kernel-specific C
+  - shell         # bash / sh
+  - go
+  - rust
+  - sql
+  - dockerfile
+  - terraform     # incl. generic HCL
+  - hcl
+  - yaml
+  - html
+  - xml
+  - "*"           # applies to all languages
+
+severities:
+  critical: "Exploitable vulnerability or guaranteed crash/data loss in production."
+  high:     "Likely bug or serious security weakness; fix before merge."
+  medium:   "Probable defect or meaningful weakness; should be addressed."
+  low:      "Minor issue, style, or maintainability concern."
+  info:     "Informational / advisory; surface for awareness."
+
+detection_methods:
+  pattern:        "Regex / token match. Cheap, high precision, some false positives."
+  ast:            "Abstract-syntax-tree rule. Structural, language-aware."
+  dataflow:       "Source-to-sink taint or dataflow analysis. Medium cost."
+  interprocedural: "Cross-function / semantic reasoning. Hard; LLM-assisted shines here."
+  external_db:    "Requires an external feed (CVE/OSV, advisories)."
+  metric:         "Threshold over a computed metric (complexity, length, coverage)."
+  binary_scan:    "Inspects raw bytes / file-level properties, not parsed source."
+
+categories:
+  null_handling:    "Null / None / nil / undefined dereferences and absent-value bugs."
+  concurrency:      "Race conditions, deadlocks, unsafe shared state, async misuse."
+  error_handling:   "Exception handling, swallowed errors, error-path correctness."
+  resource_mgmt:    "Leaks of memory, handles, connections; lifetime/ownership bugs."
+  security:         "Injection, auth, crypto, secrets, and other exploitable flaws."
+  input_validation: "Trust boundaries, bounds checks, type/range/encoding validation."
+  performance:      "Algorithmic complexity, hot-path allocation, blocking IO."
+  maintainability:  "Complexity, duplication, naming, dead code, documentation."
+  dependencies:     "Supply-chain, vulnerable/unpinned/deprecated dependencies."
+  testing_obs:      "Test coverage of risky logic, logging, and observability."
+  encoding_unicode: "Character encoding, BOM, line endings, Unicode/homoglyph issues."
+  lexical:          "Whitespace, delimiters, and constructs that cause bugs but a formatter/compiler won't flag."
+  config_iac:       "Container, infrastructure-as-code, and deployment configuration weaknesses."
+  language_idiom:   "Language-specific footguns and anti-idioms (correct syntax, wrong semantics in practice)."
+
+# -----------------------------------------------------------------------------
+# Rules
+# -----------------------------------------------------------------------------
+rules:
+
+  # ---- NULL / ABSENCE HANDLING --------------------------------------------
+  - id: NULL-001
+    name: Unchecked nullable dereference
+    category: null_handling
+    severity: high
+    languages: ["*"]
+    detection: dataflow
+    cwe: [476]
+    owasp: null
+    description: A value that can be null/None/nil/undefined is dereferenced without a guard.
+    rationale: Most common cause of runtime crashes (NPE, AttributeError, TypeError).
+    bad: "user.getProfile().getName()  // getProfile() may return null"
+    good: "Optional.ofNullable(user.getProfile()).map(Profile::getName).orElse(\"\")"
+    remediation: Guard with a null check, Optional/Maybe, or safe-call operator before use.
+
+  - id: NULL-002
+    name: Optional/Maybe unwrapped without check
+    category: null_handling
+    severity: high
+    languages: [java, kotlin, python]
+    detection: ast
+    cwe: [476]
+    owasp: null
+    description: Optional.get(), Kotlin !!, or similar force-unwrap used without verifying presence.
+    rationale: Force-unwrapping defeats the type system's absence safety and throws on empty.
+    bad: "val name = user.name!!"
+    good: "val name = user.name ?: return"
+    remediation: Use orElse/getOrElse/elvis or an explicit isPresent branch.
+
+  - id: NULL-003
+    name: Function returns null but callers assume non-null
+    category: null_handling
+    severity: high
+    languages: ["*"]
+    detection: interprocedural
+    cwe: [476]
+    owasp: null
+    description: A function has a null-returning path while at least one caller dereferences the result directly.
+    rationale: Contract mismatch between producer and consumer; latent crash.
+    bad: "find(id) returns null on miss; caller does find(id).save()"
+    good: "Return Optional/throw, or have callers handle the absent case."
+    remediation: Make absence explicit in the return type or document and guard callers.
+
+  - id: NULL-004
+    name: Empty-collection / out-of-bounds access
+    category: null_handling
+    severity: medium
+    languages: ["*"]
+    detection: dataflow
+    cwe: [129]
+    owasp: null
+    description: Indexing element 0 / first / last on a collection that may be empty.
+    rationale: Throws IndexError/IndexOutOfBounds or returns undefined.
+    bad: "first = items[0]"
+    good: "first = items[0] if items else None"
+    remediation: Check length / use safe accessors (firstOrNull, .get).
+
+  - id: NULL-005
+    name: Default value masks a real failure
+    category: null_handling
+    severity: low
+    languages: ["*"]
+    detection: interprocedural
+    cwe: null
+    owasp: null
+    description: Returning an empty object/zero instead of signaling "not found" or error.
+    rationale: Hides bugs and corrupts downstream logic with silent defaults.
+    bad: "return cache.get(key, {})  # caller can't tell miss from empty"
+    good: "Distinguish miss (None/Optional.empty) from a legitimately empty value."
+    remediation: Preserve the absence/error signal instead of substituting a default.
+
+  # ---- CONCURRENCY ---------------------------------------------------------
+  - id: CONC-001
+    name: Shared mutable state without synchronization
+    category: concurrency
+    severity: high
+    languages: [java, kotlin, c, cpp, kernel, javascript, typescript, python]
+    detection: interprocedural
+    cwe: [362]
+    owasp: null
+    description: Mutable state accessed from multiple threads/tasks without lock, atomic, or channel.
+    rationale: Data races cause corruption, torn reads, and non-deterministic bugs.
+    bad: "counter++  // from multiple threads"
+    good: "AtomicInteger / lock / single-owner via channel"
+    remediation: Protect shared state with a lock, atomic, or confine it to one owner.
+
+  - id: CONC-002
+    name: Check-then-act (TOCTOU) race
+    category: concurrency
+    severity: high
+    languages: ["*"]
+    detection: ast
+    cwe: [367]
+    owasp: null
+    description: A condition is checked and then acted upon non-atomically.
+    rationale: State can change between the check and the act, including security checks.
+    bad: "if (!file.exists()) file.create()"
+    good: "Use atomic create (O_CREAT|O_EXCL) or hold a lock across check+act."
+    remediation: Make the check-and-act a single atomic operation.
+
+  - id: CONC-003
+    name: Non-atomic compound op on concurrent container
+    category: concurrency
+    severity: medium
+    languages: [java, kotlin]
+    detection: ast
+    cwe: [362]
+    owasp: null
+    description: get-then-put or contains-then-add on a thread-safe map treated as atomic.
+    rationale: Each op is atomic but the sequence is not; lost updates occur.
+    bad: "if (!map.containsKey(k)) map.put(k, v)"
+    good: "map.computeIfAbsent(k, ...) / putIfAbsent"
+    remediation: Use the container's atomic compound methods.
+
+  - id: CONC-004
+    name: Lock held across blocking / IO call
+    category: concurrency
+    severity: high
+    languages: [java, kotlin, c, cpp, kernel]
+    detection: interprocedural
+    cwe: [667]
+    owasp: null
+    description: A lock is held while performing IO, network, or other blocking work.
+    rationale: Serializes the system and invites deadlock / latency spikes.
+    bad: "synchronized(lock){ httpClient.call() }"
+    good: "Do IO outside the critical section; lock only the shared-state update."
+    remediation: Minimize critical-section scope; never block while holding a lock.
+
+  - id: CONC-005
+    name: Inconsistent lock ordering (deadlock risk)
+    category: concurrency
+    severity: high
+    languages: [java, kotlin, c, cpp, kernel]
+    detection: interprocedural
+    cwe: [833]
+    owasp: null
+    description: Two or more locks acquired in different orders on different paths.
+    rationale: Classic deadlock condition under contention.
+    bad: "path A: lock(x); lock(y)  |  path B: lock(y); lock(x)"
+    good: "Establish and document a global lock-acquisition order."
+    remediation: Always acquire locks in a single consistent order.
+
+  - id: CONC-006
+    name: Unawaited async / fire-and-forget
+    category: concurrency
+    severity: medium
+    languages: [javascript, typescript, kotlin, python]
+    detection: ast
+    cwe: null
+    owasp: null
+    description: A promise/future/coroutine is started but never awaited or joined.
+    rationale: Errors are swallowed and ordering guarantees are lost.
+    bad: "doAsync()  // result and errors discarded"
+    good: "await doAsync()  // or explicitly handle the returned handle"
+    remediation: Await/handle every async result or document the fire-and-forget intent.
+
+  - id: CONC-007
+    name: Unsafe lazy/double-checked initialization
+    category: concurrency
+    severity: medium
+    languages: [java, kotlin, c, cpp]
+    detection: ast
+    cwe: [362]
+    owasp: null
+    description: Lazy singleton init without volatile / proper memory barrier.
+    rationale: Other threads may observe a partially constructed instance.
+    bad: "if(inst==null){ inst=new X(); }  // not volatile, not synchronized"
+    good: "Holder idiom, volatile + DCL, or Kotlin `by lazy`."
+    remediation: Use a language-idiomatic thread-safe lazy initialization.
+
+  # ---- ERROR HANDLING ------------------------------------------------------
+  - id: ERR-001
+    name: Empty / swallowed catch block
+    category: error_handling
+    severity: high
+    languages: [java, kotlin, javascript, typescript, python, cpp]
+    detection: ast
+    cwe: [390]
+    owasp: null
+    description: An exception is caught and silently ignored.
+    rationale: Hides failures and produces undebuggable behavior.
+    bad: "try { ... } catch (e) {}"
+    good: "Log with context and handle or rethrow."
+    remediation: Never swallow exceptions silently; at minimum log with context.
+
+  - id: ERR-002
+    name: Overly broad exception catch
+    category: error_handling
+    severity: medium
+    languages: [java, kotlin, python, javascript, typescript]
+    detection: ast
+    cwe: [396]
+    owasp: null
+    description: Catching Exception/Throwable/bare except instead of specific types.
+    rationale: Masks unrelated errors (including programmer bugs) and OOM/Interrupt.
+    bad: "except:  /  catch (Throwable t)"
+    good: "except ValueError:  /  catch (IOException e)"
+    remediation: Catch the narrowest exception type you can handle.
+
+  - id: ERR-003
+    name: Resource not released on error path
+    category: error_handling
+    severity: high
+    languages: [java, kotlin, python, c, cpp]
+    detection: dataflow
+    cwe: [772]
+    owasp: null
+    description: A resource opened in try is not closed when an exception occurs.
+    rationale: Leaks accumulate and exhaust handles/connections.
+    bad: "f = open(p); work(); f.close()  # leak if work() throws"
+    good: "with open(p) as f: ...  /  try-with-resources  /  defer"
+    remediation: Use RAII / context managers / finally to guarantee cleanup.
+
+  - id: ERR-004
+    name: Lost exception cause on rethrow
+    category: error_handling
+    severity: low
+    languages: [java, kotlin, python]
+    detection: ast
+    cwe: null
+    owasp: null
+    description: Rethrowing a new exception without chaining the original.
+    rationale: Destroys the stack trace and root-cause information.
+    bad: "raise RuntimeError('failed')  # from inside except"
+    good: "raise RuntimeError('failed') from e"
+    remediation: Preserve the original cause when wrapping exceptions.
+
+  - id: ERR-005
+    name: Ignored return / error code
+    category: error_handling
+    severity: high
+    languages: [c, cpp, kernel, shell, go]
+    detection: ast
+    cwe: [252]
+    owasp: null
+    description: A function's error-indicating return value is not checked.
+    rationale: Silent failure propagates corrupt state (esp. malloc, read, write).
+    bad: "malloc(n);  // result not checked for NULL"
+    good: "p = malloc(n); if (!p) return -ENOMEM;"
+    remediation: Check and handle every error-bearing return value.
+
+  # ---- RESOURCE MANAGEMENT -------------------------------------------------
+  - id: RES-001
+    name: Unclosed handle / connection
+    category: resource_mgmt
+    severity: high
+    languages: [java, kotlin, python, c, cpp, javascript, typescript]
+    detection: dataflow
+    cwe: [772]
+    owasp: null
+    description: File, socket, DB connection, or cursor opened without guaranteed close.
+    rationale: Handle/connection exhaustion brings down services.
+    bad: "conn = pool.get(); query(conn)  # never returned"
+    good: "with / try-with-resources / use { } to release deterministically."
+    remediation: Tie resource lifetime to a scope guard.
+
+  - id: RES-002
+    name: Unbounded queue / cache / buffer
+    category: resource_mgmt
+    severity: high
+    languages: ["*"]
+    detection: ast
+    cwe: [770]
+    owasp: null
+    description: A growable structure has no size cap or eviction policy.
+    rationale: Memory growth leads to OOM under load or attack.
+    bad: "cache = {}  # grows forever"
+    good: "Bounded cache with LRU/TTL eviction; bounded queue with backpressure."
+    remediation: Set explicit capacity limits and eviction/backpressure.
+
+  - id: RES-003
+    name: Use-after-free / double-free
+    category: resource_mgmt
+    severity: critical
+    languages: [c, cpp, kernel]
+    detection: dataflow
+    cwe: [416, 415]
+    owasp: null
+    description: Memory used after free, or freed more than once.
+    rationale: Exploitable memory-corruption primitive; crashes and RCE.
+    bad: "free(p); use(p);  /  free(p); free(p);"
+    good: "Null the pointer after free; clear ownership; use smart pointers (C++)."
+    remediation: Enforce single ownership; null-after-free; prefer RAII/smart pointers.
+
+  - id: RES-004
+    name: Memory leak (alloc without free)
+    category: resource_mgmt
+    severity: high
+    languages: [c, cpp, kernel]
+    detection: dataflow
+    cwe: [401]
+    owasp: null
+    description: Allocated memory has a path that never frees it.
+    rationale: Long-running processes degrade and crash.
+    bad: "p = kmalloc(...); if (err) return;  // p leaked"
+    good: "goto cleanup; kfree(p);  // unified error-path cleanup"
+    remediation: Use goto-chain cleanup (kernel) or RAII (C++) for every path.
+
+  - id: RES-005
+    name: Listener / closure retained (managed-language leak)
+    category: resource_mgmt
+    severity: medium
+    languages: [java, kotlin, javascript, typescript]
+    detection: interprocedural
+    cwe: [401]
+    owasp: null
+    description: Event listeners, observers, or static collections grow without removal.
+    rationale: Logical leaks in GC languages (retained references).
+    bad: "emitter.on('x', cb)  // never removed"
+    good: "Remove listeners on teardown; use weak references where appropriate."
+    remediation: Pair every registration with a deregistration on lifecycle end.
+
+  # ---- SECURITY ------------------------------------------------------------
+  - id: SEC-001
+    name: SQL injection
+    category: security
+    severity: critical
+    languages: ["*"]
+    detection: dataflow
+    cwe: [89]
+    owasp: A03
+    description: User input concatenated into a SQL query string.
+    rationale: Allows data theft, modification, and full DB compromise.
+    bad: "\"SELECT * FROM u WHERE id=\" + req.id"
+    good: "Parameterized query / prepared statement with bound parameters."
+    remediation: Always use parameterized queries; never concatenate untrusted input.
+
+  - id: SEC-002
+    name: OS command injection
+    category: security
+    severity: critical
+    languages: [python, java, kotlin, javascript, typescript, c, cpp, shell]
+    detection: dataflow
+    cwe: [78]
+    owasp: A03
+    description: User input passed to a shell or process executor.
+    rationale: Enables arbitrary command execution on the host.
+    bad: "os.system('ping ' + host)  /  Runtime.exec('sh -c ' + x)"
+    good: "subprocess.run(['ping', host])  # no shell, arg list"
+    remediation: Avoid shells; pass argument arrays; validate/allowlist inputs.
+
+  - id: SEC-003
+    name: Path traversal
+    category: security
+    severity: high
+    languages: ["*"]
+    detection: dataflow
+    cwe: [22]
+    owasp: A01
+    description: User-controlled path used in file access without normalization/containment.
+    rationale: Lets attackers read/write files outside the intended directory.
+    bad: "open(base + req.filename)  // '../../etc/passwd'"
+    good: "Resolve canonical path and verify it stays within base dir."
+    remediation: Canonicalize and enforce a base-directory boundary; allowlist names.
+
+  - id: SEC-004
+    name: Cross-site scripting (XSS)
+    category: security
+    severity: high
+    languages: [javascript, typescript, java, kotlin, python]
+    detection: dataflow
+    cwe: [79]
+    owasp: A03
+    description: Untrusted data written into HTML/DOM without escaping.
+    rationale: Executes attacker script in victims' browsers.
+    bad: "el.innerHTML = userInput  /  dangerouslySetInnerHTML"
+    good: "Use textContent / framework auto-escaping / sanitize with a vetted lib."
+    remediation: Context-aware output encoding; avoid raw HTML injection.
+
+  - id: SEC-005
+    name: Insecure deserialization
+    category: security
+    severity: critical
+    languages: [python, java, kotlin]
+    detection: ast
+    cwe: [502]
+    owasp: A08
+    description: Deserializing untrusted data with unsafe loaders.
+    rationale: Can lead to remote code execution.
+    bad: "pickle.loads(data)  /  yaml.load(x)  /  ObjectInputStream"
+    good: "yaml.safe_load(x)  /  JSON  /  signed+validated formats"
+    remediation: Never deserialize untrusted input with code-capable formats.
+
+  - id: SEC-006
+    name: Hardcoded secret
+    category: security
+    severity: critical
+    languages: ["*"]
+    detection: pattern
+    cwe: [798]
+    owasp: A07
+    description: API keys, passwords, tokens, or private keys committed in source.
+    rationale: Anyone with repo access gains credentials; leaks persist in history.
+    bad: "AWS_SECRET = 'AKIA...'"
+    good: "Read from env/secret manager; keep secrets out of source."
+    remediation: Move to a secrets manager; rotate exposed credentials; add scanning.
+
+  - id: SEC-007
+    name: Weak or misused cryptography
+    category: security
+    severity: high
+    languages: ["*"]
+    detection: ast
+    cwe: [327, 326]
+    owasp: A02
+    description: MD5/SHA1 for security, ECB mode, static IV, or small keys.
+    rationale: Broken primitives provide no real protection.
+    bad: "MessageDigest.getInstance('MD5')  // for passwords"
+    good: "Argon2/bcrypt for passwords; AES-GCM; per-message random IV."
+    remediation: Use modern, vetted algorithms and modes with proper parameters.
+
+  - id: SEC-008
+    name: Insecure randomness for security values
+    category: security
+    severity: high
+    languages: ["*"]
+    detection: ast
+    cwe: [338]
+    owasp: A02
+    description: Non-cryptographic RNG used for tokens, keys, salts, or IDs.
+    rationale: Predictable values enable session/token forgery.
+    bad: "Math.random()  /  random.random()  // for a token"
+    good: "secrets.token_hex()  /  SecureRandom  /  crypto.randomBytes"
+    remediation: Use a cryptographically secure RNG for security-sensitive values.
+
+  - id: SEC-009
+    name: Disabled TLS / certificate validation
+    category: security
+    severity: critical
+    languages: ["*"]
+    detection: pattern
+    cwe: [295]
+    owasp: A07
+    description: TLS verification turned off or all hostnames accepted.
+    rationale: Defeats TLS entirely; enables man-in-the-middle.
+    bad: "requests.get(url, verify=False)"
+    good: "Keep verification on; pin/trust proper CAs."
+    remediation: Never disable certificate or hostname verification in production.
+
+  - id: SEC-010
+    name: Missing authorization check
+    category: security
+    severity: critical
+    languages: ["*"]
+    detection: interprocedural
+    cwe: [862, 639]
+    owasp: A01
+    description: A state-changing or data-returning operation lacks an object-level authz check.
+    rationale: Broken access control (IDOR) exposes other users' data.
+    bad: "getDoc(id)  // no check that caller owns id"
+    good: "Verify the caller is authorized for the specific resource."
+    remediation: Enforce per-object authorization at every access point.
+
+  - id: SEC-011
+    name: Server-side request forgery (SSRF)
+    category: security
+    severity: high
+    languages: ["*"]
+    detection: dataflow
+    cwe: [918]
+    owasp: A10
+    description: Server fetches a URL derived from user input without restriction.
+    rationale: Lets attackers reach internal services / cloud metadata.
+    bad: "fetch(req.url)"
+    good: "Allowlist hosts/schemes; block internal ranges and metadata IPs."
+    remediation: Validate against an allowlist; deny private/link-local targets.
+
+  - id: SEC-012
+    name: Sensitive data in logs
+    category: security
+    severity: medium
+    languages: ["*"]
+    detection: pattern
+    cwe: [532]
+    owasp: A09
+    description: Passwords, tokens, PII, or full request bodies written to logs.
+    rationale: Log stores become a secondary breach target.
+    bad: "log.info('login {} {}', user, password)"
+    good: "Redact/mask sensitive fields before logging."
+    remediation: Mask secrets/PII; never log credentials or full payloads.
+
+  - id: SEC-013
+    name: Format string vulnerability
+    category: security
+    severity: high
+    languages: [c, cpp, kernel]
+    detection: ast
+    cwe: [134]
+    owasp: null
+    description: User-controlled string used as a format specifier.
+    rationale: Memory disclosure or corruption via %n etc.
+    bad: "printf(user_input)"
+    good: "printf(\"%s\", user_input)"
+    remediation: Always use a constant format string with explicit arguments.
+
+  - id: SEC-014
+    name: Buffer overflow / unsafe string op
+    category: security
+    severity: critical
+    languages: [c, cpp, kernel]
+    detection: pattern
+    cwe: [120, 787]
+    owasp: null
+    description: Unbounded copy functions or missing length checks.
+    rationale: Stack/heap overflow; exploitable for RCE.
+    bad: "strcpy(dst, src)  /  gets(buf)  /  sprintf(buf, ...)"
+    good: "strncpy/snprintf with explicit bounds; fgets; bounded memcpy."
+    remediation: Use length-bounded APIs and validate sizes before copy.
+
+  - id: SEC-015
+    name: Integer overflow before allocation/index
+    category: security
+    severity: high
+    languages: [c, cpp, kernel, java]
+    detection: dataflow
+    cwe: [190]
+    owasp: null
+    description: Arithmetic on user-controlled values overflows then sizes a buffer/index.
+    rationale: Undersized allocations lead to overflow; bad indices corrupt memory.
+    bad: "malloc(count * size)  // count*size overflows"
+    good: "Check for overflow (e.g., reallocarray / explicit bounds) first."
+    remediation: Validate arithmetic ranges before allocating or indexing.
+
+  - id: SEC-016
+    name: Mass assignment / over-posting
+    category: security
+    severity: high
+    languages: [java, kotlin, python, javascript, typescript]
+    detection: ast
+    cwe: [915]
+    owasp: A08
+    description: Request body bound directly to a domain/model object.
+    rationale: Attackers set protected fields (e.g., isAdmin, balance).
+    bad: "user.update(req.body)"
+    good: "Bind only an explicit allowlist of fields (DTO)."
+    remediation: Use input DTOs and explicit field allowlists.
+
+  # ---- INPUT VALIDATION ----------------------------------------------------
+  - id: INP-001
+    name: Trusting client-supplied size/type/range
+    category: input_validation
+    severity: high
+    languages: ["*"]
+    detection: dataflow
+    cwe: [20]
+    owasp: A04
+    description: Input used without validating type, range, length, or format.
+    rationale: Foundation of many injection, overflow, and logic bugs.
+    bad: "allocate(req.count)  // count unbounded"
+    good: "Validate count is within an expected, capped range."
+    remediation: Validate all inputs at the trust boundary before use.
+
+  - id: INP-002
+    name: Money stored/computed in floating point
+    category: input_validation
+    severity: medium
+    languages: ["*"]
+    detection: ast
+    cwe: [682]
+    owasp: null
+    description: Currency values represented as float/double.
+    rationale: Rounding errors accumulate into incorrect financial results.
+    bad: "total = 0.1 + 0.2  // 0.30000000000000004"
+    good: "Use decimal/BigDecimal or integer minor units (cents)."
+    remediation: Use exact decimal types or integer minor units for money.
+
+  - id: INP-003
+    name: Unvalidated open redirect
+    category: input_validation
+    severity: medium
+    languages: ["*"]
+    detection: dataflow
+    cwe: [601]
+    owasp: A01
+    description: Redirect target taken from user input without validation.
+    rationale: Enables phishing via trusted-domain redirects.
+    bad: "redirect(req.next)"
+    good: "Allowlist redirect targets / use relative paths only."
+    remediation: Restrict redirects to a known-safe set of destinations.
+
+  # ---- PERFORMANCE ---------------------------------------------------------
+  - id: PERF-001
+    name: N+1 query / query inside loop
+    category: performance
+    severity: high
+    languages: ["*"]
+    detection: ast
+    cwe: null
+    owasp: null
+    description: A DB/network call is issued once per loop iteration.
+    rationale: Latency and load scale linearly with result size.
+    bad: "for id in ids: db.get(id)"
+    good: "db.get_many(ids)  // single batched query"
+    remediation: Batch queries / use joins / eager loading.
+
+  - id: PERF-002
+    name: Quadratic membership test
+    category: performance
+    severity: medium
+    languages: ["*"]
+    detection: ast
+    cwe: null
+    owasp: null
+    description: Repeated linear search (list `in`) inside a loop.
+    rationale: O(n^2) where O(n) is trivial with a set/map.
+    bad: "for x in a: if x in b_list: ..."
+    good: "b = set(b_list); for x in a: if x in b: ..."
+    remediation: Use a set/map for membership tests in loops.
+
+  - id: PERF-003
+    name: Blocking IO on request / UI thread
+    category: performance
+    severity: high
+    languages: [java, kotlin, javascript, typescript, python]
+    detection: interprocedural
+    cwe: null
+    owasp: null
+    description: Synchronous network/disk/DB call on a latency-sensitive thread.
+    rationale: Stalls the event loop / UI / request worker.
+    bad: "fun onClick() { httpClient.callBlocking() }"
+    good: "Offload to a background dispatcher / async IO."
+    remediation: Move blocking work off hot threads; use async IO.
+
+  - id: PERF-004
+    name: Regex recompiled in hot path
+    category: performance
+    severity: low
+    languages: [python, java, kotlin, javascript, typescript]
+    detection: ast
+    cwe: null
+    owasp: null
+    description: A regex literal is compiled on every call/iteration.
+    rationale: Wasted CPU; can also enable ReDoS with bad patterns.
+    bad: "for line in lines: re.match(r'...', line)"
+    good: "PATTERN = re.compile(r'...'); ... PATTERN.match(line)"
+    remediation: Compile regexes once; review patterns for catastrophic backtracking.
+
+  # ---- MAINTAINABILITY -----------------------------------------------------
+  - id: MAINT-001
+    name: Excessive cyclomatic complexity
+    category: maintainability
+    severity: low
+    languages: ["*"]
+    detection: metric
+    cwe: null
+    owasp: null
+    description: Function complexity exceeds the configured threshold (e.g., > 15).
+    rationale: Hard to test and reason about; bug-prone.
+    bad: "One function with many nested branches/loops."
+    good: "Decompose into smaller, named, single-purpose functions."
+    remediation: Refactor; set and enforce a complexity budget.
+
+  - id: MAINT-002
+    name: Magic number / duplicated literal
+    category: maintainability
+    severity: info
+    languages: ["*"]
+    detection: ast
+    cwe: null
+    owasp: null
+    description: Unexplained numeric/string literals repeated in code.
+    rationale: Obscures intent and risks inconsistent updates.
+    bad: "if (retries > 3) ...   // 3 appears in many places"
+    good: "const MAX_RETRIES = 3"
+    remediation: Extract to named constants.
+
+  - id: MAINT-003
+    name: Dead / unreachable code
+    category: maintainability
+    severity: low
+    languages: ["*"]
+    detection: ast
+    cwe: [561]
+    owasp: null
+    description: Code after return/throw, unused symbols, commented-out blocks.
+    rationale: Adds noise and misleads readers.
+    bad: "return x; doMore();  // unreachable"
+    good: "Remove dead code; rely on VCS for history."
+    remediation: Delete unreachable/unused code.
+
+  - id: MAINT-004
+    name: Leaking internal mutable reference
+    category: maintainability
+    severity: medium
+    languages: [java, kotlin, javascript, typescript]
+    detection: ast
+    cwe: null
+    owasp: null
+    description: A getter returns the internal mutable collection/array directly.
+    rationale: Callers can mutate internal state, breaking invariants.
+    bad: "List getItems(){ return this.items; }"
+    good: "Return an unmodifiable view or a copy."
+    remediation: Expose immutable views; copy on the boundary.
+
+  - id: MAINT-005
+    name: Unresolved TODO/FIXME/HACK marker
+    category: maintainability
+    severity: info
+    languages: ["*"]
+    detection: pattern
+    cwe: [546]
+    owasp: null
+    description: Tracking markers left in code.
+    rationale: Signals incomplete work; should be tracked, not lost in source.
+    bad: "// FIXME: handle the timeout case"
+    good: "Link to an issue or resolve before merge."
+    remediation: Convert to tracked issues or resolve.
+
+  # ---- DEPENDENCIES --------------------------------------------------------
+  - id: DEP-001
+    name: Known-vulnerable dependency
+    category: dependencies
+    severity: critical
+    languages: ["*"]
+    detection: external_db
+    cwe: [1395, 937]
+    owasp: A06
+    description: A declared dependency version matches a known CVE/advisory.
+    rationale: Inherits exploitable flaws directly.
+    bad: "log4j-core:2.14.1  // CVE-2021-44228"
+    good: "Upgrade to a patched version."
+    remediation: Track advisories (OSV/GitHub) and upgrade promptly.
+
+  - id: DEP-002
+    name: Unpinned / floating dependency version
+    category: dependencies
+    severity: medium
+    languages: ["*"]
+    detection: pattern
+    cwe: [1357]
+    owasp: A08
+    description: Dependency declared as latest / wide range without a lockfile.
+    rationale: Non-reproducible builds and silent supply-chain drift.
+    bad: "requests = '*'  /  \"some-lib\": \"latest\""
+    good: "Pin exact versions and commit a lockfile."
+    remediation: Pin versions; use and commit lockfiles.
+
+  - id: DEP-003
+    name: Deprecated / unmaintained library
+    category: dependencies
+    severity: low
+    languages: ["*"]
+    detection: external_db
+    cwe: [477]
+    owasp: A06
+    description: Dependency is archived, deprecated, or long unmaintained.
+    rationale: Won't receive security fixes.
+    bad: "Using an archived crypto library."
+    good: "Migrate to a maintained alternative."
+    remediation: Replace abandoned dependencies.
+
+  # ---- TESTING & OBSERVABILITY --------------------------------------------
+  - id: TEST-001
+    name: Risky logic lacks test coverage
+    category: testing_obs
+    severity: medium
+    languages: ["*"]
+    detection: metric
+    cwe: null
+    owasp: null
+    description: Branches in security/concurrency/error paths are uncovered.
+    rationale: Highest-risk code is the least verified.
+    bad: "No tests for the failure/error path."
+    good: "Add tests for happy path AND error/edge paths."
+    remediation: Require coverage of error and boundary conditions.
+
+  - id: TEST-002
+    name: Test without assertions
+    category: testing_obs
+    severity: low
+    languages: ["*"]
+    detection: ast
+    cwe: null
+    owasp: null
+    description: A test exercises code but asserts nothing.
+    rationale: Passes regardless of behavior; false confidence.
+    bad: "def test_x(): do_thing()  # no assert"
+    good: "Assert on the observable outcome."
+    remediation: Ensure every test asserts meaningful behavior.
+
+  - id: OBS-001
+    name: Missing logging at decision/failure points
+    category: testing_obs
+    severity: low
+    languages: ["*"]
+    detection: interprocedural
+    cwe: [778]
+    owasp: A09
+    description: Important branches/errors produce no log or trace.
+    rationale: Incidents become undiagnosable.
+    bad: "catch (e) { return fallback; }  // silent"
+    good: "Log with context (and a correlation id) at failure points."
+    remediation: Add structured logs at key decisions and failures.
+
+  # ---- ENCODING / UNICODE --------------------------------------------------
+  - id: ENC-001
+    name: File not valid UTF-8
+    category: encoding_unicode
+    severity: medium
+    languages: ["*"]
+    detection: binary_scan
+    cwe: null
+    owasp: null
+    description: Source file contains bytes that are not valid UTF-8.
+    rationale: Causes decode errors, garbled text, and tool failures across platforms.
+    bad: "File saved as cp1252/Latin-1 with bytes >0x7F."
+    good: "Save and store all source as UTF-8."
+    remediation: Normalize files to UTF-8; add an encoding check in CI.
+
+  - id: ENC-002
+    name: Unexpected / disallowed byte-order mark (BOM)
+    category: encoding_unicode
+    severity: low
+    languages: ["*"]
+    detection: binary_scan
+    cwe: null
+    owasp: null
+    description: A UTF-8 BOM (EF BB BF) is present where it breaks tooling.
+    rationale: Breaks shebang lines, JSON parsers, shell scripts, and diffs.
+    bad: "<BOM>#!/usr/bin/env python"
+    good: "Strip the BOM; store UTF-8 without BOM (unless format requires it)."
+    remediation: Remove BOM from scripts/JSON; standardize per file type.
+
+  - id: ENC-003
+    name: Mixed / wrong line endings
+    category: encoding_unicode
+    severity: low
+    languages: ["*"]
+    detection: binary_scan
+    cwe: null
+    owasp: null
+    description: File mixes CRLF and LF, or uses CRLF where LF is required.
+    rationale: Breaks shell scripts (\\r in shebang), noisy diffs, cross-platform bugs.
+    bad: "Shell script with CRLF endings → 'bad interpreter' error."
+    good: "Normalize line endings; enforce via .gitattributes / .editorconfig."
+    remediation: Standardize line endings per file type and enforce in VCS.
+
+  - id: ENC-004
+    name: Source file opened without explicit encoding
+    category: encoding_unicode
+    severity: medium
+    languages: [python, java]
+    detection: ast
+    cwe: null
+    owasp: null
+    description: File I/O relies on the platform default encoding.
+    rationale: Behaves differently on Windows (cp1252) vs Linux (UTF-8) → data corruption.
+    bad: "open(path)  /  new FileReader(path)"
+    good: "open(path, encoding='utf-8')  /  Files.newBufferedReader(p, UTF_8)"
+    remediation: Always specify the encoding explicitly on file I/O.
+
+  - id: ENC-005
+    name: Bidirectional-override / Trojan Source characters
+    category: encoding_unicode
+    severity: critical
+    languages: ["*"]
+    detection: binary_scan
+    cwe: [1007, 94]
+    owasp: null
+    description: Invisible Unicode bidi-control characters (e.g., RLO/LRO/PDI) in source.
+    rationale: Code can render differently than it executes, hiding malicious logic (CVE-2021-42574).
+    bad: "Comment/string containing U+202E and friends reorders displayed code."
+    good: "Reject or flag bidi-control characters in source files."
+    remediation: Block bidi/zero-width control chars unless explicitly justified.
+
+  - id: ENC-006
+    name: Homoglyph / confusable identifier
+    category: encoding_unicode
+    severity: high
+    languages: ["*"]
+    detection: binary_scan
+    cwe: [1007]
+    owasp: null
+    description: Identifiers use non-ASCII characters that look like ASCII (e.g., Cyrillic 'а').
+    rationale: Lets attackers define lookalike names that shadow trusted ones.
+    bad: "let scope = ...  // 'scope' written with a Cyrillic letter"
+    good: "Restrict identifiers to a defined script; flag confusables."
+    remediation: Enforce identifier character allowlists; detect mixed-script confusables.
+
+  - id: ENC-007
+    name: Embedded control / null bytes
+    category: encoding_unicode
+    severity: medium
+    languages: ["*"]
+    detection: binary_scan
+    cwe: [158]
+    owasp: null
+    description: Unexpected control characters (NUL, etc.) embedded in text/source.
+    rationale: Can truncate strings, bypass filters, or corrupt parsing.
+    bad: "filename = 'safe.txt\\x00.exe'"
+    good: "Reject control/null bytes in text inputs and source."
+    remediation: Strip/reject control characters at input and in source files.
+
+  - id: ENC-008
+    name: Encoding declaration mismatches content
+    category: encoding_unicode
+    severity: low
+    languages: [python, html, xml]
+    detection: binary_scan
+    cwe: null
+    owasp: null
+    description: A declared encoding (coding cookie, meta charset, XML decl) differs from actual bytes.
+    rationale: Misrendered/garbled output and parser errors.
+    bad: "# -*- coding: utf-8 -*-  on a Latin-1 file"
+    good: "Make the declaration match the real byte encoding."
+    remediation: Keep declared encoding consistent with file bytes.
+
+  - id: ENC-009
+    name: Smart / curly quotes or lookalike punctuation in code
+    category: encoding_unicode
+    severity: high
+    languages: ["*"]
+    detection: binary_scan
+    cwe: [1007]
+    owasp: null
+    description: >-
+      Typographic punctuation used where ASCII is required: curly quotes
+      (U+2018/2019/201C/201D), en/em dashes used as minus/hyphen, or an ellipsis
+      character instead of three dots.
+    rationale: Usually pasted from a doc/chat; breaks compilation or silently changes a string literal.
+    bad: "name = \u201Chello\u201D   # curly quotes, not ASCII \" \""
+    good: "name = \"hello\""
+    remediation: Replace typographic punctuation with ASCII equivalents in code.
+
+  - id: ENC-010
+    name: Non-breaking or zero-width space used as whitespace
+    category: encoding_unicode
+    severity: high
+    languages: ["*"]
+    detection: binary_scan
+    cwe: [1007]
+    owasp: null
+    description: >-
+      A non-breaking space (U+00A0), zero-width space (U+200B), or similar
+      invisible separator appears where a normal space/indent is expected.
+    rationale: Invisible in editors; causes syntax errors or broken indentation that is near-impossible to spot by eye.
+    bad: "if x:\u00A0   # the gap is U+00A0, not a space"
+    good: "if x:    # plain ASCII spaces"
+    remediation: Reject non-breaking/zero-width spaces in source; normalize to ASCII space.
+
+  # ---- LEXICAL / FORMATTING (bug-causing only) -----------------------------
+  # Philosophy: pure style (quote preference, indent width, line length,
+  # bracket spacing, alignment) is the FORMATTER's job, not a review finding.
+  # The rules below are the subset that look like formatting but cause real
+  # bugs and are NOT reliably caught by a formatter or the compiler.
+
+  - id: LEX-001
+    name: Mixed tabs and spaces in indentation
+    category: lexical
+    severity: high
+    languages: [python, yaml, shell]
+    detection: binary_scan
+    cwe: null
+    owasp: null
+    description: A block mixes tab and space characters for indentation.
+    rationale: In indentation-significant languages this changes structure or raises TabError; in YAML it breaks parsing.
+    bad: "def f():\\n\\tif x:\\n        return  # tab then spaces"
+    good: "Use spaces only (or tabs only) consistently; configure the editor."
+    remediation: Pick one indent character (spaces recommended) and enforce it.
+
+  - id: LEX-002
+    name: Trailing whitespace after line continuation
+    category: lexical
+    severity: high
+    languages: [python, shell, c, cpp, kernel]
+    detection: binary_scan
+    cwe: null
+    owasp: null
+    description: Whitespace follows a backslash line-continuation at end of line.
+    rationale: The backslash no longer continues the line, silently changing behavior; invisible in most editors.
+    bad: "total = a + \\   <-- space after backslash breaks continuation"
+    good: "Ensure the backslash is the last character on the line."
+    remediation: Strip trailing whitespace; flag any char after a continuation backslash.
+
+  - id: LEX-003
+    name: Control-flow body without braces (goto-fail class)
+    category: lexical
+    severity: high
+    languages: [c, cpp, kernel, java, javascript, typescript]
+    detection: ast
+    cwe: [483, 670]
+    owasp: null
+    description: An if/for/while body is a single unbraced statement, and indentation suggests more lines belong to it.
+    rationale: Adding a second line later silently leaves it outside the branch (Apple CVE-2014-1266 "goto fail" TLS bypass).
+    bad: "if (err) goto fail;\\n    goto fail;  // second one always runs"
+    good: "if (err) { goto fail; }"
+    remediation: Always brace control-flow bodies, even single statements.
+
+  - id: LEX-004
+    name: Assignment inside a conditional
+    category: lexical
+    severity: high
+    languages: [c, cpp, kernel, java, javascript, typescript]
+    detection: ast
+    cwe: [481]
+    owasp: null
+    description: A single '=' (assignment) appears where '==' (comparison) was almost certainly intended.
+    rationale: Assigns and tests truthiness instead of comparing; a classic silent bug.
+    bad: "if (status = OK) { ... }"
+    good: "if (status == OK) { ... }   // or (OK == status) to fail loudly"
+    remediation: Use == for comparison; enable compiler warnings (-Wparentheses).
+
+  - id: LEX-005
+    name: Inconsistent quote / formatting style
+    category: lexical
+    severity: info
+    languages: ["*"]
+    detection: pattern
+    cwe: null
+    owasp: null
+    description: Mixed single/double quote style, indent width, or spacing within a file.
+    rationale: Pure cosmetics with no behavioral impact (note - shell quoting IS semantic; see SH/SEC rules).
+    bad: "Mixing 'x' and \"x\" arbitrarily across one file."
+    good: "Run an autoformatter (Black/Prettier/gofmt/ktlint/clang-format)."
+    remediation: Delegate to a formatter; do NOT gate code review on this. Advisory only.
+
+  # =========================================================
+  # Steps 3-4: Go, Rust, SQL, Docker/IaC, deeper security,
+  # and language-specific idioms.
+  # =========================================================
+  - id: SEC-017
+    name: Server-side template injection (SSTI)
+    category: security
+    severity: critical
+    languages:
+    - python
+    - java
+    - javascript
+    - typescript
+    detection: dataflow
+    cwe:
+    - 1336
+    - 94
+    owasp: A03
+    description: User input rendered as part of a server-side template expression.
+    rationale: Template engines can execute code, leading to RCE.
+    bad: render_template_string('Hello ' + name)
+    good: Render a static template and pass user data as bound variables.
+    remediation: Never build templates from untrusted input; pass data as context vars.
+  - id: SEC-018
+    name: XML external entity (XXE)
+    category: security
+    severity: high
+    languages:
+    - java
+    - python
+    - c
+    - cpp
+    detection: ast
+    cwe:
+    - 611
+    owasp: A05
+    description: XML parser resolves external entities/DTDs from untrusted documents.
+    rationale: Allows file disclosure, SSRF, and DoS.
+    bad: DocumentBuilderFactory.newInstance().newDocumentBuilder()
+    good: Disable DTDs and external entity resolution on the parser.
+    remediation: Disable external entities/DTD processing; use a hardened parser config.
+  - id: SEC-019
+    name: JWT signature not verified / alg=none
+    category: security
+    severity: critical
+    languages:
+    - '*'
+    detection: ast
+    cwe:
+    - 347
+    owasp: A07
+    description: JWT decoded without verifying the signature, or 'none'/weak alg accepted.
+    rationale: Attackers forge tokens and impersonate any user.
+    bad: 'jwt.decode(token, verify=False)  # or accepting alg ''none'''
+    good: Verify the signature with a fixed allowed algorithm and strong key.
+    remediation: Always verify signatures; pin the algorithm; reject 'none'.
+  - id: SEC-020
+    name: CORS reflects arbitrary origin with credentials
+    category: security
+    severity: high
+    languages:
+    - '*'
+    detection: ast
+    cwe:
+    - 942
+    owasp: A05
+    description: Access-Control-Allow-Origin echoes the request origin while allowing credentials.
+    rationale: Any site can make authenticated cross-origin requests on the user's behalf.
+    bad: res.header('Access-Control-Allow-Origin', req.header('Origin'))
+    good: Use an explicit allowlist of trusted origins; avoid credentialed wildcard.
+    remediation: Allowlist specific origins; never reflect arbitrary origin with credentials.
+  - id: SEC-021
+    name: Catastrophic-backtracking regex (ReDoS)
+    category: security
+    severity: medium
+    languages:
+    - python
+    - java
+    - javascript
+    - typescript
+    detection: ast
+    cwe:
+    - 1333
+    owasp: null
+    description: A regex with nested/ambiguous quantifiers runs on untrusted input.
+    rationale: Crafted input causes exponential matching time and denial of service.
+    bad: re.match(r'(a+)+$', user_input)
+    good: Rewrite to avoid nested quantifiers; use a linear-time engine or timeout.
+    remediation: Audit regexes on untrusted input for backtracking; bound match time.
+  - id: SEC-022
+    name: Insecure cookie flags
+    category: security
+    severity: medium
+    languages:
+    - '*'
+    detection: ast
+    cwe:
+    - 614
+    - 1004
+    owasp: A05
+    description: Session/auth cookie set without HttpOnly, Secure, or SameSite.
+    rationale: Enables theft via XSS or transmission over plaintext, and CSRF.
+    bad: 'setCookie(''session'', id)  # no flags'
+    good: setCookie('session', id, {httpOnly:true, secure:true, sameSite:'Lax'})
+    remediation: Set HttpOnly + Secure + SameSite on sensitive cookies.
+  - id: SEC-023
+    name: Missing anti-clickjacking / security headers
+    category: security
+    severity: low
+    languages:
+    - '*'
+    detection: ast
+    cwe:
+    - 1021
+    owasp: A05
+    description: Responses lack X-Frame-Options / CSP frame-ancestors and related headers.
+    rationale: Permits clickjacking and weakens defense-in-depth.
+    bad: No CSP / X-Frame-Options on HTML responses.
+    good: Set CSP, X-Frame-Options/frame-ancestors, and related headers.
+    remediation: Add baseline security headers to HTML responses.
+  - id: SEC-024
+    name: Verbose error / stack-trace disclosure
+    category: security
+    severity: low
+    languages:
+    - '*'
+    detection: dataflow
+    cwe:
+    - 209
+    owasp: A05
+    description: Internal exception details or stack traces returned to the client.
+    rationale: Leaks implementation details useful for further attacks.
+    bad: 'return str(exception)  # to the HTTP response'
+    good: Log details server-side; return a generic error id to the client.
+    remediation: Never expose stack traces/internals to clients; log them internally.
+  - id: SEC-025
+    name: Unrestricted file upload
+    category: security
+    severity: high
+    languages:
+    - '*'
+    detection: dataflow
+    cwe:
+    - 434
+    owasp: A04
+    description: Uploaded files accepted without type, size, or destination restriction.
+    rationale: Enables webshell upload, storage exhaustion, and content-type attacks.
+    bad: save(upload, webroot + upload.filename)
+    good: Validate type/size, store outside webroot, generate server-side names.
+    remediation: Validate and sandbox uploads; never trust client filename or type.
+  - id: SEC-026
+    name: LDAP injection
+    category: security
+    severity: high
+    languages:
+    - java
+    - python
+    detection: dataflow
+    cwe:
+    - 90
+    owasp: A03
+    description: User input concatenated into an LDAP filter.
+    rationale: Allows authentication bypass and directory data disclosure.
+    bad: '''(uid='' + username + '')'''
+    good: Escape LDAP special characters or use parameterized filters.
+    remediation: Escape/parameterize all user input in LDAP filters.
+  - id: SEC-027
+    name: No brute-force / rate limiting on auth
+    category: security
+    severity: medium
+    languages:
+    - '*'
+    detection: interprocedural
+    cwe:
+    - 307
+    owasp: A07
+    description: Authentication endpoints lack attempt throttling or lockout.
+    rationale: Permits credential stuffing and password brute force.
+    bad: 'login(user, pw)  # unlimited attempts'
+    good: Add rate limiting, backoff, and account lockout/alerting.
+    remediation: Throttle and monitor authentication attempts.
+  - id: SEC-028
+    name: Entity-expansion DoS (billion laughs)
+    category: security
+    severity: medium
+    languages:
+    - java
+    - python
+    detection: ast
+    cwe:
+    - 776
+    owasp: A05
+    description: XML/JSON parser allows unbounded recursive entity or nesting expansion.
+    rationale: Tiny payloads expand to exhaust memory/CPU.
+    bad: Parsing untrusted XML with entity expansion enabled.
+    good: Disable entity expansion; cap nesting depth and document size.
+    remediation: Bound expansion, depth, and size when parsing untrusted documents.
+  - id: SEC-029
+    name: Trusting spoofable client header for security
+    category: security
+    severity: medium
+    languages:
+    - '*'
+    detection: dataflow
+    cwe:
+    - 290
+    owasp: A07
+    description: Auth/authorization decisions based on X-Forwarded-For, Host, or similar.
+    rationale: Clients can forge these headers to bypass checks or poison logic.
+    bad: 'if req.header(''X-Forwarded-For'') in allowlist: grant()'
+    good: Derive trust from validated TLS/session state, not client headers.
+    remediation: Do not base security decisions on client-controlled headers.
+  - id: SEC-030
+    name: Timing-unsafe secret comparison
+    category: security
+    severity: medium
+    languages:
+    - '*'
+    detection: ast
+    cwe:
+    - 208
+    owasp: A02
+    description: Secret/token/HMAC compared with a short-circuiting equality operator.
+    rationale: Response-time differences leak the secret byte by byte.
+    bad: 'if token == expected: ...'
+    good: Use a constant-time comparison (hmac.compare_digest / MessageDigest.isEqual).
+    remediation: Compare secrets with a constant-time function.
+  - id: GO-001
+    name: Ignored error return
+    category: error_handling
+    severity: high
+    languages:
+    - go
+    detection: ast
+    cwe:
+    - 252
+    owasp: null
+    description: A returned error is discarded with _ or not checked.
+    rationale: Silent failures propagate corrupt state.
+    bad: f, _ := os.Open(path)
+    good: f, err := os.Open(path); if err != nil { return err }
+    remediation: Check every returned error.
+  - id: GO-002
+    name: Goroutine leak (no cancellation)
+    category: resource_mgmt
+    severity: high
+    languages:
+    - go
+    detection: interprocedural
+    cwe:
+    - 772
+    owasp: null
+    description: A goroutine blocks forever because no context/channel can stop it.
+    rationale: Leaked goroutines accumulate and exhaust memory.
+    bad: go func(){ <-ch }()  // ch never closed/cancelled
+    good: Pass a context and select on ctx.Done() to allow shutdown.
+    remediation: Give every goroutine a cancellation path (context/done channel).
+  - id: GO-003
+    name: Write to nil map
+    category: null_handling
+    severity: medium
+    languages:
+    - go
+    detection: dataflow
+    cwe:
+    - 476
+    owasp: null
+    description: Writing to a map that was declared but never made/initialized.
+    rationale: Panics at runtime ('assignment to entry in nil map').
+    bad: var m map[string]int; m[k] = 1
+    good: m := make(map[string]int); m[k] = 1
+    remediation: Initialize maps with make before writing.
+  - id: GO-004
+    name: Loop variable captured by goroutine/closure
+    category: concurrency
+    severity: high
+    languages:
+    - go
+    detection: ast
+    cwe:
+    - 362
+    owasp: null
+    description: A goroutine/closure captures a loop variable shared across iterations (pre-Go 1.22).
+    rationale: All goroutines observe the final value, not their iteration's.
+    bad: for _, v := range items { go func(){ use(v) }() }
+    good: v := v  // shadow per iteration, or pass v as an arg
+    remediation: Shadow or pass loop variables into goroutines explicitly.
+  - id: GO-005
+    name: Missing defer for Unlock/Close
+    category: resource_mgmt
+    severity: medium
+    languages:
+    - go
+    detection: ast
+    cwe:
+    - 772
+    owasp: null
+    description: Lock acquired or resource opened without a deferred release.
+    rationale: Early returns/panics leave it held or open.
+    bad: mu.Lock(); work()  // no defer mu.Unlock()
+    good: mu.Lock(); defer mu.Unlock()
+    remediation: Pair acquisition with an immediate defer of the release.
+  - id: GO-006
+    name: panic used for ordinary errors
+    category: language_idiom
+    severity: low
+    languages:
+    - go
+    detection: ast
+    cwe: null
+    owasp: null
+    description: panic() used where an error return is the idiom.
+    rationale: Crashes the program instead of letting callers handle failure.
+    bad: if bad { panic('bad input') }
+    good: 'return fmt.Errorf(''bad input: %w'', err)'
+    remediation: Return errors; reserve panic for truly unrecoverable states.
+  - id: GO-007
+    name: Shared slice/map mutated without mutex
+    category: concurrency
+    severity: high
+    languages:
+    - go
+    detection: interprocedural
+    cwe:
+    - 362
+    owasp: null
+    description: A slice/map shared across goroutines is mutated without synchronization.
+    rationale: Data race; detected by -race, corrupts data in production.
+    bad: go func(){ shared[k] = v }()
+    good: Guard with sync.Mutex or use sync.Map / channels.
+    remediation: Synchronize all concurrent access to shared maps/slices.
+  - id: RS-001
+    name: unwrap()/expect() in non-test code
+    category: error_handling
+    severity: medium
+    languages:
+    - rust
+    detection: ast
+    cwe: null
+    owasp: null
+    description: Result/Option unwrapped with unwrap()/expect() outside tests.
+    rationale: Panics on the error/None case instead of propagating.
+    bad: let v = parse(x).unwrap();
+    good: let v = parse(x)?;  // propagate with ?
+    remediation: Propagate with ? or handle explicitly; reserve unwrap for tests/invariants.
+  - id: RS-002
+    name: unsafe block without safety justification
+    category: language_idiom
+    severity: medium
+    languages:
+    - rust
+    detection: ast
+    cwe: null
+    owasp: null
+    description: An unsafe block lacks a comment explaining why it upholds invariants.
+    rationale: Unsafe defeats the borrow checker; unreviewed uses cause UB.
+    bad: unsafe { *ptr }
+    good: '// SAFETY: ptr is non-null and valid for this scope\nunsafe { *ptr }'
+    remediation: 'Document a // SAFETY: rationale for every unsafe block.'
+  - id: RS-003
+    name: panic in library/API path
+    category: error_handling
+    severity: medium
+    languages:
+    - rust
+    detection: ast
+    cwe: null
+    owasp: null
+    description: Library code panics rather than returning Result.
+    rationale: Panics unwind across the caller's boundary, hard to recover.
+    bad: 'pub fn get(i: usize) -> T { self.v[i].clone() }  // panics OOB'
+    good: Return Result/Option; let the caller decide.
+    remediation: Return errors from public APIs instead of panicking.
+  - id: RS-004
+    name: Unchecked arithmetic overflow
+    category: input_validation
+    severity: medium
+    languages:
+    - rust
+    detection: ast
+    cwe:
+    - 190
+    owasp: null
+    description: Arithmetic on untrusted values without checked_/saturating_ handling.
+    rationale: Wraps silently in release builds; can produce bad sizes/indices.
+    bad: let n = a * b;
+    good: let n = a.checked_mul(b).ok_or(Error::Overflow)?;
+    remediation: Use checked_/saturating_/wrapping_ explicitly on untrusted arithmetic.
+  - id: RS-005
+    name: Blocking call inside async fn
+    category: concurrency
+    severity: medium
+    languages:
+    - rust
+    detection: interprocedural
+    cwe: null
+    owasp: null
+    description: A blocking std call runs inside an async context.
+    rationale: Stalls the async runtime's worker thread.
+    bad: async fn f(){ std::fs::read(p) }
+    good: Use async IO or spawn_blocking for the blocking call.
+    remediation: Keep async functions non-blocking; offload blocking work.
+  - id: RS-006
+    name: Unsound transmute / pointer cast
+    category: security
+    severity: high
+    languages:
+    - rust
+    detection: ast
+    cwe:
+    - 704
+    owasp: null
+    description: mem::transmute or raw cast between incompatible layouts.
+    rationale: Produces undefined behavior and memory unsafety.
+    bad: 'let x: &T = mem::transmute(bytes);'
+    good: Use safe conversions (From/TryFrom, bytemuck) with checked layout.
+    remediation: Avoid transmute; prefer safe, layout-checked conversions.
+  - id: SQL-001
+    name: SELECT * in production query
+    category: maintainability
+    severity: low
+    languages:
+    - sql
+    detection: pattern
+    cwe: null
+    owasp: null
+    description: Query selects all columns instead of an explicit list.
+    rationale: Breaks on schema change, fetches excess data, hides intent.
+    bad: SELECT * FROM orders
+    good: SELECT id, total, created_at FROM orders
+    remediation: Name the columns you need.
+  - id: SQL-002
+    name: UPDATE/DELETE without WHERE
+    category: input_validation
+    severity: critical
+    languages:
+    - sql
+    detection: ast
+    cwe: null
+    owasp: null
+    description: A mutating statement has no WHERE clause.
+    rationale: Rewrites or deletes the entire table; catastrophic data loss.
+    bad: DELETE FROM users
+    good: DELETE FROM users WHERE id = :id
+    remediation: Require a WHERE clause on UPDATE/DELETE (or explicit full-table intent).
+  - id: SQL-003
+    name: String-concatenated dynamic SQL
+    category: security
+    severity: critical
+    languages:
+    - sql
+    detection: dataflow
+    cwe:
+    - 89
+    owasp: A03
+    description: SQL built by concatenating variables inside a stored proc / dynamic SQL.
+    rationale: SQL injection at the database layer.
+    bad: EXEC('SELECT * FROM t WHERE id=' + @id)
+    good: Use sp_executesql with parameters / parameterized dynamic SQL.
+    remediation: Parameterize dynamic SQL; never concatenate inputs.
+  - id: SQL-004
+    name: NULL compared with = instead of IS NULL
+    category: language_idiom
+    severity: medium
+    languages:
+    - sql
+    detection: ast
+    cwe: null
+    owasp: null
+    description: Equality used against NULL.
+    rationale: = NULL is never true; the predicate silently matches nothing.
+    bad: WHERE deleted_at = NULL
+    good: WHERE deleted_at IS NULL
+    remediation: Use IS NULL / IS NOT NULL for null checks.
+  - id: SQL-005
+    name: Non-sargable predicate on indexed column
+    category: performance
+    severity: low
+    languages:
+    - sql
+    detection: ast
+    cwe: null
+    owasp: null
+    description: A function wraps an indexed column in the WHERE clause.
+    rationale: Prevents index use, forcing a full scan.
+    bad: WHERE YEAR(created_at) = 2026
+    good: WHERE created_at >= '2026-01-01' AND created_at < '2027-01-01'
+    remediation: Keep indexed columns bare in predicates; rewrite to a range.
+  - id: SQL-006
+    name: Missing transaction around multi-statement write
+    category: error_handling
+    severity: medium
+    languages:
+    - sql
+    detection: interprocedural
+    cwe: null
+    owasp: null
+    description: Related writes execute without a surrounding transaction.
+    rationale: A mid-sequence failure leaves data partially updated.
+    bad: INSERT ...; UPDATE ...;  -- no transaction
+    good: BEGIN; INSERT ...; UPDATE ...; COMMIT;
+    remediation: Wrap dependent writes in a transaction.
+  - id: SQL-007
+    name: Implicit cross join
+    category: performance
+    severity: medium
+    languages:
+    - sql
+    detection: ast
+    cwe: null
+    owasp: null
+    description: Tables joined by comma without an ON/WHERE join condition.
+    rationale: Produces a Cartesian product; huge result sets and load.
+    bad: SELECT * FROM a, b
+    good: SELECT * FROM a JOIN b ON a.id = b.a_id
+    remediation: Use explicit JOIN ... ON; avoid comma joins.
+  - id: DOCK-001
+    name: Container runs as root
+    category: config_iac
+    severity: high
+    languages:
+    - dockerfile
+    detection: ast
+    cwe:
+    - 250
+    owasp: null
+    description: No USER directive; the container process runs as root.
+    rationale: Container escape or compromise gains root on the host kernel namespace.
+    bad: FROM debian\nCMD ['app']
+    good: RUN useradd app\nUSER app
+    remediation: Create and switch to a non-root user.
+  - id: DOCK-002
+    name: Base image uses :latest or is untagged
+    category: config_iac
+    severity: medium
+    languages:
+    - dockerfile
+    detection: pattern
+    cwe:
+    - 1357
+    owasp: null
+    description: FROM references :latest or no tag.
+    rationale: Non-reproducible builds; silent base drift.
+    bad: FROM python:latest
+    good: FROM python:3.11-slim
+    remediation: Pin a specific base image tag.
+  - id: DOCK-003
+    name: Secret baked into image
+    category: security
+    severity: critical
+    languages:
+    - dockerfile
+    detection: pattern
+    cwe:
+    - 798
+    owasp: A07
+    description: Credential passed via ARG/ENV or COPYed into an image layer.
+    rationale: Secrets persist in image layers and history for anyone to extract.
+    bad: ENV API_KEY=sk-...
+    good: Use build secrets / runtime env injection; never bake secrets in.
+    remediation: Keep secrets out of images; use BuildKit secrets or runtime config.
+  - id: DOCK-004
+    name: ADD with remote URL
+    category: config_iac
+    severity: low
+    languages:
+    - dockerfile
+    detection: ast
+    cwe:
+    - 494
+    owasp: null
+    description: ADD used to fetch a remote URL instead of COPY for local files.
+    rationale: Unverified remote content; surprising auto-extract behavior.
+    bad: ADD https://example.com/x.tar /x
+    good: COPY local files; fetch+verify remote artifacts explicitly.
+    remediation: Prefer COPY; fetch and checksum remote artifacts deliberately.
+  - id: DOCK-005
+    name: Base image not pinned by digest
+    category: config_iac
+    severity: low
+    languages:
+    - dockerfile
+    detection: pattern
+    cwe: null
+    owasp: null
+    description: FROM uses a mutable tag rather than an immutable @sha256 digest.
+    rationale: Tags can be repointed; digest guarantees the exact image.
+    bad: FROM alpine:3.20
+    good: FROM alpine:3.20@sha256:...
+    remediation: Pin base images by digest for reproducibility.
+  - id: DOCK-006
+    name: Package cache left in image
+    category: config_iac
+    severity: low
+    languages:
+    - dockerfile
+    detection: pattern
+    cwe: null
+    owasp: null
+    description: Package manager cache not cleaned / recommends not disabled in same layer.
+    rationale: Bloated images and a larger attack surface.
+    bad: RUN apt-get install -y curl
+    good: RUN apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+    remediation: Clean caches and disable recommends within the install layer.
+  - id: IAC-001
+    name: Security group allows 0.0.0.0/0 ingress
+    category: config_iac
+    severity: high
+    languages:
+    - terraform
+    - hcl
+    detection: ast
+    cwe:
+    - 284
+    owasp: null
+    description: Inbound rule opens a port to the entire internet.
+    rationale: Exposes services (often SSH/DB) to global scanning and attack.
+    bad: 'cidr_blocks = [''0.0.0.0/0'']  # on port 22'
+    good: Restrict ingress to known CIDRs / use a bastion or VPN.
+    remediation: Scope ingress CIDRs narrowly; never expose admin ports globally.
+  - id: IAC-002
+    name: Storage bucket publicly accessible
+    category: security
+    severity: critical
+    languages:
+    - terraform
+    - hcl
+    detection: ast
+    cwe:
+    - 732
+    owasp: A01
+    description: Object storage configured public-read or public-write.
+    rationale: Mass data exposure or attacker-controlled content.
+    bad: acl = 'public-read'
+    good: Keep buckets private; grant access via scoped policies/presigned URLs.
+    remediation: Default storage to private; justify any public access explicitly.
+  - id: IAC-003
+    name: Storage/volume not encrypted at rest
+    category: config_iac
+    severity: medium
+    languages:
+    - terraform
+    - hcl
+    detection: ast
+    cwe:
+    - 311
+    owasp: null
+    description: Disk/bucket/database provisioned without encryption at rest.
+    rationale: Data is readable if the underlying media is compromised.
+    bad: resource 'aws_ebs_volume' 'v' { encrypted = false }
+    good: 'encrypted = true  # with a managed or CMK key'
+    remediation: Enable encryption at rest on all data stores.
+  - id: IAC-004
+    name: Hardcoded credentials in IaC
+    category: security
+    severity: critical
+    languages:
+    - terraform
+    - hcl
+    detection: pattern
+    cwe:
+    - 798
+    owasp: A07
+    description: Secret values written directly into IaC source/state.
+    rationale: Secrets leak via VCS and state files.
+    bad: password = 'hunter2'
+    good: Reference a secrets manager / injected variable.
+    remediation: Never hardcode secrets in IaC; use a secrets backend.
+  - id: IAC-005
+    name: Overly permissive IAM policy
+    category: config_iac
+    severity: high
+    languages:
+    - terraform
+    - hcl
+    detection: ast
+    cwe:
+    - 732
+    owasp: null
+    description: Policy grants Action:* on Resource:* (or equivalent wildcard).
+    rationale: Violates least privilege; one compromise grants everything.
+    bad: Action = '*'  Resource = '*'
+    good: Scope actions and resources to the minimum required.
+    remediation: Apply least-privilege; enumerate specific actions and ARNs.
+  - id: IAC-006
+    name: Audit logging disabled or absent
+    category: config_iac
+    severity: low
+    languages:
+    - terraform
+    - hcl
+    detection: ast
+    cwe:
+    - 778
+    owasp: null
+    description: Access/flow/audit logging not enabled on a sensitive resource.
+    rationale: Incidents become undetectable and uninvestigable.
+    bad: No access logging on a public bucket / no flow logs on a VPC.
+    good: Enable access/audit/flow logging on sensitive resources.
+    remediation: Turn on audit logging for security-relevant resources.
+  - id: PY-001
+    name: Mutable default argument
+    category: language_idiom
+    severity: high
+    languages:
+    - python
+    detection: ast
+    cwe: null
+    owasp: null
+    description: A function uses a mutable object (list/dict/set) as a default value.
+    rationale: The default is shared across calls and accumulates state.
+    bad: 'def f(x=[]): x.append(1); return x'
+    good: 'def f(x=None): x = [] if x is None else x'
+    remediation: Use None as the default and create the mutable inside.
+  - id: PY-002
+    name: assert used for validation
+    category: security
+    severity: medium
+    languages:
+    - python
+    detection: ast
+    cwe:
+    - 617
+    owasp: null
+    description: assert used to enforce runtime input/security checks.
+    rationale: Assertions are stripped under python -O, removing the check entirely.
+    bad: assert user.is_admin
+    good: 'if not user.is_admin: raise PermissionError'
+    remediation: Use explicit checks/exceptions for validation, not assert.
+  - id: PY-003
+    name: eval/exec on dynamic input
+    category: security
+    severity: critical
+    languages:
+    - python
+    detection: dataflow
+    cwe:
+    - 95
+    owasp: A03
+    description: eval()/exec() invoked on data influenced by user input.
+    rationale: Arbitrary code execution.
+    bad: eval(request.args['expr'])
+    good: Parse with ast.literal_eval or a real parser; avoid eval/exec.
+    remediation: Never eval/exec untrusted input; use safe parsers.
+  - id: PY-004
+    name: Late-binding closure in loop
+    category: language_idiom
+    severity: medium
+    languages:
+    - python
+    detection: ast
+    cwe: null
+    owasp: null
+    description: A lambda/closure created in a loop captures the loop variable by reference.
+    rationale: All closures see the final value, a common surprising bug.
+    bad: 'fns = [lambda: i for i in range(3)]  # all return 2'
+    good: 'fns = [lambda i=i: i for i in range(3)]'
+    remediation: Bind the loop variable as a default argument.
+  - id: PY-005
+    name: '''is'' used for value comparison'
+    category: language_idiom
+    severity: medium
+    languages:
+    - python
+    detection: ast
+    cwe: null
+    owasp: null
+    description: Identity operator 'is' used to compare values (e.g., ints, strings).
+    rationale: Relies on interning; works by accident and breaks unpredictably.
+    bad: 'if x is 256: ...'
+    good: 'if x == 256: ...'
+    remediation: Use == for value equality; reserve 'is' for None/identity.
+  - id: JAVA-001
+    name: String compared with ==
+    category: language_idiom
+    severity: high
+    languages:
+    - java
+    detection: ast
+    cwe:
+    - 597
+    owasp: null
+    description: Strings compared with == instead of equals().
+    rationale: Compares references, not content; works only by interning luck.
+    bad: if (a == b) ...  // two String objects
+    good: if (a.equals(b)) ...  // or Objects.equals(a, b)
+    remediation: Compare object content with equals()/Objects.equals().
+  - id: JAVA-002
+    name: equals/hashCode contract violation
+    category: language_idiom
+    severity: medium
+    languages:
+    - java
+    detection: interprocedural
+    cwe: null
+    owasp: null
+    description: equals() overridden without a consistent hashCode() (or vice versa).
+    rationale: Breaks hash-based collections; lost/duplicate keys.
+    bad: Override equals() only.
+    good: Override both equals() and hashCode() consistently.
+    remediation: Always override equals and hashCode together.
+  - id: JAVA-003
+    name: SimpleDateFormat shared across threads
+    category: concurrency
+    severity: high
+    languages:
+    - java
+    detection: interprocedural
+    cwe:
+    - 362
+    owasp: null
+    description: A static/shared SimpleDateFormat is used from multiple threads.
+    rationale: SimpleDateFormat is not thread-safe; produces corrupt parses/dates.
+    bad: static SimpleDateFormat F = new SimpleDateFormat(...)
+    good: Use java.time (DateTimeFormatter) or a per-thread instance.
+    remediation: Use thread-safe java.time formatters.
+  - id: JAVA-004
+    name: Overridable method called from constructor
+    category: language_idiom
+    severity: medium
+    languages:
+    - java
+    detection: ast
+    cwe: null
+    owasp: null
+    description: A constructor calls a non-final, overridable instance method.
+    rationale: Subclass override runs before its fields are initialized.
+    bad: MyClass(){ this.init(); }  // init() overridable
+    good: Make such methods final or private; avoid calling them in constructors.
+    remediation: Don't call overridable methods from constructors.
+  - id: JAVA-005
+    name: Raw generic types
+    category: language_idiom
+    severity: low
+    languages:
+    - java
+    detection: ast
+    cwe: null
+    owasp: null
+    description: Generic type used without type parameters.
+    rationale: Disables compile-time type checks; invites ClassCastException.
+    bad: List items = new ArrayList();
+    good: List<Item> items = new ArrayList<>();
+    remediation: Parameterize generic types.
+  - id: KT-001
+    name: GlobalScope coroutine launch
+    category: concurrency
+    severity: medium
+    languages:
+    - kotlin
+    detection: ast
+    cwe: null
+    owasp: null
+    description: Coroutine launched in GlobalScope.
+    rationale: Not tied to a lifecycle; leaks and outlives its owner.
+    bad: GlobalScope.launch { work() }
+    good: Launch in a scoped CoroutineScope tied to a lifecycle.
+    remediation: Use structured concurrency; avoid GlobalScope.
+  - id: KT-002
+    name: lateinit accessed before initialization
+    category: null_handling
+    severity: medium
+    languages:
+    - kotlin
+    detection: dataflow
+    cwe:
+    - 476
+    owasp: null
+    description: A lateinit property is read on a path where it may be uninitialized.
+    rationale: Throws UninitializedPropertyAccessException.
+    bad: 'lateinit var repo: Repo; fun f(){ repo.load() }'
+    good: Initialize before use, or use a nullable/lazy property with checks.
+    remediation: Guarantee initialization before access or use lazy/nullable.
+  - id: KT-003
+    name: Blocking call inside coroutine
+    category: concurrency
+    severity: high
+    languages:
+    - kotlin
+    detection: interprocedural
+    cwe: null
+    owasp: null
+    description: Thread.sleep / blocking IO called inside a coroutine on a non-IO dispatcher.
+    rationale: Blocks a shared dispatcher thread, starving other coroutines.
+    bad: launch { Thread.sleep(1000) }
+    good: launch { delay(1000) }  // or withContext(Dispatchers.IO)
+    remediation: Use suspending equivalents; confine blocking work to Dispatchers.IO.
+  - id: KT-004
+    name: Exposing mutable collection from API
+    category: maintainability
+    severity: low
+    languages:
+    - kotlin
+    detection: ast
+    cwe: null
+    owasp: null
+    description: A public API returns MutableList/MutableMap instead of the read-only type.
+    rationale: Callers can mutate internal state, breaking encapsulation.
+    bad: 'fun items(): MutableList<Item> = _items'
+    good: 'fun items(): List<Item> = _items.toList()'
+    remediation: Expose read-only collection types from public APIs.
+  - id: JS-001
+    name: == instead of ===
+    category: language_idiom
+    severity: medium
+    languages:
+    - javascript
+    - typescript
+    detection: ast
+    cwe: null
+    owasp: null
+    description: Loose equality (==) used, triggering type coercion.
+    rationale: Surprising coercions (0 == '', null == undefined) cause logic bugs.
+    bad: if (x == null) // also matches undefined unintentionally elsewhere
+    good: Use === / !== (intentional == null is the rare exception).
+    remediation: Prefer strict equality unless coercion is explicitly intended.
+  - id: JS-002
+    name: var instead of let/const
+    category: language_idiom
+    severity: low
+    languages:
+    - javascript
+    - typescript
+    detection: ast
+    cwe: null
+    owasp: null
+    description: var declaration used; function-scoped and hoisted.
+    rationale: Hoisting and scope leakage cause subtle bugs.
+    bad: var i = 0
+    good: let i = 0  // or const
+    remediation: Use const/let; avoid var.
+  - id: JS-003
+    name: '''this'' rebinding in callback'
+    category: language_idiom
+    severity: medium
+    languages:
+    - javascript
+    detection: ast
+    cwe: null
+    owasp: null
+    description: A regular-function callback relies on an outer 'this'.
+    rationale: '''this'' is rebound at call time, becoming undefined/global.'
+    bad: arr.forEach(function(){ this.count++ })
+    good: Use an arrow function or bind 'this' explicitly.
+    remediation: Use arrow functions to preserve lexical this in callbacks.
+  - id: JS-004
+    name: Prototype pollution via untrusted merge
+    category: security
+    severity: high
+    languages:
+    - javascript
+    - typescript
+    detection: dataflow
+    cwe:
+    - 1321
+    owasp: A08
+    description: User-controlled keys merged into an object reach __proto__/constructor.
+    rationale: Pollutes Object.prototype, enabling DoS or property injection.
+    bad: deepMerge(target, JSON.parse(userInput))
+    good: Reject __proto__/prototype/constructor keys; use Map or null-proto objects.
+    remediation: Block dangerous keys when merging untrusted data.
+  - id: JS-005
+    name: eval / Function / setTimeout(string)
+    category: security
+    severity: high
+    languages:
+    - javascript
+    - typescript
+    detection: ast
+    cwe:
+    - 95
+    owasp: A03
+    description: Dynamic code execution via eval, new Function, or string-form timers.
+    rationale: Executes arbitrary code; common XSS escalation.
+    bad: eval(userInput)  // or setTimeout('code', 0)
+    good: Avoid dynamic code; pass functions, not strings.
+    remediation: Eliminate eval/Function/string-timer code execution.
+  - id: TS-001
+    name: '''any'' type escape hatch'
+    category: language_idiom
+    severity: low
+    languages:
+    - typescript
+    detection: ast
+    cwe: null
+    owasp: null
+    description: Use of 'any' disables type checking for that value.
+    rationale: Silently propagates untyped values, defeating TS guarantees.
+    bad: 'function f(x: any) { ... }'
+    good: Use unknown + narrowing, or a precise type.
+    remediation: Replace 'any' with precise types or 'unknown' + narrowing.
+  - id: TS-002
+    name: Non-null assertion operator
+    category: null_handling
+    severity: low
+    languages:
+    - typescript
+    detection: ast
+    cwe:
+    - 476
+    owasp: null
+    description: The ! operator asserts non-null without a runtime check.
+    rationale: Hides a possible null/undefined from the type system.
+    bad: const el = document.querySelector('#x')!
+    good: Check for null explicitly before use.
+    remediation: Avoid !; narrow with a real null check.
+  - id: TS-003
+    name: '@ts-ignore / @ts-nocheck suppression'
+    category: maintainability
+    severity: low
+    languages:
+    - typescript
+    detection: pattern
+    cwe: null
+    owasp: null
+    description: Type errors suppressed with @ts-ignore/@ts-nocheck.
+    rationale: Masks real type errors that resurface at runtime.
+    bad: // @ts-ignore
+    good: Fix the underlying type, or use @ts-expect-error with a reason.
+    remediation: Resolve type errors; prefer @ts-expect-error with justification.
+  - id: C-001
+    name: Sleeping in atomic / IRQ context
+    category: concurrency
+    severity: high
+    languages:
+    - kernel
+    detection: interprocedural
+    cwe: null
+    owasp: null
+    description: A function that may sleep is called while holding a spinlock or in IRQ context.
+    rationale: Causes 'scheduling while atomic' bugs and deadlocks.
+    bad: spin_lock(&l); kmalloc(n, GFP_KERNEL);  // may sleep
+    good: Use GFP_ATOMIC, or move the sleeping call outside the lock.
+    remediation: Never sleep in atomic context; pick the right allocation flags.
+  - id: C-002
+    name: Unchecked copy_from_user/copy_to_user
+    category: security
+    severity: high
+    languages:
+    - kernel
+    detection: ast
+    cwe:
+    - 252
+    owasp: null
+    description: Return value of copy_from_user/copy_to_user not checked.
+    rationale: Partial copies leave kernel buffers with attacker-influenced/garbage data.
+    bad: copy_from_user(buf, ptr, n);  // result ignored
+    good: if (copy_from_user(buf, ptr, n)) return -EFAULT;
+    remediation: Always check user-copy return values.
+  - id: C-003
+    name: User-controlled index without bounds check
+    category: security
+    severity: high
+    languages:
+    - kernel
+    - c
+    - cpp
+    detection: dataflow
+    cwe:
+    - 129
+    owasp: null
+    description: An index derived from user input accesses an array without validation.
+    rationale: Out-of-bounds read/write; memory corruption and disclosure.
+    bad: table[user_index] = v;
+    good: if (user_index >= LEN) return -EINVAL; table[user_index] = v;
+    remediation: Validate user-controlled indices against bounds before use.
+  - id: C-004
+    name: Use of uninitialized memory
+    category: null_handling
+    severity: high
+    languages:
+    - c
+    - cpp
+    - kernel
+    detection: dataflow
+    cwe:
+    - 457
+    owasp: null
+    description: A variable/buffer is read before being assigned.
+    rationale: Undefined behavior; may leak prior memory contents.
+    bad: int x; if (cond) x = 1; use(x);  // x maybe uninitialized
+    good: Initialize at declaration; zero buffers before use.
+    remediation: Initialize all variables/buffers before reading them.
+  - id: C-005
+    name: Non-async-signal-safe call in signal handler
+    category: concurrency
+    severity: medium
+    languages:
+    - c
+    - cpp
+    detection: ast
+    cwe:
+    - 479
+    owasp: null
+    description: A signal handler calls functions that are not async-signal-safe.
+    rationale: malloc/printf etc. in handlers can deadlock or corrupt state.
+    bad: void handler(int s){ printf('caught'); }
+    good: Set a volatile sig_atomic_t flag; do work in the main loop.
+    remediation: Restrict signal handlers to async-signal-safe operations.
+  - id: SH-001
+    name: Unquoted variable expansion
+    category: security
+    severity: high
+    languages:
+    - shell
+    detection: pattern
+    cwe:
+    - 88
+    owasp: null
+    description: A variable is expanded without double quotes.
+    rationale: Word-splitting and globbing cause bugs and command/argument injection.
+    bad: rm $file
+    good: rm "$file"
+    remediation: Always double-quote variable expansions.
+  - id: SH-002
+    name: Missing set -euo pipefail
+    category: error_handling
+    severity: medium
+    languages:
+    - shell
+    detection: pattern
+    cwe: null
+    owasp: null
+    description: Script does not enable strict error handling.
+    rationale: Errors and unset variables are silently ignored; failures cascade.
+    bad: '#!/bin/bash\nrun_thing'
+    good: '#!/bin/bash\nset -euo pipefail'
+    remediation: Enable set -euo pipefail near the top of scripts.
+  - id: SH-003
+    name: Parsing output of ls
+    category: language_idiom
+    severity: low
+    languages:
+    - shell
+    detection: pattern
+    cwe: null
+    owasp: null
+    description: Script iterates over `ls` output.
+    rationale: Breaks on spaces/newlines/special chars in filenames.
+    bad: for f in $(ls); do ...
+    good: 'for f in *; do ...  # or use find -print0 | xargs -0'
+    remediation: Use globs or find -print0; never parse ls.
+  - id: SH-004
+    name: eval on dynamic data
+    category: security
+    severity: high
+    languages:
+    - shell
+    detection: pattern
+    cwe:
+    - 78
+    owasp: null
+    description: eval used on data that includes variables/input.
+    rationale: Arbitrary command execution.
+    bad: eval "$cmd"
+    good: Restructure to call commands directly with quoted args.
+    remediation: Avoid eval; build and invoke commands explicitly.
+  - id: SH-005
+    name: Predictable temp file
+    category: security
+    severity: medium
+    languages:
+    - shell
+    detection: pattern
+    cwe:
+    - 377
+    owasp: null
+    description: Temp file created at a fixed/predictable path.
+    rationale: Symlink/race attacks let others hijack or read the file.
+    bad: echo data > /tmp/myapp.tmp
+    good: tmp="$(mktemp)"; echo data > "$tmp"
+    remediation: Create temp files with mktemp.
+  - id: SH-006
+    name: Pipeline exit status ignored
+    category: error_handling
+    severity: low
+    languages:
+    - shell
+    detection: pattern
+    cwe: null
+    owasp: null
+    description: A failure mid-pipeline is masked by the last command's success.
+    rationale: Errors go undetected without pipefail.
+    bad: 'grep x file | sort  # grep failure hidden'
+    good: 'set -o pipefail  # then check status'
+    remediation: Enable pipefail and check pipeline status.

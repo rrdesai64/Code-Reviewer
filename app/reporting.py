@@ -68,7 +68,7 @@ def github_pr_comment(scan: ScanResult) -> str:
         '| Risk | Scope | Severity | Rule | Location | Message |', '| --- | --- | --- | --- | --- | --- |']
     for finding in scan.findings[:25]:
         location = f'{finding.location.path}:{finding.location.line}'
-        message = finding.message.replace('|', '\\|')[:180]
+        message = finding.message.replace('|', r'\|')[:180]
         lines.append(f'| {finding.risk.priority} {finding.risk.score} | {finding_scope(finding)} | {finding.severity} | `{finding.rule_id}` | `{location}` | {message} |')
     if len(scan.findings) > 25:
         lines.append(f'\nShowing 25 of {len(scan.findings)} findings. See SARIF/report artifact for the full result.')

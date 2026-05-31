@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .ai import explain, suggest_fix
+from .catalog_scan import run_catalog_native
 from .dependency_review import enrich_dependency_findings
 from .ingestion import enrich_finding, finding_from_bandit, finding_from_pip_audit, finding_from_semgrep, findings_from_sarif_file
 from .ast_scanner import run_ast_analysis
@@ -45,6 +46,23 @@ LANG_BY_NAME = {
 SEVERITY_ORDER = {'CRITICAL': 4, 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1, 'INFO': 0}
 
 
+def _venv_bin_dir() -> Path:
+    return ROOT / '.venv' / ('Scripts' if os.name == 'nt' else 'bin')
+
+
+def resolve_tool(name: str) -> str | None:
+    """Locate a tool in the project venv cross-platform, then fall back to PATH."""
+    exe = f'{name}.exe' if os.name == 'nt' else name
+    candidate = _venv_bin_dir() / exe
+    if candidate.exists():
+        return str(candidate)
+    return shutil.which(name)
+
+
+def scanner_disabled(env_name: str) -> bool:
+    return os.getenv(env_name, '').lower() in {'0', 'false', 'no', 'off', 'disabled'}
+
+
 def run_scan(target_path: Path, project_name: str | None = None, extra_sarif_paths: list[Path] | None = None) -> ScanResult:
     target = target_path.resolve()
     scan_id = uuid.uuid4().hex[:12]
@@ -59,6 +77,10 @@ def run_scan(target_path: Path, project_name: str | None = None, extra_sarif_pat
     bandit_findings, bandit_status = run_bandit(target, files)
     findings.extend(bandit_findings)
     tools['bandit'] = bandit_status
+
+    catalog_findings, catalog_status = run_catalog_native(target, files)
+    findings.extend(catalog_findings)
+    tools['catalog-native'] = catalog_status
 
     ast_findings, ast_status = run_ast_analysis(target, files)
     findings.extend(ast_findings)
@@ -152,8 +174,10 @@ def run_tool(command: list[str], cwd: Path, timeout: int = 180, env: dict[str, s
 
 
 def run_semgrep(target: Path) -> tuple[list[Finding], str]:
+    if scanner_disabled('SEMGREP_ENABLED'):
+        return [], 'disabled by SEMGREP_ENABLED=false'
     configured = os.getenv('SEMGREP_EXE')
-    semgrep = configured or (str(SEMGREP_EXE) if SEMGREP_EXE.exists() else None) or shutil.which('semgrep')
+    semgrep = configured or resolve_tool('semgrep')
     if not semgrep:
         return [], 'not installed'
     configs = unique_nonempty([str(RULES_PATH), *split_semicolon_env('SEMGREP_CONFIGS')])
@@ -210,16 +234,19 @@ def normalize_semgrep(item: dict[str, Any], target: Path) -> Finding:
         id=fingerprint[:16], source='semgrep', rule_id=rule_id, title=title_from_rule(rule_id), severity=severity,
         confidence='HIGH', location=Location(path=path, line=start.get('line', 1), column=start.get('col', 1)),
         message=message, cwe=cwe, owasp=owasp, references=refs, explanation=explain(rule_id, message, cwe, owasp),
-        fix=suggest_fix(rule_id, message), fingerprint=fingerprint,
+        fix=suggest_fix(rule_id, message, cwe), fingerprint=fingerprint,
     )
 
 
 def run_bandit(target: Path, files: list[Path]) -> tuple[list[Finding], str]:
-    if not BANDIT_EXE.exists():
+    if scanner_disabled('BANDIT_ENABLED'):
+        return [], 'disabled by BANDIT_ENABLED=false'
+    bandit = resolve_tool('bandit')
+    if not bandit:
         return [], 'not installed'
     if not any(path.suffix.lower() == '.py' for path in files):
         return [], 'skipped: no Python files'
-    command = [str(BANDIT_EXE), '-r', str(target), '-f', 'json', '-q', '-x', ','.join(EXCLUDED_DIRS)]
+    command = [bandit, '-r', str(target), '-f', 'json', '-q', '-x', ','.join(EXCLUDED_DIRS)]
     code, stdout, stderr = run_tool(command, ROOT)
     if not stdout.strip():
         return [], f'error: {stderr.strip() or code}' if code not in (0, 1) else 'ok'
@@ -246,7 +273,7 @@ def normalize_bandit(item: dict[str, Any], target: Path) -> Finding:
         id=fingerprint[:16], source='bandit', rule_id=rule_id, title=item.get('test_name') or title_from_rule(rule_id),
         severity=severity, confidence=item.get('issue_confidence') or 'MEDIUM', location=Location(path=path, line=line),
         message=message, cwe=cwe, owasp=[], references=refs, explanation=explain(rule_id, message, cwe, []),
-        fix=suggest_fix(rule_id, message), fingerprint=fingerprint,
+        fix=suggest_fix(rule_id, message, cwe), fingerprint=fingerprint,
     )
 
 
@@ -285,14 +312,17 @@ def run_sarif_imports(paths: list[Path]) -> tuple[list[Finding], dict[str, str]]
 
 
 def run_pip_audit(target: Path) -> tuple[list[Finding], str]:
-    if not PIP_AUDIT_EXE.exists():
+    if scanner_disabled('PIP_AUDIT_ENABLED'):
+        return [], 'disabled by PIP_AUDIT_ENABLED=false'
+    pip_audit = resolve_tool('pip-audit')
+    if not pip_audit:
         return [], 'not installed'
     requirement_files = [p for p in target.rglob('requirements*.txt') if not any(part in EXCLUDED_DIRS for part in p.parts)]
     if not requirement_files:
         return [], 'skipped: no requirements files'
     findings: list[Finding] = []
     for req_file in requirement_files:
-        command = [str(PIP_AUDIT_EXE), '-r', str(req_file), '--format', 'json']
+        command = [pip_audit, '-r', str(req_file), '--format', 'json']
         code, stdout, stderr = run_tool(command, ROOT, timeout=180)
         if not stdout.strip():
             if code not in (0, 1):
@@ -360,7 +390,7 @@ def finding_from_govulncheck(item: dict[str, Any], osv_index: dict[str, dict[str
         severity='HIGH', confidence='HIGH', location=Location(path=path, line=line), message=message,
         cwe=[], owasp=['A06:2021-Vulnerable and Outdated Components'], references=references,
         explanation=explain('go vulnerable dependency', message, [], ['A06:2021-Vulnerable and Outdated Components']),
-        fix=suggest_fix('go vulnerable dependency', message), fingerprint=fingerprint,
+        fix=suggest_fix('go vulnerable dependency', message, []), fingerprint=fingerprint,
         scanner_metadata={
             'engine': 'govulncheck', 'ecosystem': 'golang', 'package': module, 'version': version,
             'fix_versions': fixed_version, 'fixed_version': fixed_version,
@@ -454,7 +484,7 @@ def check_unpinned_python_requirements(target: Path) -> list[Finding]:
                     title='Unpinned Python dependency', severity='LOW', confidence='MEDIUM', location=Location(path=path, line=idx),
                     message=message, cwe=[], owasp=['A06:2021-Vulnerable and Outdated Components'], references=[],
                     explanation=explain('unpinned dependency', message, [], ['A06:2021-Vulnerable and Outdated Components']),
-                    fix=suggest_fix('unpinned dependency', message), fingerprint=fingerprint,
+                    fix=suggest_fix('unpinned dependency', message, []), fingerprint=fingerprint,
                     scanner_metadata={'engine': 'dependency-manifest', 'ecosystem': 'pypi', 'package': clean.split('==', 1)[0].split('>=', 1)[0].split('<=', 1)[0].split('~=', 1)[0].split('>', 1)[0].split('<', 1)[0].strip(), 'version_spec': clean},
                 ))
     return findings
@@ -480,7 +510,7 @@ def check_unpinned_package_json(target: Path) -> list[Finding]:
                     title='Loose Node dependency range', severity='LOW', confidence='MEDIUM', location=Location(path=path, line=1),
                     message=message, cwe=[], owasp=['A06:2021-Vulnerable and Outdated Components'], references=[],
                     explanation=explain('unpinned dependency', message, [], ['A06:2021-Vulnerable and Outdated Components']),
-                    fix=suggest_fix('unpinned dependency', message), fingerprint=fingerprint,
+                    fix=suggest_fix('unpinned dependency', message, []), fingerprint=fingerprint,
                     scanner_metadata={'engine': 'dependency-manifest', 'ecosystem': 'npm', 'package': name, 'version_spec': spec},
                 ))
     return findings

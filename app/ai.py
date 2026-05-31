@@ -1,15 +1,26 @@
 from __future__ import annotations
 
+from . import catalog_knowledge as kb
 from .models import FixSuggestion
 
 
 def explain(rule_id: str, message: str, cwe: list[str], owasp: list[str]) -> str:
-    context = []
-    if cwe:
-        context.append('CWE: ' + ', '.join(cwe))
-    if owasp:
-        context.append('OWASP: ' + ', '.join(owasp))
-    suffix = ' '.join(context)
+    rule = kb.match_rule(rule_id, message, cwe)
+    if rule is not None:
+        return kb.build_explanation(rule, cwe, owasp)
+    return _legacy_explain(rule_id, message, cwe, owasp)
+
+
+def suggest_fix(rule_id: str, message: str, cwe: list[str] | None = None) -> FixSuggestion:
+    rule = kb.match_rule(rule_id, message, cwe)
+    if rule is not None:
+        return kb.build_fix(rule)
+    return _legacy_suggest_fix(rule_id, message)
+
+
+# --- legacy keyword fallbacks (used when no catalog rule matches) -------------
+def _legacy_explain(rule_id: str, message: str, cwe: list[str], owasp: list[str]) -> str:
+    suffix = kb.context_suffix(cwe, owasp)
     lower = f'{rule_id} {message}'.lower()
     if 'shell' in lower or 'subprocess' in lower:
         return f'This code may pass attacker-controlled input to a shell command. Prefer argument arrays and validate inputs before invoking the process. {suffix}'.strip()
@@ -24,7 +35,7 @@ def explain(rule_id: str, message: str, cwe: list[str], owasp: list[str]) -> str
     return f'This finding indicates a security-sensitive pattern that should be reviewed before release. {suffix}'.strip()
 
 
-def suggest_fix(rule_id: str, message: str) -> FixSuggestion:
+def _legacy_suggest_fix(rule_id: str, message: str) -> FixSuggestion:
     lower = f'{rule_id} {message}'.lower()
     if 'shell' in lower or 'subprocess' in lower:
         return FixSuggestion(summary='Avoid shell execution for untrusted input.', guidance=['Pass command arguments as a list.', 'Use allowlists for user-selectable commands.', 'Capture and handle process errors explicitly.'])

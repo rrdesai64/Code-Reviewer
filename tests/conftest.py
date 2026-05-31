@@ -90,6 +90,7 @@ def clean_auth_env(monkeypatch):
 def disable_external_scanners(monkeypatch):
     monkeypatch.setenv("SEMGREP_ENABLED", "false")
     monkeypatch.setenv("BANDIT_ENABLED", "false")
+    monkeypatch.setenv("SHELLCHECK_ENABLED", "false")
     monkeypatch.setenv("PIP_AUDIT_ENABLED", "false")
     monkeypatch.setenv("CODEQL_ENABLED", "false")
     monkeypatch.setenv("SONARQUBE_ENABLED", "false")

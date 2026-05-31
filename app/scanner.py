@@ -14,13 +14,14 @@ from typing import Any
 from .ai import explain, suggest_fix
 from .catalog_scan import run_catalog_native
 from .dependency_review import enrich_dependency_findings
-from .ingestion import enrich_finding, finding_from_bandit, finding_from_pip_audit, finding_from_semgrep, findings_from_sarif_file
+from .ingestion import enrich_finding, finding_from_bandit, finding_from_pip_audit, finding_from_semgrep, finding_from_shellcheck, findings_from_sarif_file
 from .ast_scanner import run_ast_analysis
 from .external_scanners import run_codeql, run_sonarqube
 from .go_tools import govulncheck_executable, go_tool_env
 from .models import Finding, Location, ScanResult, ScanSummary
 from .risk import score_scan
 from .secrets import run_secret_scan
+from .sql_artifact_scan import run_sql_artifact_scan
 from .scope import apply_finding_scope, production_gate_findings, scope_counts, scope_sort_rank
 from .storage import apply_decisions, compare_to_baseline
 
@@ -35,7 +36,8 @@ LANG_BY_EXT = {
     '.py': 'Python', '.js': 'JavaScript', '.jsx': 'JavaScript', '.ts': 'TypeScript', '.tsx': 'TypeScript',
     '.java': 'Java', '.c': 'C', '.h': 'C/C++', '.cpp': 'C++', '.cc': 'C++', '.cs': 'C#', '.go': 'Go',
     '.rs': 'Rust', '.php': 'PHP', '.rb': 'Ruby', '.yml': 'YAML', '.yaml': 'YAML', '.json': 'JSON',
-    '.toml': 'TOML', '.txt': 'Text', '.md': 'Markdown', '.ps1': 'PowerShell', '.sh': 'Shell', '.sql': 'SQL',
+    '.toml': 'TOML', '.txt': 'Text', '.md': 'Markdown', '.ps1': 'PowerShell', '.sh': 'Shell', '.bash': 'Shell',
+    '.bats': 'Shell', '.ksh': 'Shell', '.zsh': 'Shell', '.sql': 'SQL',
     '.dockerfile': 'Dockerfile', '.gradle': 'Gradle', '.tf': 'Terraform', '.kt': 'Kotlin', '.swift': 'Swift',
 }
 LANG_BY_NAME = {
@@ -44,6 +46,7 @@ LANG_BY_NAME = {
     'go.mod': 'Go Module', 'go.sum': 'Go Module Checksum', 'Cargo.toml': 'Rust Cargo', 'Cargo.lock': 'Rust Cargo Lock',
 }
 SEVERITY_ORDER = {'CRITICAL': 4, 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1, 'INFO': 0}
+SHELL_EXTENSIONS = {'.sh', '.bash', '.bats', '.ksh', '.zsh'}
 
 
 def _venv_bin_dir() -> Path:
@@ -81,6 +84,14 @@ def run_scan(target_path: Path, project_name: str | None = None, extra_sarif_pat
     catalog_findings, catalog_status = run_catalog_native(target, files)
     findings.extend(catalog_findings)
     tools['catalog-native'] = catalog_status
+
+    sql_findings, sql_status = run_sql_artifact_scan(target, files)
+    findings.extend(sql_findings)
+    tools['sql-artifact'] = sql_status
+
+    shellcheck_findings, shellcheck_status = run_shellcheck(target, files)
+    findings.extend(shellcheck_findings)
+    tools['shellcheck'] = shellcheck_status
 
     ast_findings, ast_status = run_ast_analysis(target, files)
     findings.extend(ast_findings)
@@ -257,6 +268,45 @@ def run_bandit(target: Path, files: list[Path]) -> tuple[list[Finding], str]:
     findings = [finding_from_bandit(item, target) for item in payload.get('results', [])]
     status = 'ok' if code in (0, 1) else f'partial: {stderr.strip() or code}'
     return findings, status
+
+
+def run_shellcheck(target: Path, files: list[Path]) -> tuple[list[Finding], str]:
+    if scanner_disabled('SHELLCHECK_ENABLED'):
+        return [], 'disabled by SHELLCHECK_ENABLED=false'
+    configured = os.getenv('SHELLCHECK_EXE')
+    shellcheck = configured or resolve_tool('shellcheck')
+    if not shellcheck:
+        return [], 'not installed'
+    shell_files = [path for path in files if path.suffix.lower() in SHELL_EXTENSIONS]
+    if not shell_files:
+        return [], 'skipped: no shell files'
+    timeout = int(os.getenv('SHELLCHECK_TIMEOUT_SECONDS', '180'))
+    command = [shellcheck, '--format=json', *[str(path) for path in shell_files]]
+    code, stdout, stderr = run_tool(command, target, timeout=timeout)
+    if not stdout.strip():
+        if code in (0, 1):
+            return [], f'ok findings=0 files={len(shell_files)}'
+        return [], f'error: {clean_error(stderr or str(code))}'
+    try:
+        findings = findings_from_shellcheck_output(stdout, target)
+    except json.JSONDecodeError:
+        return [], 'error: invalid shellcheck json'
+    if code in (0, 1):
+        return findings, f'ok findings={len(findings)} files={len(shell_files)}'
+    if findings:
+        return findings, f'partial findings={len(findings)} files={len(shell_files)}: {clean_error(stderr or str(code))}'
+    return [], f'error: {clean_error(stderr or str(code))}'
+
+
+def findings_from_shellcheck_output(stdout: str, target: Path) -> list[Finding]:
+    payload = json.loads(stdout)
+    if isinstance(payload, dict):
+        comments = payload.get('comments') or []
+    elif isinstance(payload, list):
+        comments = payload
+    else:
+        comments = []
+    return [finding_from_shellcheck(item, target) for item in comments if isinstance(item, dict)]
 
 
 def normalize_bandit(item: dict[str, Any], target: Path) -> Finding:

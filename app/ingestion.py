@@ -23,12 +23,14 @@ SEVERITY_ALIASES = {
 SARIF_LEVEL_SEVERITY = {'error': 'HIGH', 'warning': 'MEDIUM', 'note': 'LOW', 'none': 'INFO'}
 SOURCE_FAMILIES = {
     'semgrep': 'sast', 'bandit': 'sast', 'python-ast': 'sast', 'codeql': 'sast', 'sonarqube': 'quality-security',
-    'pip-audit': 'sca', 'govulncheck': 'sca', 'dependency-manifest': 'sca', 'secret-scan': 'secrets', 'gitleaks': 'secrets',
+    'shellcheck': 'sast', 'sql-artifact': 'sast', 'pip-audit': 'sca', 'govulncheck': 'sca', 'dependency-manifest': 'sca', 'secret-scan': 'secrets', 'gitleaks': 'secrets',
     'trufflehog': 'secrets', 'snyk': 'sca-sast', 'sarif-import': 'sarif',
 }
 SUPPORTED_SOURCES = [
     {'source': 'semgrep', 'status': 'implemented', 'input': 'Semgrep JSON'},
     {'source': 'bandit', 'status': 'implemented', 'input': 'Bandit JSON'},
+    {'source': 'shellcheck', 'status': 'implemented', 'input': 'ShellCheck JSON'},
+    {'source': 'sql-artifact', 'status': 'implemented', 'input': 'Native standalone SQL artifact scanner'},
     {'source': 'pip-audit', 'status': 'implemented', 'input': 'pip-audit JSON'},
     {'source': 'govulncheck', 'status': 'implemented', 'input': 'govulncheck JSON lines'},
     {'source': 'codeql', 'status': 'implemented', 'input': 'SARIF 2.1.0'},
@@ -137,6 +139,49 @@ def finding_from_bandit(item: dict[str, Any], target: Path) -> Finding:
         line=int(item.get('line_number') or 1), column=int(item.get('col_offset') or 1), message=message, cwe=cwe,
         references=refs, raw=item, raw_severity=item.get('issue_severity'), metadata={'engine': 'bandit'},
     )
+
+
+def finding_from_shellcheck(item: dict[str, Any], target: Path) -> Finding:
+    code = str(item.get('code') or item.get('ruleId') or 'shellcheck')
+    rule_id = code if code.upper().startswith('SC') else f'SC{code}'
+    level = str(item.get('level') or item.get('severity') or 'warning').lower()
+    message = str(item.get('message') or rule_id)
+    metadata = {'engine': 'shellcheck'}
+    catalog_rule = shellcheck_catalog_rule(rule_id)
+    if catalog_rule:
+        metadata['catalog_rule_id'] = catalog_rule
+    return normalize_finding(
+        source='shellcheck',
+        rule_id=rule_id,
+        title=f'ShellCheck {rule_id}',
+        severity=shellcheck_severity(level),
+        confidence='HIGH',
+        path=relpath(str(item.get('file') or item.get('filename') or ''), target),
+        line=int(item.get('line') or item.get('startLine') or 1),
+        column=int(item.get('column') or item.get('startColumn') or 1),
+        message=message,
+        raw=item,
+        raw_severity=level,
+        metadata=metadata,
+    )
+
+
+def shellcheck_severity(level: str) -> str:
+    return {
+        'error': 'HIGH',
+        'warning': 'MEDIUM',
+        'info': 'LOW',
+        'style': 'INFO',
+    }.get(str(level).lower(), 'INFO')
+
+
+def shellcheck_catalog_rule(rule_id: str) -> str:
+    return {
+        'SC2086': 'SH-001',
+        'SC2045': 'SH-003',
+        'SC2010': 'SH-003',
+        'SC2294': 'SH-004',
+    }.get(rule_id.upper(), '')
 
 
 def finding_from_pip_audit(dep: dict[str, Any], vuln: dict[str, Any], req_file: Path, target: Path) -> Finding:
@@ -303,7 +348,7 @@ def infer_reachability(finding: Finding) -> str:
         return 'configuration'
     if path.endswith(SOURCE_EXTENSIONS):
         return 'source-line'
-    if finding.source in {'codeql', 'semgrep', 'bandit', 'python-ast', 'sonarqube'}:
+    if finding.source in {'codeql', 'semgrep', 'bandit', 'shellcheck', 'sql-artifact', 'python-ast', 'sonarqube'}:
         return 'source-line'
     return 'unknown'
 
@@ -316,7 +361,7 @@ def infer_policy_impact(finding: Finding) -> list[str]:
         impacts.append('dependency-review')
     if finding.source in {'sonarqube'}:
         impacts.append('quality-gate')
-    if finding.source in {'codeql', 'semgrep', 'bandit', 'python-ast', 'sarif-import'}:
+    if finding.source in {'codeql', 'semgrep', 'bandit', 'shellcheck', 'sql-artifact', 'python-ast', 'sarif-import'}:
         impacts.append('security-review')
     if finding.severity in {'CRITICAL', 'HIGH'} or finding.risk.priority in {'P0', 'P1'}:
         impacts.append('pr-gate')

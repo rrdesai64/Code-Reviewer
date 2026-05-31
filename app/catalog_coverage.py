@@ -23,6 +23,7 @@ class ToolCapability:
     categories: frozenset[str]
     confidence: str
     notes: str
+    rule_ids: frozenset[str] = frozenset()
 
 
 ALL = frozenset({"*"})
@@ -54,6 +55,26 @@ TOOL_CAPABILITIES: tuple[ToolCapability, ...] = (
         categories=frozenset({"security", "input_validation", "crypto", "secrets"}),
         confidence="medium",
         notes="Python security scanner; strong for common Python AST security checks, not general design invariants.",
+    ),
+    ToolCapability(
+        name="shellcheck",
+        label="ShellCheck",
+        detections=frozenset({"pattern", "ast"}),
+        languages=frozenset({"shell"}),
+        categories=frozenset({"security", "language_idiom"}),
+        confidence="high",
+        notes="External ShellCheck adapter for shell script findings; strict-mode and pipefail completeness still need benchmarked policy rules.",
+        rule_ids=frozenset({"SH-001", "SH-003", "SH-004"}),
+    ),
+    ToolCapability(
+        name="sql-artifact",
+        label="Native SQL artifact scanner",
+        detections=frozenset({"pattern", "ast", "dataflow", "interprocedural"}),
+        languages=frozenset({"sql"}),
+        categories=frozenset({"maintainability", "input_validation", "security", "language_idiom", "performance", "error_handling"}),
+        confidence="high",
+        notes="First-party scanner for standalone .sql files such as migrations, stored procedures, and database scripts.",
+        rule_ids=frozenset({"SQL-001", "SQL-002", "SQL-003", "SQL-004", "SQL-005", "SQL-006", "SQL-007"}),
     ),
     ToolCapability(
         name="codeql",
@@ -112,6 +133,8 @@ def _intersects(rule_values: set[str], tool_values: frozenset[str]) -> bool:
 
 
 def _supports_rule(tool: ToolCapability, rule: dict) -> bool:
+    if tool.rule_ids:
+        return str(rule.get("id") or "") in tool.rule_ids
     rule_detection = str(rule.get("detection") or "").lower()
     rule_category = str(rule.get("category") or "").lower()
     rule_languages = _as_set(rule.get("languages") or ["*"])
@@ -217,6 +240,7 @@ def catalog_coverage_map(include_rules: bool = True, tool_names: Iterable[str] |
                 "categories": sorted(tool.categories),
                 "confidence": tool.confidence,
                 "notes": tool.notes,
+                "rule_ids": sorted(tool.rule_ids),
             }
             for tool in tools
         ],

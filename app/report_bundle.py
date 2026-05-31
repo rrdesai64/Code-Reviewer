@@ -37,6 +37,7 @@ from .scanner_depth import scanner_depth_report
 from .secrets import secret_policy_report
 from .sonarqube import sonarqube_quality_report
 from .storage import load_baseline, load_scan
+from .suppressions import inline_suppression_report
 from .team_learning import team_learning_dashboard
 from .teaching_loop import teaching_loop_report_for_scan
 
@@ -69,6 +70,7 @@ def build_report_bundle(scan: ScanResult, base_dir: Path | None = None, ai_revie
     write_json_artifact('scanner-depth.json', lambda: scanner_depth_report(scan))
     write_json_artifact('catalog-coverage-map.json', lambda: catalog_coverage_map())
     write_json_artifact('quarantine-policy.json', lambda: quarantine_policy_for_scan(scan))
+    write_json_artifact('inline-suppressions.json', lambda: inline_suppression_report(scan))
     write_json_artifact('sanitized-report.json', lambda: sanitized_scan_report(scan))
     write_json_artifact('rag-memory.json', lambda: rag_memory_for_scan(scan))
     write_json_artifact('hermes-orchestration.json', lambda: hermes_report_for_scan(scan))

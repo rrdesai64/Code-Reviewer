@@ -26,6 +26,7 @@ from .shell_policy_scan import run_shell_policy_scan
 from .sql_artifact_scan import run_sql_artifact_scan
 from .scope import apply_finding_scope, production_gate_findings, scope_counts, scope_sort_rank
 from .storage import apply_decisions, compare_to_baseline
+from .suppressions import apply_inline_suppressions, update_suppression_summary
 
 ROOT = Path(__file__).resolve().parents[1]
 RULES_PATH = ROOT / 'rules' / 'semgrep-security.yml'
@@ -133,8 +134,10 @@ def run_scan(target_path: Path, project_name: str | None = None, extra_sarif_pat
         findings=findings,
     )
     scan = score_scan(compare_to_baseline(scan))
+    scan = apply_inline_suppressions(target, scan)
     scan.findings = sorted(scan.findings, key=lambda item: (-scope_sort_rank(item), -item.risk.score, -SEVERITY_ORDER.get(item.severity, 0), item.location.path, item.location.line))
     scan.summary = build_summary(files, scan.findings, tools)
+    update_suppression_summary(scan)
     scan = apply_decisions(scan)
     return consolidate_scan(scan)
 

@@ -25,6 +25,8 @@ def markdown_report(scan: ScanResult) -> str:
         f'- Consolidated priority items: {scan.summary.consolidated_findings}',
         f'- Cross-tool agreement clusters: {scan.summary.cross_tool_clusters}',
         f'- Consolidated priorities: {format_counts(scan.summary.consolidated_priorities)}',
+        f'- In-code suppressions: {scan.summary.suppressed_findings}',
+        f'- Invalid suppression annotations: {scan.summary.invalid_suppression_annotations}',
         f'- All-findings max risk score: {scan.summary.all_max_risk_score}',
         f'- All-findings priorities: {format_counts(scan.summary.all_priorities)}',
         f'- New since baseline: {len(scan.new_findings)}', f'- Resolved since baseline: {len(scan.resolved_findings)}',
@@ -104,6 +106,7 @@ def github_pr_comment(scan: ScanResult) -> str:
         f'Production/gate findings: **{scan.summary.production_findings}** | Hygiene findings: **{scan.summary.hygiene_findings}** | Scopes: **{format_counts(scan.summary.scope_counts)}**',
         f'Production max risk: **{scan.summary.max_risk_score}** | Production average risk: **{scan.summary.avg_risk_score}** | Production priorities: **{format_counts(scan.summary.priorities)}**',
         f'Consolidated priorities: **{scan.summary.consolidated_findings}** | Cross-tool agreement clusters: **{scan.summary.cross_tool_clusters}** | Priority mix: **{format_counts(scan.summary.consolidated_priorities)}**',
+        f'In-code suppressions: **{scan.summary.suppressed_findings}** | Invalid suppression annotations: **{scan.summary.invalid_suppression_annotations}**',
         f'All-findings max risk: **{scan.summary.all_max_risk_score}** | All priorities: **{format_counts(scan.summary.all_priorities)}**',
         f'New: **{len(scan.new_findings)}** | Resolved: **{len(scan.resolved_findings)}** | Unchanged: **{len(scan.unchanged_findings)}**', '',
         '| Priority | Agreement | Severity | Tools | Rule/CWE | Location | Finding |', '| --- | --- | --- | --- | --- | --- | --- |']

@@ -114,6 +114,8 @@ def update_summary(scan: ScanResult) -> None:
     scan.summary.cross_tool_clusters = sum(1 for cluster in scan.consolidated_findings if cluster.agreement_count > 1)
     scan.summary.consolidated_priorities = dict(sorted(priorities.items()))
     scan.summary.top_consolidated_priority_score = max((cluster.priority_score for cluster in scan.consolidated_findings), default=0)
+    scan.summary.suppressed_findings = sum(1 for finding in scan.findings if finding.decision == 'suppressed')
+    scan.summary.invalid_suppression_annotations = len(scan.invalid_suppressions)
 
 
 def top_consolidated_findings(scan: ScanResult, limit: int = 10) -> list[ConsolidatedFinding]:

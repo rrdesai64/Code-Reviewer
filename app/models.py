@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 Severity = Literal['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
-DecisionState = Literal['open', 'false_positive', 'accepted_fix', 'risk_accepted']
+DecisionState = Literal['open', 'false_positive', 'accepted_fix', 'risk_accepted', 'suppressed']
 Priority = Literal['P0', 'P1', 'P2', 'P3', 'P4']
 ValidationStatus = Literal['passed', 'warning', 'blocked', 'manual']
 FindingScope = Literal['production', 'test', 'docs', 'example', 'config', 'dependency', 'generated', 'unknown']
@@ -108,6 +108,27 @@ class ConsolidatedFinding(BaseModel):
     factors: list[RiskFactor] = Field(default_factory=list)
 
 
+class SuppressionRecord(BaseModel):
+    finding_id: str
+    fingerprint: str
+    rule_id: str
+    source: str
+    path: str
+    line: int = 1
+    annotation_line: int = 1
+    reason: str
+    annotation: str
+    matched_rule: str
+    scope: FindingScope = 'unknown'
+
+
+class InvalidSuppressionAnnotation(BaseModel):
+    path: str
+    line: int = 1
+    annotation: str
+    reason: str
+
+
 class ScanSummary(BaseModel):
     total_findings: int = 0
     critical: int = 0
@@ -133,6 +154,8 @@ class ScanSummary(BaseModel):
     cross_tool_clusters: int = 0
     consolidated_priorities: dict[str, int] = Field(default_factory=dict)
     top_consolidated_priority_score: int = 0
+    suppressed_findings: int = 0
+    invalid_suppression_annotations: int = 0
 
 
 class ScanResult(BaseModel):
@@ -146,6 +169,8 @@ class ScanResult(BaseModel):
     resolved_findings: list[str] = Field(default_factory=list)
     unchanged_findings: list[str] = Field(default_factory=list)
     consolidated_findings: list[ConsolidatedFinding] = Field(default_factory=list)
+    suppressions: list[SuppressionRecord] = Field(default_factory=list)
+    invalid_suppressions: list[InvalidSuppressionAnnotation] = Field(default_factory=list)
 
 
 class DecisionRequest(BaseModel):

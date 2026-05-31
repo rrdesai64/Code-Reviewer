@@ -87,6 +87,8 @@ def sanitized_scan_report(scan: ScanResult) -> dict[str, Any]:
         'learning_eligibility': learning_eligibility(policy),
         'findings': findings,
         'consolidated_findings': consolidated,
+        'suppressions': [sanitize_suppression_record(record) for record in scan.suppressions],
+        'invalid_suppressions': [sanitize_invalid_suppression(record) for record in scan.invalid_suppressions],
         'finding_count': len(scan.findings),
         'stored_finding_count': len(findings),
         'consolidated_finding_count': len(scan.consolidated_findings),
@@ -209,6 +211,8 @@ def report_lake_index_record(report: dict[str, Any], path: Path | None = None) -
             'cross_tool_clusters': summary.get('cross_tool_clusters', 0),
             'consolidated_priorities': summary.get('consolidated_priorities', {}),
             'top_consolidated_priority_score': summary.get('top_consolidated_priority_score', 0),
+            'suppressed_findings': summary.get('suppressed_findings', 0),
+            'invalid_suppression_annotations': summary.get('invalid_suppression_annotations', 0),
             'scope_counts': summary.get('scope_counts', {}),
         },
         'quarantine': report.get('quarantine', {}),
@@ -249,9 +253,36 @@ def sanitize_summary(scan: ScanResult) -> dict[str, Any]:
         'cross_tool_clusters': safe_int(summary.cross_tool_clusters),
         'consolidated_priorities': sanitize_count_map(summary.consolidated_priorities),
         'top_consolidated_priority_score': safe_int(summary.top_consolidated_priority_score),
+        'suppressed_findings': safe_int(summary.suppressed_findings),
+        'invalid_suppression_annotations': safe_int(summary.invalid_suppression_annotations),
         'new_finding_count': len(scan.new_findings),
         'resolved_finding_count': len(scan.resolved_findings),
         'unchanged_finding_count': len(scan.unchanged_findings),
+    }
+
+
+def sanitize_suppression_record(record: Any) -> dict[str, Any]:
+    return {
+        'finding_id': sanitize_identifier(record.finding_id),
+        'fingerprint': sanitize_identifier(record.fingerprint),
+        'rule_id': sanitize_text(record.rule_id, max_length=160),
+        'source': sanitize_text(record.source, max_length=80),
+        'path': sanitize_path(record.path),
+        'line': safe_int(record.line),
+        'annotation_line': safe_int(record.annotation_line),
+        'reason': sanitize_text(record.reason, max_length=300),
+        'matched_rule': sanitize_text(record.matched_rule, max_length=160),
+        'scope': record.scope,
+        'raw_code_included': False,
+    }
+
+
+def sanitize_invalid_suppression(record: Any) -> dict[str, Any]:
+    return {
+        'path': sanitize_path(record.path),
+        'line': safe_int(record.line),
+        'reason': sanitize_text(record.reason, max_length=220),
+        'raw_code_included': False,
     }
 
 

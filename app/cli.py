@@ -38,6 +38,7 @@ from .scanner_depth import scanner_depth_report
 from .sonarqube import sonarqube_quality_report
 from .secrets import secret_policy_report
 from .storage import load_baseline, load_scan, save_baseline, save_scan
+from .suppressions import inline_suppression_report, record_suppression_governance
 from .team_learning import team_learning_dashboard
 
 
@@ -108,6 +109,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--messaging-gateway-out')
     parser.add_argument('--governance-out')
     parser.add_argument('--quarantine-policy-out')
+    parser.add_argument('--suppressions-out')
     parser.add_argument('--sanitized-report-out')
     parser.add_argument('--rag-memory-out')
     parser.add_argument('--hermes-out')
@@ -160,6 +162,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         audit('cli', 'memory.quarantine_skipped', scan.scan_id, {'project': scan.project_name, 'status': quarantine['status']})
     audit('cli', 'scan.created', scan.scan_id, {'project': scan.project_name})
+    record_suppression_governance(scan, actor='cli')
     if args.save_baseline:
         save_baseline(scan)
     if args.json_out:
@@ -300,6 +303,8 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.governance_out).write_text(json.dumps(compliance_evidence_export(scan_id=scan.scan_id), indent=2), encoding='utf-8')
     if args.quarantine_policy_out:
         Path(args.quarantine_policy_out).write_text(json.dumps(quarantine, indent=2), encoding='utf-8')
+    if args.suppressions_out:
+        Path(args.suppressions_out).write_text(json.dumps(inline_suppression_report(scan), indent=2), encoding='utf-8')
     if args.sanitized_report_out:
         Path(args.sanitized_report_out).write_text(json.dumps(sanitized, indent=2), encoding='utf-8')
     if args.rag_memory_out:

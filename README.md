@@ -26,6 +26,8 @@ Production-shaped secure code review assistant built from the strategic upgrade 
 - Baseline save/compare to distinguish new, resolved, and unchanged findings
 - False-positive / risk-accepted / accepted-fix decisions
 - GitHub PR comment summary artifact
+- Diff-scoped GitHub PR review that prepares inline comments only for new findings on added PR lines
+- In-code suppression annotations with required reasons and audit/report evidence
 - CI CLI
 
 ### Phase 3: RAG And Repository Memory
@@ -131,7 +133,7 @@ Use `-DryRun` first to verify paths and Sonar keys without scanning.
 ## CLI Examples
 
 ```powershell
-.\.venv\Scripts\python.exe -m app.cli --path . --sarif-out secure-review.sarif --report-out secure-review.md --pr-comment-out pr-comment.md --compliance-out compliance.json --fix-proposals-out fix-proposals.json --fail-on high
+.\.venv\Scripts\python.exe -m app.cli --path . --sarif-out secure-review.sarif --report-out secure-review.md --pr-comment-out pr-comment.md --suppressions-out inline-suppressions.json --compliance-out compliance.json --fix-proposals-out fix-proposals.json --fail-on high
 ```
 
 Exit code `2` means findings met or exceeded the configured `--fail-on` threshold.
@@ -161,6 +163,7 @@ The app falls back to `offline` guidance if a configured LLM provider is unavail
 - `GET /api/scans/{scan_id}/sarif`
 - `GET /api/scans/{scan_id}/compliance`
 - `POST /api/scans/{scan_id}/findings/{finding_id}/fix-proposal?provider=offline`
+- `GET /api/scans/{scan_id}/suppressions`
 - `GET /api/rag/query?q=CWE-78`
 - `POST /api/rag/reindex`
 - `GET /api/memory`
@@ -171,6 +174,19 @@ The app falls back to `offline` guidance if a configured LLM provider is unavail
 ## Safety Notes
 
 Generated fixes are proposals only. Review diffs, run tests, rerun scans, and require human approval before accepting code changes.
+
+## PR Diff Scoping And Suppressions
+
+GitHub PR review artifacts are scoped to the pull request diff. Inline comments are prepared only when a finding is new since the saved baseline and its location is on an added PR line. Findings outside the diff or already present in the baseline are excluded from PR-facing comments so reviews focus on what the change introduced.
+
+Developers can suppress a finding in code when there is a documented reason:
+
+```python
+# secure-review: ignore SEC-002 - sanitized upstream
+query = request.args["q"]
+```
+
+The annotation may be on the finding line or within the two lines immediately above it. The reason is required; invalid annotations are reported but do not suppress findings. Suppressed findings are marked with decision `suppressed`, included in `inline-suppressions.json`, reflected in sanitized report lake/governance evidence, and respected by future scans.
 
 
 
@@ -1389,7 +1405,7 @@ Implemented:
 - Read-only host mounts for the app and repository source
 - Guest scratch copy before scanning
 - Scanner output written inside the guest first
-- Export allowlist for report artifacts only, including `scan.json`, SARIF, SBOM/SPDX, recursive learning, benchmark gate, quarantine policy, sanitized report lake records, RAG memory records, and worker status/log
+- Export allowlist for report artifacts only, including `scan.json`, SARIF, SBOM/SPDX, recursive learning, benchmark gate, quarantine policy, inline suppressions, sanitized report lake records, RAG memory records, and worker status/log
 - Offline network mode through Windows Sandbox networking disablement
 - `scanner-only` and `full` network policy metadata for future firewall-backed workers
 - Explicit approval requirement before preparing a VM job for quarantined repositories
@@ -1657,7 +1673,7 @@ Dashboard scans now write a human-shareable report bundle automatically after ea
 reports\<repo-name>\<scan-id>\
 ```
 
-Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `finding-consolidation.json`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `messaging-gateway.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, and safe fix dry-run artifacts.
+Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `finding-consolidation.json`, `inline-suppressions.json`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `messaging-gateway.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, and safe fix dry-run artifacts.
 
 The dashboard shows the saved bundle path after the scan and includes a `Report Bundle` action that opens the manifest. Set `REPORT_BUNDLE_DIR` in `.env` to place bundles somewhere else, for example:
 

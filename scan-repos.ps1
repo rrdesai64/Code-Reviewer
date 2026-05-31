@@ -218,6 +218,7 @@ function Add-ScanOutputArgs {
     '-MessagingGatewayOut', (Join-Path $ReportDir 'messaging-gateway.json'),
     '-GovernanceOut', (Join-Path $ReportDir 'governance-evidence.json'),
     '-QuarantinePolicyOut', (Join-Path $ReportDir 'quarantine-policy.json'),
+    '-SuppressionsOut', (Join-Path $ReportDir 'inline-suppressions.json'),
     '-SanitizedReportOut', (Join-Path $ReportDir 'sanitized-report.json'),
     '-RagMemoryOut', (Join-Path $ReportDir 'rag-memory.json'),
     '-HermesOut', (Join-Path $ReportDir 'hermes-orchestration.json'),

@@ -12,10 +12,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from .models import Finding, ScanResult
-from .reporting import format_counts, github_pr_comment
+from .consolidation import ensure_consolidated_scan
+from .models import ConsolidatedFinding, Finding, ScanResult
+from .reporting import format_counts
 from .secrets import secret_policy_report
-from .scope import finding_scope, is_production_impacting
+from .scope import finding_scope, is_blocking_secret, is_production_impacting
 
 SEVERITY_ORDER = {'CRITICAL': 4, 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1, 'INFO': 0}
 SUPPORTED_REVIEW_EVENTS = {'COMMENT', 'REQUEST_CHANGES', 'APPROVE'}
@@ -128,6 +129,7 @@ def build_github_pr_review(
         diff_text = fetched_pr.get('diff_text') or None
         commit_sha = commit_sha or fetched_pr.get('head_sha')
 
+    scan = ensure_consolidated_scan(scan)
     diff_map = parse_unified_diff(diff_text or '')
     status = review_status(scan)
     inline_comments, summary_only = build_inline_comments(scan, diff_map, cfg)
@@ -154,13 +156,16 @@ def build_github_pr_review(
             'provided': bool(diff_text),
             'files': sorted({key[0] for key in diff_map}),
             'mapped_lines': len(diff_map),
+            'changed_lines': sum(1 for value in diff_map.values() if value.get('changed')),
             'inline_context_lines': cfg.inline_context_lines,
+            'inline_policy': 'changed PR lines only; finding fingerprint must be new since baseline',
         },
         'review': {
             'event': requested_event,
             'body': body,
             'inline_comment_count': len(inline_comments),
             'summary_only_count': len(summary_only),
+            'suppressed_count': scan.summary.suppressed_findings,
             'max_inline_comments': cfg.max_inline_comments,
             'min_inline_risk': cfg.min_inline_risk,
             'inline_comments': [comment_without_payload(comment) for comment in inline_comments],
@@ -299,31 +304,31 @@ def parse_unified_diff(diff_text: str) -> dict[tuple[str, int], dict[str, Any]]:
 
 
 def build_inline_comments(scan: ScanResult, diff_map: dict[tuple[str, int], dict[str, Any]], cfg: GitHubConfig) -> tuple[list[dict[str, Any]], list[tuple[Finding, str]]]:
+    scan = ensure_consolidated_scan(scan)
     inline: list[dict[str, Any]] = []
     summary_only: list[tuple[Finding, str]] = []
     used_locations: set[tuple[str, int]] = set()
+    finding_by_id = {finding.id: finding for finding in scan.findings}
+    if scan.consolidated_findings:
+        for cluster in scan.consolidated_findings:
+            finding, comment, reason = select_inline_finding_for_cluster(scan, cluster, finding_by_id, diff_map, cfg, used_locations)
+            if comment:
+                inline.append(comment)
+                used_locations.add((comment['path'], comment['line']))
+                continue
+            if finding and should_include_summary_only(scan, finding, reason or ''):
+                summary_only.append((finding, reason or 'not eligible for diff-scoped inline comment'))
+        return inline, summary_only
+
     for finding in scan.findings:
-        if finding.decision != 'open':
-            summary_only.append((finding, 'non-open decision'))
-            continue
-        if finding.risk.score < cfg.min_inline_risk:
-            summary_only.append((finding, 'below inline risk threshold'))
+        reason = inline_rejection_reason(scan, finding, diff_map, cfg, used_locations, finding.risk.score)
+        if reason:
+            if should_include_summary_only(scan, finding, reason):
+                summary_only.append((finding, reason))
             continue
         path = normalize_repo_path(finding.location.path)
         line = int(finding.location.line or 1)
         diff_line = diff_map.get((path, line))
-        if not diff_line:
-            summary_only.append((finding, 'line not present in PR diff'))
-            continue
-        if not cfg.inline_context_lines and not diff_line.get('changed'):
-            summary_only.append((finding, 'line is context, not an added PR line'))
-            continue
-        if (path, line) in used_locations:
-            summary_only.append((finding, 'line already has an inline comment'))
-            continue
-        if len(inline) >= cfg.max_inline_comments:
-            summary_only.append((finding, 'inline comment limit reached'))
-            continue
         github_payload = {
             'path': path,
             'position': diff_line['position'],
@@ -334,14 +339,118 @@ def build_inline_comments(scan: ScanResult, diff_map: dict[tuple[str, int], dict
     return inline, summary_only
 
 
+def select_inline_finding_for_cluster(
+    scan: ScanResult,
+    cluster: ConsolidatedFinding,
+    finding_by_id: dict[str, Finding],
+    diff_map: dict[tuple[str, int], dict[str, Any]],
+    cfg: GitHubConfig,
+    used_locations: set[tuple[str, int]],
+) -> tuple[Finding | None, dict[str, Any] | None, str]:
+    representative = finding_by_id.get(cluster.representative_finding_id)
+    candidates = [finding_by_id[item] for item in cluster.finding_ids if item in finding_by_id]
+    candidates = sorted(candidates, key=lambda item: candidate_sort_key(item, diff_map), reverse=True)
+    rejections: list[tuple[Finding, str]] = []
+    for finding in candidates:
+        risk_score = max(finding.risk.score, cluster.priority_score)
+        reason = inline_rejection_reason(scan, finding, diff_map, cfg, used_locations, risk_score)
+        if reason:
+            rejections.append((finding, reason))
+            continue
+        path = normalize_repo_path(finding.location.path)
+        line = int(finding.location.line or 1)
+        diff_line = diff_map[(path, line)]
+        github_payload = {
+            'path': path,
+            'position': diff_line['position'],
+            'body': inline_comment_body(scan, finding, cluster=cluster),
+        }
+        comment = {
+            'finding': finding,
+            'cluster': cluster,
+            'line': line,
+            'path': path,
+            'position': diff_line['position'],
+            'changed': diff_line.get('changed', False),
+            'github': github_payload,
+        }
+        return finding, comment, ''
+    for finding, reason in rejections:
+        if should_include_summary_only(scan, finding, reason):
+            return finding, None, reason
+    return representative or (candidates[0] if candidates else None), None, summarize_reasons([reason for _, reason in rejections])
+
+
+def inline_rejection_reason(
+    scan: ScanResult,
+    finding: Finding,
+    diff_map: dict[tuple[str, int], dict[str, Any]],
+    cfg: GitHubConfig,
+    used_locations: set[tuple[str, int]],
+    risk_score: int,
+) -> str:
+    if finding.decision == 'suppressed':
+        return 'suppressed by in-code annotation'
+    if finding.decision != 'open':
+        return 'non-open decision'
+    if finding.fingerprint not in set(scan.new_findings):
+        return 'not marked new since baseline'
+    if risk_score < cfg.min_inline_risk:
+        return 'below inline risk threshold'
+    path = normalize_repo_path(finding.location.path)
+    line = int(finding.location.line or 1)
+    diff_line = diff_map.get((path, line))
+    if not diff_line:
+        return 'line not present in PR diff'
+    if not cfg.inline_context_lines and not diff_line.get('changed'):
+        return 'line is context, not an added PR line'
+    if (path, line) in used_locations:
+        return 'line already has an inline comment'
+    if len(used_locations) >= cfg.max_inline_comments:
+        return 'inline comment limit reached'
+    return ''
+
+
+def should_include_summary_only(scan: ScanResult, finding: Finding, reason: str) -> bool:
+    del reason
+    return finding.fingerprint in set(scan.new_findings)
+
+
+def candidate_sort_key(finding: Finding, diff_map: dict[tuple[str, int], dict[str, Any]]) -> tuple[int, int, int, int]:
+    path = normalize_repo_path(finding.location.path)
+    line = int(finding.location.line or 1)
+    diff_line = diff_map.get((path, line)) or {}
+    return (
+        1 if diff_line.get('changed') else 0,
+        1 if diff_line else 0,
+        finding.risk.score,
+        -line,
+    )
+
+
+def summarize_reasons(reasons: list[str]) -> str:
+    if not reasons:
+        return 'no eligible evidence finding'
+    counts: dict[str, int] = {}
+    for reason in reasons:
+        counts[reason] = counts.get(reason, 0) + 1
+    return ', '.join(f'{reason} ({count})' if count > 1 else reason for reason, count in sorted(counts.items()))
+
+
 def review_status(scan: ScanResult) -> dict[str, Any]:
     secrets = secret_policy_report(scan)
-    open_findings = [finding for finding in scan.findings if finding.decision == 'open' and is_production_impacting(finding)]
+    new_fingerprints = set(scan.new_findings)
+    open_findings = [
+        finding
+        for finding in scan.findings
+        if finding.decision == 'open' and finding.fingerprint in new_fingerprints and is_production_impacting(finding)
+    ]
+    blocking_secrets = [finding for finding in open_findings if is_blocking_secret(finding)]
     p0 = [finding for finding in open_findings if finding.risk.priority == 'P0']
     p1 = [finding for finding in open_findings if finding.risk.priority == 'P1']
     critical = [finding for finding in open_findings if finding.severity == 'CRITICAL']
     high = [finding for finding in open_findings if finding.severity == 'HIGH']
-    if secrets['status'] == 'blocked' or p0 or critical:
+    if blocking_secrets or p0 or critical:
         status = 'fail'
         gate = 'blocked'
         reason = 'Blocking secret, P0, or critical findings require changes before merge.'
@@ -366,8 +475,9 @@ def review_status(scan: ScanResult) -> dict[str, Any]:
         'p1': len(p1),
         'critical': len(critical),
         'high': len(high),
-        'secret_policy_status': secrets['status'],
-        'blocking_secret_findings': secrets['blocking_findings'],
+        'secret_policy_status': 'blocked' if blocking_secrets else secrets['status'],
+        'blocking_secret_findings': len(blocking_secrets),
+        'new_finding_scope': True,
     }
 
 
@@ -381,14 +491,40 @@ def build_review_body(scan: ScanResult, status: dict[str, Any], inline: list[dic
         f'Findings: **{scan.summary.total_findings}** across **{scan.summary.files_scanned} files**.',
         f'Production/gate findings: **{scan.summary.production_findings}** | Hygiene findings: **{scan.summary.hygiene_findings}** | Scopes: **{format_counts(scan.summary.scope_counts)}**',
         f'Production max risk: **{scan.summary.max_risk_score}** | Production average risk: **{scan.summary.avg_risk_score}** | Production priorities: **{format_counts(scan.summary.priorities)}**',
-        f'Inline comments prepared: **{len(inline)}** | Summary-only findings: **{len(summary_only)}**',
+        f'Inline comments prepared: **{len(inline)}** | Summary-only findings: **{len(summary_only)}** | In-code suppressions: **{scan.summary.suppressed_findings}**',
+        'Inline scope: **new findings on added PR lines only**.',
         '',
     ]
-    lines.extend(github_pr_comment(scan).splitlines()[4:])
+    append_diff_scoped_review(lines, inline, summary_only)
     return '\n'.join(lines).strip() + '\n'
 
 
-def inline_comment_body(scan: ScanResult, finding: Finding) -> str:
+def append_diff_scoped_review(lines: list[str], inline: list[dict[str, Any]], summary_only: list[tuple[Finding, str]]) -> None:
+    lines.extend([
+        '### Inline Comments',
+        '',
+    ])
+    if not inline:
+        lines.append('No inline comments were prepared for added PR lines.')
+    else:
+        lines.extend(['| Priority | Rule | Location | Finding |', '| --- | --- | --- | --- |'])
+        for item in inline:
+            finding = item['finding']
+            cluster = item.get('cluster')
+            cluster_note = f' / {cluster.cluster_id}' if cluster else ''
+            location = f'{item["path"]}:{item["line"]}'
+            title = truncate(finding.title, 160).replace('|', '\\|')
+            lines.append(f'| {finding.risk.priority} {finding.risk.score}{cluster_note} | `{finding.rule_id}` | `{location}` | {title} |')
+    reason_counts: dict[str, int] = {}
+    for _, reason in summary_only:
+        reason_counts[reason] = reason_counts.get(reason, 0) + 1
+    if reason_counts:
+        lines.extend(['', '### Summary-Only Reasons', ''])
+        for reason, count in sorted(reason_counts.items()):
+            lines.append(f'- {reason}: {count}')
+
+
+def inline_comment_body(scan: ScanResult, finding: Finding, cluster: ConsolidatedFinding | None = None) -> str:
     cwe = ', '.join(finding.cwe) if finding.cwe else 'n/a'
     owasp = ', '.join(finding.owasp) if finding.owasp else 'n/a'
     guidance = finding.fix.guidance[:3]
@@ -401,11 +537,19 @@ def inline_comment_body(scan: ScanResult, finding: Finding) -> str:
         f'- Severity: `{finding.severity}` | Confidence: `{finding.confidence}`',
         f'- CWE: {cwe}',
         f'- OWASP: {owasp}',
+    ]
+    if cluster:
+        lines.extend([
+            f'- Consolidated priority: `{cluster.priority}` / `{cluster.priority_score}`',
+            f'- Tool agreement: `{cluster.agreement_count}` source(s), `{cluster.raw_count}` raw finding(s)',
+            f'- Cluster: `{cluster.cluster_id}`',
+        ])
+    lines.extend([
         '',
         truncate(finding.message, 500),
         '',
         f'**Suggested fix:** {truncate(finding.fix.summary, 500)}',
-    ]
+    ])
     for item in guidance:
         lines.append(f'- {truncate(item, 220)}')
     return '\n'.join(lines).strip()
@@ -549,6 +693,7 @@ def comment_without_payload(comment: dict[str, Any]) -> dict[str, Any]:
         'line': comment['line'],
         'position': comment['position'],
         'changed': comment['changed'],
+        'cluster_id': comment.get('cluster').cluster_id if comment.get('cluster') else '',
     }
 
 

@@ -245,6 +245,12 @@ def score_factors(findings: list[Finding], severity: str, consolidated_confidenc
         factors.append(RiskFactor(name='catalog', label='Catalog-mapped rule', points=6, detail='At least one scanner finding maps to the Secure Review catalog.'))
     if sink:
         factors.append(RiskFactor(name='sink', label='Shared vulnerability sink', points=4, detail=sink))
+    if any((finding.scanner_metadata or {}).get('source_reachability_context') == 'untrusted-entrypoint' for finding in findings):
+        factors.append(RiskFactor(name='reachability', label='Untrusted entrypoint context', points=14, detail='At least one evidence finding is near an HTTP/request entrypoint and untrusted input signal.'))
+    elif any((finding.scanner_metadata or {}).get('request_handler_context') == 'true' for finding in findings):
+        factors.append(RiskFactor(name='reachability', label='Request handler context', points=8, detail='At least one evidence finding is in or near request handling code.'))
+    if any((finding.scanner_metadata or {}).get('changed_file_context') == 'true' for finding in findings):
+        factors.append(RiskFactor(name='change-context', label='Changed file context', points=4, detail='At least one evidence finding is new or in a changed file.'))
     if not any(is_production_impacting(finding) for finding in findings):
         factors.append(RiskFactor(name='scope', label='Non-production scope', points=-45, detail='All evidence in this cluster is non-production hygiene.'))
     return factors

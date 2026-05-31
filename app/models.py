@@ -9,7 +9,7 @@ Severity = Literal['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
 DecisionState = Literal['open', 'false_positive', 'accepted_fix', 'risk_accepted', 'suppressed']
 Priority = Literal['P0', 'P1', 'P2', 'P3', 'P4']
 ValidationStatus = Literal['passed', 'warning', 'blocked', 'manual']
-FindingScope = Literal['production', 'test', 'docs', 'example', 'config', 'dependency', 'generated', 'unknown']
+FindingScope = Literal['production', 'test', 'docs', 'example', 'config', 'dependency', 'generated', 'vendor', 'unknown']
 
 
 class Location(BaseModel):
@@ -156,6 +156,10 @@ class ScanSummary(BaseModel):
     top_consolidated_priority_score: int = 0
     suppressed_findings: int = 0
     invalid_suppression_annotations: int = 0
+    reachability_counts: dict[str, int] = Field(default_factory=dict)
+    exploitability_counts: dict[str, int] = Field(default_factory=dict)
+    changed_file_findings: int = 0
+    request_handler_findings: int = 0
 
 
 class ScanResult(BaseModel):

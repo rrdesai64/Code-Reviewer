@@ -72,6 +72,9 @@ def test_sarif_and_reports(client, scanned):
     consolidated = client.get(f"/api/scans/{sid}/consolidated-findings")
     assert consolidated.status_code == 200
     assert consolidated.json()["schema_version"] == "finding-consolidation-v1"
+    reachability = client.get(f"/api/scans/{sid}/reachability-context")
+    assert reachability.status_code == 200
+    assert reachability.json()["schema_version"] == "reachability-context-v1"
     suppressions = client.get(f"/api/scans/{sid}/suppressions")
     assert suppressions.status_code == 200
     assert suppressions.json()["schema_version"] == 1

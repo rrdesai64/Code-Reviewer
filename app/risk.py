@@ -46,6 +46,10 @@ def score_scan(scan: ScanResult) -> ScanResult:
     scan.summary.all_avg_risk_score = round(sum(finding.risk.score for finding in scan.findings) / len(scan.findings), 1) if scan.findings else 0
     scan.summary.all_risk_tiers = dict(sorted(Counter(finding.risk.tier for finding in scan.findings).items()))
     scan.summary.all_priorities = dict(sorted(Counter(finding.risk.priority for finding in scan.findings).items()))
+    scan.summary.reachability_counts = dict(sorted(Counter(finding.reachability or 'unknown' for finding in scan.findings).items()))
+    scan.summary.exploitability_counts = dict(sorted(Counter(finding.exploitability or 'unknown' for finding in scan.findings).items()))
+    scan.summary.changed_file_findings = sum(1 for finding in scan.findings if (finding.scanner_metadata or {}).get('changed_file_context') == 'true')
+    scan.summary.request_handler_findings = sum(1 for finding in scan.findings if (finding.scanner_metadata or {}).get('request_handler_context') == 'true')
     return scan
 
 
@@ -82,13 +86,15 @@ def score_finding(finding: Finding, is_new: bool = False) -> RiskScore:
     if finding.source in DEPENDENCY_SOURCES:
         add_dependency_factors(finding, factors)
 
+    add_reachability_factors(finding, factors)
+
     path = finding.location.path.replace('\\', '/')
     if any(pattern.search(path) for pattern in EXPOSURE_PATTERNS):
         add_factor(factors, 'exposure', 'Sensitive or exposed file path', 7, path)
 
     scope = finding_scope(finding)
     if not is_production_impacting(finding):
-        discount = -45 if scope in {'test', 'docs', 'example'} else -30
+        discount = -45 if scope in {'test', 'docs', 'example'} else -35 if scope in {'generated', 'vendor'} else -30
         add_factor(factors, 'scope', 'Non-production scope', discount, f'{scope} findings are tracked as hygiene and excluded from production gates.')
         if scope == 'test' and finding.rule_id in {'B101', 'B105', 'B113', 'B301', 'B403'}:
             add_factor(factors, 'test-noise', 'Common test-only scanner pattern', -10, finding.rule_id)
@@ -100,6 +106,33 @@ def score_finding(finding: Finding, is_new: bool = False) -> RiskScore:
     if not is_production_impacting(finding):
         action = 'Track as test/docs/example hygiene unless review confirms production exposure or a real secret.'
     return RiskScore(score=score, tier=tier, priority=priority_for_score(score), recommended_action=action, factors=factors)
+
+
+def add_reachability_factors(finding: Finding, factors: list[RiskFactor]) -> None:
+    metadata = finding.scanner_metadata or {}
+    context = metadata.get('source_reachability_context') or finding.reachability or 'unknown'
+    exploitability = metadata.get('source_exploitability_context') or finding.exploitability or 'unknown'
+    evidence = metadata.get('reachability_evidence') or context
+    if context == 'untrusted-entrypoint':
+        add_factor(factors, 'reachability', 'Reachable from untrusted entrypoint', 16, evidence)
+    elif context == 'request-handler':
+        add_factor(factors, 'reachability', 'Request handler context', 10, evidence)
+    elif context == 'changed-production-file':
+        add_factor(factors, 'reachability', 'Changed production file context', 6, evidence)
+    elif context == 'recently-changed-production-file':
+        add_factor(factors, 'reachability', 'Recently changed production file', 4, evidence)
+    elif context == 'production-path':
+        add_factor(factors, 'reachability', 'Production path context', 2, evidence)
+    elif context.startswith('non-production-'):
+        add_factor(factors, 'reachability', 'Low reachability context', -8, context)
+    if exploitability == 'high-untrusted-input':
+        add_factor(factors, 'exploitability-context', 'Untrusted input exploitability context', 12, evidence)
+    elif exploitability == 'medium-request-adjacent':
+        add_factor(factors, 'exploitability-context', 'Request-adjacent exploitability context', 7, evidence)
+    elif exploitability == 'medium-exploitable-pattern':
+        add_factor(factors, 'exploitability-context', 'Exploitability pattern context', 4, evidence)
+    if metadata.get('changed_file_context') == 'true':
+        add_factor(factors, 'change-context', 'Changed file context', 4, 'Finding is in a changed file from git or supplied PR metadata.')
 
 
 def add_dependency_factors(finding: Finding, factors: list[RiskFactor]) -> None:

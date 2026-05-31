@@ -162,6 +162,7 @@ The app falls back to `offline` guidance if a configured LLM provider is unavail
 
 - `POST /api/scans`
 - `GET /api/scans/{scan_id}/sarif`
+- `GET /api/scans/{scan_id}/reachability-context`
 - `GET /api/scans/{scan_id}/compliance`
 - `POST /api/scans/{scan_id}/findings/{finding_id}/fix-proposal?provider=offline`
 - `GET /api/scans/{scan_id}/suppressions`
@@ -383,12 +384,14 @@ Implemented:
 
 - Per-finding risk score from 0-100
 - Risk tier, priority label, recommended action, and factor breakdown
-- Scoring factors for scanner severity, confidence, new-vs-baseline status, high-impact CWE/OWASP categories, exploitability keywords, scanner source, and sensitive/exposed file paths
+- Scoring factors for scanner severity, confidence, new-vs-baseline status, high-impact CWE/OWASP categories, exploitability keywords, scanner source, sensitive/exposed file paths, source reachability, request-handler context, untrusted-input context, and changed-file context
 - Risk-aware finding ordering in CLI and web scans
-- Scope-aware finding classification for `production`, `test`, `docs`, `example`, `config`, `dependency`, and `generated` paths
+- Scope-aware finding classification for `production`, `test`, `docs`, `example`, `config`, `dependency`, `generated`, and `vendor` paths
+- Coarse source reachability context that upranks findings near request handlers and untrusted input, upranks changed or recently changed production files, and downranks tests, examples, docs, vendor, and generated code
 - Production gate metrics that exclude ordinary test/docs/example hygiene findings from the main max risk score, priority counts, PR gates, and CLI `--fail-on` checks
 - High-confidence or critical secrets still remain blocking regardless of whether they appear in tests, docs, examples, or production code
 - Aggregate summary metrics: max risk score, average risk score, risk tiers, and priority counts
+- Reachability and exploitability summary metrics in scan JSON, Markdown, PR summaries, and report bundles
 - Risk data in JSON scan output, SARIF properties, Markdown/HTML reports, GitHub PR comments, and compliance reports
 - Enterprise policy check for unresolved P0 risk findings
 
@@ -837,18 +840,20 @@ Implemented:
 - External SARIF import through the CLI with repeatable `--sarif-in` flags
 - Scanner mesh status and per-scan coverage reports in API, CLI, and web UI
 - Cross-tool finding consolidation that clusters scanner findings by normalized path, close line range, compatible CWE/sink, and distinct tool agreement
-- `scan.ps1` now emits `scanner-mesh.json` and `finding-consolidation.json` by default and accepts optional SARIF imports with `-SarifIn`
+- Source reachability context report that records request-handler, untrusted-input, changed-file, recent-change, generated-file, and non-production context without storing raw code
+- `scan.ps1` now emits `scanner-mesh.json`, `finding-consolidation.json`, and `reachability-context.json` by default and accepts optional SARIF imports with `-SarifIn`
 
 Useful endpoints:
 
 - `GET /api/scanner-mesh/status`
 - `GET /api/scans/{scan_id}/scanner-mesh`
 - `GET /api/scans/{scan_id}/consolidated-findings`
+- `GET /api/scans/{scan_id}/reachability-context`
 
 CLI export and SARIF import:
 
 ```powershell
-.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --sarif-in codeql.sarif --scanner-mesh-out scanner-mesh.json --consolidated-findings-out finding-consolidation.json
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --sarif-in codeql.sarif --scanner-mesh-out scanner-mesh.json --consolidated-findings-out finding-consolidation.json --reachability-context-out reachability-context.json
 ```
 
 PowerShell wrapper:
@@ -1697,7 +1702,7 @@ Dashboard scans now write a human-shareable report bundle automatically after ea
 reports\<repo-name>\<scan-id>\
 ```
 
-Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `finding-consolidation.json`, `inline-suppressions.json`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `messaging-gateway.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, safe fix dry-run artifacts, and verified autofix dry-run evidence.
+Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `finding-consolidation.json`, `reachability-context.json`, `inline-suppressions.json`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `messaging-gateway.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, safe fix dry-run artifacts, and verified autofix dry-run evidence.
 
 The dashboard shows the saved bundle path after the scan and includes a `Report Bundle` action that opens the manifest. Set `REPORT_BUNDLE_DIR` in `.env` to place bundles somewhere else, for example:
 

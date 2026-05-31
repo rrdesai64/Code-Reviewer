@@ -5,7 +5,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 PRODUCTION_SCOPES = {'production', 'config', 'dependency'}
-NON_PRODUCTION_SCOPES = {'test', 'docs', 'example', 'generated', 'unknown'}
+NON_PRODUCTION_SCOPES = {'test', 'docs', 'example', 'generated', 'vendor', 'unknown'}
 SECRET_SOURCES = {'secret-scan', 'gitleaks', 'trufflehog'}
 EXTERNAL_SECRET_SOURCES = {'gitleaks', 'trufflehog'}
 
@@ -13,6 +13,7 @@ TEST_DIRS = {'test', 'tests', '__tests__', 'spec', 'specs', 'fixtures', '__fixtu
 DOC_DIRS = {'doc', 'docs', 'documentation', 'manual', 'manuals'}
 EXAMPLE_DIRS = {'example', 'examples', 'sample', 'samples', 'demo', 'demos'}
 GENERATED_DIRS = {'generated', 'gen', 'coverage', 'htmlcov'}
+VENDOR_DIRS = {'vendor', 'vendors', 'third_party', 'third-party', 'external', 'externals', 'node_modules'}
 DEPENDENCY_NAMES = {
     'requirements.txt', 'requirements-dev.txt', 'requirements-test.txt', 'requirements-prod.txt',
     'pyproject.toml', 'poetry.lock', 'pipfile', 'pipfile.lock', 'package.json', 'package-lock.json',
@@ -38,6 +39,8 @@ def classify_path_scope(path: str) -> str:
     suffix = pure.suffix.lower()
     if any(part in GENERATED_DIRS for part in parts):
         return 'generated'
+    if any(part in VENDOR_DIRS for part in parts):
+        return 'vendor'
     if any(part in TEST_DIRS for part in parts) or name.startswith('test_') or name.endswith('_test.py') or name.endswith('_test.go') or name.endswith('.spec.js') or name.endswith('.test.js') or name.endswith('.spec.ts') or name.endswith('.test.ts') or name.endswith('.spec.tsx') or name.endswith('.test.tsx'):
         return 'test'
     if any(part in DOC_DIRS for part in parts) or name in {'readme.md', 'changelog.md', 'license', 'license.md'}:
@@ -117,7 +120,7 @@ def scope_sort_rank(finding: Any) -> int:
     scope = finding_scope(finding)
     if is_production_impacting(finding):
         return 4
-    return {'test': 3, 'config': 4, 'dependency': 4, 'docs': 2, 'example': 2, 'generated': 1}.get(scope, 0)
+    return {'test': 3, 'config': 4, 'dependency': 4, 'docs': 2, 'example': 2, 'generated': 1, 'vendor': 1}.get(scope, 0)
 
 
 def normalize_path(path: str) -> str:

@@ -25,6 +25,7 @@ from .issue_planning import IssuePlanningError, build_issue_plan
 from .memory import update_repository_memory
 from .messaging_gateway import GatewayError, build_scan_gateway_report
 from .quarantine import blocks_host_scan, quarantine_policy, quarantine_policy_for_scan
+from .reachability import reachability_context_report
 from .rag_memory import save_rag_memory_for_report
 from .refactor import build_fix_proposal, build_remediation_plan
 from .recursive_learning import scan_recursive_learning_report
@@ -53,6 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--sarif-in', action='append', default=[], help='import an external SARIF file into the normalized scanner mesh')
     parser.add_argument('--scanner-mesh-out')
     parser.add_argument('--consolidated-findings-out')
+    parser.add_argument('--reachability-context-out')
     parser.add_argument('--dependency-review-out')
     parser.add_argument('--sonarqube-out')
     parser.add_argument('--scanner-depth-out')
@@ -184,6 +186,8 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.scanner_mesh_out).write_text(json.dumps(scanner_mesh_report(scan), indent=2), encoding='utf-8')
     if args.consolidated_findings_out:
         Path(args.consolidated_findings_out).write_text(json.dumps(consolidated_findings_report(scan), indent=2), encoding='utf-8')
+    if args.reachability_context_out:
+        Path(args.reachability_context_out).write_text(json.dumps(reachability_context_report(scan), indent=2), encoding='utf-8')
     if args.dependency_review_out:
         Path(args.dependency_review_out).write_text(json.dumps(dependency_review_report(scan), indent=2), encoding='utf-8')
     if args.sonarqube_out:
@@ -394,6 +398,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f'Production gate: findings={scan.summary.production_findings}, hygiene={scan.summary.hygiene_findings}, scopes={scan.summary.scope_counts}')
     print(f'Production risk: max={scan.summary.max_risk_score}, avg={scan.summary.avg_risk_score}, priorities={scan.summary.priorities}')
     print(f'Consolidated priorities: items={scan.summary.consolidated_findings}, cross-tool={scan.summary.cross_tool_clusters}, top_score={scan.summary.top_consolidated_priority_score}, priorities={scan.summary.consolidated_priorities}')
+    print(f'Reachability context: reachability={scan.summary.reachability_counts}, exploitability={scan.summary.exploitability_counts}, changed_files={scan.summary.changed_file_findings}, request_handlers={scan.summary.request_handler_findings}')
     print(f"Tools: {', '.join(f'{k}={v}' for k, v in scan.summary.tools.items())}")
     if quarantine.get('matched'):
         print(f"Quarantine: {quarantine['status']} (agent_learning={quarantine['controls'].get('agent_learning')}, report_only={quarantine['controls'].get('report_only')})")

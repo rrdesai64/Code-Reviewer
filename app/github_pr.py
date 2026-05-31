@@ -534,6 +534,8 @@ def inline_comment_body(scan: ScanResult, finding: Finding, cluster: Consolidate
         f'- Scan: `{scan.scan_id}`',
         f'- Source: `{finding.source}` / `{finding.rule_id}`',
         f'- Scope: `{finding_scope(finding)}`',
+        f'- Reachability: `{finding.reachability}`',
+        f'- Exploitability: `{finding.exploitability}`',
         f'- Severity: `{finding.severity}` | Confidence: `{finding.confidence}`',
         f'- CWE: {cwe}',
         f'- OWASP: {owasp}',

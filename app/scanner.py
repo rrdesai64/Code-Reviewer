@@ -20,6 +20,7 @@ from .ast_scanner import run_ast_analysis
 from .external_scanners import run_codeql, run_sonarqube
 from .go_tools import govulncheck_executable, go_tool_env
 from .models import Finding, Location, ScanResult, ScanSummary
+from .reachability import apply_reachability_context, update_reachability_summary
 from .risk import score_scan
 from .secrets import run_secret_scan
 from .shell_policy_scan import run_shell_policy_scan
@@ -133,11 +134,14 @@ def run_scan(target_path: Path, project_name: str | None = None, extra_sarif_pat
         summary=build_summary(files, findings, tools),
         findings=findings,
     )
-    scan = score_scan(compare_to_baseline(scan))
+    scan = compare_to_baseline(scan)
+    scan = apply_reachability_context(target, scan)
+    scan = score_scan(scan)
     scan = apply_inline_suppressions(target, scan)
     scan.findings = sorted(scan.findings, key=lambda item: (-scope_sort_rank(item), -item.risk.score, -SEVERITY_ORDER.get(item.severity, 0), item.location.path, item.location.line))
     scan.summary = build_summary(files, scan.findings, tools)
     update_suppression_summary(scan)
+    update_reachability_summary(scan)
     scan = apply_decisions(scan)
     return consolidate_scan(scan)
 

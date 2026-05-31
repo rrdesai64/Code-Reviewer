@@ -23,13 +23,14 @@ SEVERITY_ALIASES = {
 SARIF_LEVEL_SEVERITY = {'error': 'HIGH', 'warning': 'MEDIUM', 'note': 'LOW', 'none': 'INFO'}
 SOURCE_FAMILIES = {
     'semgrep': 'sast', 'bandit': 'sast', 'python-ast': 'sast', 'codeql': 'sast', 'sonarqube': 'quality-security',
-    'shellcheck': 'sast', 'sql-artifact': 'sast', 'pip-audit': 'sca', 'govulncheck': 'sca', 'dependency-manifest': 'sca', 'secret-scan': 'secrets', 'gitleaks': 'secrets',
+    'shellcheck': 'sast', 'shell-policy': 'sast', 'sql-artifact': 'sast', 'pip-audit': 'sca', 'govulncheck': 'sca', 'dependency-manifest': 'sca', 'secret-scan': 'secrets', 'gitleaks': 'secrets',
     'trufflehog': 'secrets', 'snyk': 'sca-sast', 'sarif-import': 'sarif',
 }
 SUPPORTED_SOURCES = [
     {'source': 'semgrep', 'status': 'implemented', 'input': 'Semgrep JSON'},
     {'source': 'bandit', 'status': 'implemented', 'input': 'Bandit JSON'},
     {'source': 'shellcheck', 'status': 'implemented', 'input': 'ShellCheck JSON'},
+    {'source': 'shell-policy', 'status': 'implemented', 'input': 'Native shell policy scanner'},
     {'source': 'sql-artifact', 'status': 'implemented', 'input': 'Native standalone SQL artifact scanner'},
     {'source': 'pip-audit', 'status': 'implemented', 'input': 'pip-audit JSON'},
     {'source': 'govulncheck', 'status': 'implemented', 'input': 'govulncheck JSON lines'},
@@ -348,7 +349,7 @@ def infer_reachability(finding: Finding) -> str:
         return 'configuration'
     if path.endswith(SOURCE_EXTENSIONS):
         return 'source-line'
-    if finding.source in {'codeql', 'semgrep', 'bandit', 'shellcheck', 'sql-artifact', 'python-ast', 'sonarqube'}:
+    if finding.source in {'codeql', 'semgrep', 'bandit', 'shellcheck', 'shell-policy', 'sql-artifact', 'python-ast', 'sonarqube'}:
         return 'source-line'
     return 'unknown'
 
@@ -361,7 +362,7 @@ def infer_policy_impact(finding: Finding) -> list[str]:
         impacts.append('dependency-review')
     if finding.source in {'sonarqube'}:
         impacts.append('quality-gate')
-    if finding.source in {'codeql', 'semgrep', 'bandit', 'shellcheck', 'sql-artifact', 'python-ast', 'sarif-import'}:
+    if finding.source in {'codeql', 'semgrep', 'bandit', 'shellcheck', 'shell-policy', 'sql-artifact', 'python-ast', 'sarif-import'}:
         impacts.append('security-review')
     if finding.severity in {'CRITICAL', 'HIGH'} or finding.risk.priority in {'P0', 'P1'}:
         impacts.append('pr-gate')

@@ -67,6 +67,16 @@ TOOL_CAPABILITIES: tuple[ToolCapability, ...] = (
         rule_ids=frozenset({"SH-001", "SH-003", "SH-004"}),
     ),
     ToolCapability(
+        name="shell-policy",
+        label="Native shell policy scanner",
+        detections=frozenset({"pattern", "interprocedural"}),
+        languages=frozenset({"shell"}),
+        categories=frozenset({"error_handling"}),
+        confidence="high",
+        notes="First-party shell policy checks for absent strict mode and pipelines masked without pipefail.",
+        rule_ids=frozenset({"SH-002", "SH-006"}),
+    ),
+    ToolCapability(
         name="sql-artifact",
         label="Native SQL artifact scanner",
         detections=frozenset({"pattern", "ast", "dataflow", "interprocedural"}),

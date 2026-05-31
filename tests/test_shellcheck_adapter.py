@@ -101,4 +101,5 @@ def test_shellcheck_catalog_coverage_is_rule_scoped():
     assert by_rule["SH-003"]["status"] == "covered"
     assert by_rule["SH-003"]["tools"] == ["shellcheck"]
     assert by_rule["SH-002"]["status"] == "blind_spot"
+    assert by_rule["SH-006"]["status"] == "blind_spot"
     assert by_rule["SQL-001"]["status"] == "blind_spot"

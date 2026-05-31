@@ -21,6 +21,7 @@ from .go_tools import govulncheck_executable, go_tool_env
 from .models import Finding, Location, ScanResult, ScanSummary
 from .risk import score_scan
 from .secrets import run_secret_scan
+from .shell_policy_scan import run_shell_policy_scan
 from .sql_artifact_scan import run_sql_artifact_scan
 from .scope import apply_finding_scope, production_gate_findings, scope_counts, scope_sort_rank
 from .storage import apply_decisions, compare_to_baseline
@@ -92,6 +93,10 @@ def run_scan(target_path: Path, project_name: str | None = None, extra_sarif_pat
     shellcheck_findings, shellcheck_status = run_shellcheck(target, files)
     findings.extend(shellcheck_findings)
     tools['shellcheck'] = shellcheck_status
+
+    shell_policy_findings, shell_policy_status = run_shell_policy_scan(target, files)
+    findings.extend(shell_policy_findings)
+    tools['shell-policy'] = shell_policy_status
 
     ast_findings, ast_status = run_ast_analysis(target, files)
     findings.extend(ast_findings)

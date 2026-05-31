@@ -11,6 +11,7 @@ Production-shaped secure code review assistant built from the strategic upgrade 
 - Semgrep integration with local security rules
 - Bandit integration for Python
 - Optional ShellCheck adapter for shell script findings
+- Native shell policy checks for strict mode and pipefail-sensitive pipelines
 - Native standalone SQL artifact scanner for migrations, stored procedures, and `.sql` scripts
 - Python dependency vulnerability checks with `pip-audit`
 - Dependency manifest hygiene checks for Python and Node projects
@@ -185,6 +186,7 @@ Implemented:
 - CodeQL adapter with language detection, configurable query suites, extra query packs, resource tuning, no-build defaults for interpreted languages, and optional per-language build commands
 - SonarQube/SonarCloud adapter that imports issues and quality gate failures when `SONAR_ENABLED=true`, `sonar-scanner` is installed, and server credentials are configured
 - ShellCheck adapter that imports shell script diagnostics when `SHELLCHECK_ENABLED=true` or `auto` and `shellcheck` is installed
+- Native shell policy scanner for `SH-002` missing strict mode and `SH-006` pipeline failures masked without `pipefail`
 - Native SQL artifact scanner for `.sql` files, covering SELECT-star queries, unsafe full-table mutations, dynamic SQL concatenation, NULL equality mistakes, non-sargable predicates, missing transaction boundaries, and implicit cross joins
 - Project-local Gitleaks and TruffleHog adapters under `tools/gitleaks/` and `tools/trufflehog/` for external secret-scanning depth
 - Project-local Go toolchain for CodeQL Go scans, Go module inventory from `go.mod`/`go.sum`, Go import reachability, and optional `govulncheck` vulnerability ingestion
@@ -232,6 +234,12 @@ $env:SHELLCHECK_TIMEOUT_SECONDS="180"
 ```
 
 When ShellCheck is unavailable, scans continue and record `shellcheck=not installed` in the tool status. The adapter currently imports ShellCheck JSON diagnostics for `.sh`, `.bash`, `.bats`, `.ksh`, and `.zsh` files.
+
+Native shell policy checks run without an external dependency and report as `shell-policy` in scan summaries. Disable them only when you deliberately do not want strict-mode or pipefail policy findings:
+
+```powershell
+$env:SHELL_POLICY_ENABLED="auto" # auto, true, or false
+```
 
 ### Native SQL Artifact Scanning
 

@@ -845,22 +845,24 @@ Implemented:
 - Finding prioritization that ranks raw findings with dataflow evidence, cross-tool corroboration, path class, PR/change context, and optional test coverage evidence while keeping existing `RiskScore` fields backward compatible
 - Machine soundness verdict contract for autonomous orchestrators: deterministic JSON, `pass` or `block` gate status, stable line-insensitive issue IDs, ranked deduped issues, replay digest, agent-loop readiness, precision-gated fix queue eligibility, and safe-autofix candidate flags
 - Phase 2A/2B/2C inside-out autofix loop protocol: consumes the soundness fix queue, emits structured agent task packets, ingests agent fix responses, requires the app's own regression tests, reruns the soundness gate after tests pass, detects unresolved issues/new blockers, stops on no-progress oscillation, persists loop runs, and emits governance evidence
+- Phase 3A runtime build/run planner: detects Python, Node, Go, JVM, .NET, PHP, Ruby, and container runtime profiles, emits planning-only build/start/test commands, expected ports, health URL candidates, env requirements, confidence, and blockers without executing repository code
 - Semgrep dataflow trace and SARIF code-flow ingestion without storing raw trace bodies in reports
-- `scan.ps1` now emits `scanner-mesh.json`, `finding-consolidation.json`, `prioritization.json`, `soundness-verdict.json`, and `reachability-context.json` by default and accepts optional SARIF imports with `-SarifIn`
+- `scan.ps1` now emits `scanner-mesh.json`, `finding-consolidation.json`, `prioritization.json`, `soundness-verdict.json`, `runtime-plan.json`, and `reachability-context.json` by default and accepts optional SARIF imports with `-SarifIn`
 
 Useful endpoints:
 
 - `GET /api/scanner-mesh/status`
 - `GET /api/scans/{scan_id}/scanner-mesh`
 - `GET /api/scans/{scan_id}/soundness`
+- `GET /api/scans/{scan_id}/runtime-plan`
 - `GET /api/scans/{scan_id}/consolidated-findings`
 - `GET /api/scans/{scan_id}/prioritization`
 - `GET /api/scans/{scan_id}/reachability-context`
 
-CLI export, SARIF import, and optional coverage evidence:
+CLI export, SARIF import, runtime plan, and optional coverage evidence:
 
 ```powershell
-.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --sarif-in codeql.sarif --coverage-in coverage.xml --scanner-mesh-out scanner-mesh.json --consolidated-findings-out finding-consolidation.json --prioritization-out prioritization.json --soundness-out soundness-verdict.json --reachability-context-out reachability-context.json
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --sarif-in codeql.sarif --coverage-in coverage.xml --scanner-mesh-out scanner-mesh.json --consolidated-findings-out finding-consolidation.json --prioritization-out prioritization.json --soundness-out soundness-verdict.json --runtime-plan-out runtime-plan.json --reachability-context-out reachability-context.json
 ```
 
 PowerShell wrapper:
@@ -1036,6 +1038,31 @@ $env:VERIFIED_AUTOFIX_ENABLED="true"
 ```
 
 The Phase 2C loop only finishes as `resolved` when the selected soundness issues disappear, no new blocking issues are introduced, and the target app's regression tests pass. Other deterministic outcomes are `unresolved`, `regressed`, `oscillating`, `needs-human-review`, `new_blockers`, or `rescan_failed`. Use `--inside-out-autofix-loop-no-regression-required` only for dry labs where no app test command exists, and `--inside-out-autofix-loop-allow-oscillation` only when you intentionally want the loop to continue until the iteration cap even after a repeated issue set.
+
+## Phase 3A: Runtime Profile Detection And Build/Run Plan
+
+Phase 3A prepares the outside-in track without running untrusted repository code. It inspects repository manifests and small conventional entrypoint files, then emits a planning-only `runtime-plan.json` artifact for the future disposable/container worker.
+
+Implemented:
+
+- Runtime profile detection for FastAPI, Flask, Django, Node/Next.js/React/Vite/Express, Go services, Spring Boot/JVM projects, .NET projects, Laravel/PHP, Rails/Ruby, and container-only repos
+- Structured build, start, and test command plans with `safe_to_run_on_host=false` and `requires_sandbox=true`
+- Expected port and health URL candidates for smoke checks
+- Required/optional environment variable reporting
+- Confidence scoring, blocker reporting, and monorepo-safe multiple profile output
+- API, CLI, report bundle, `scan.ps1`, disposable worker export allowlist, and VS Code report picker access
+
+Useful endpoint:
+
+- `GET /api/scans/{scan_id}/runtime-plan`
+
+CLI export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --runtime-plan-out runtime-plan.json
+```
+
+The runtime plan does not install dependencies, build containers, start services, call health endpoints, or run tests. Those actions belong to Phase 3B/3C and must happen in a disposable or containerized worker.
 
 PowerShell wrapper:
 
@@ -1736,7 +1763,7 @@ Dashboard scans now write a human-shareable report bundle automatically after ea
 reports\<repo-name>\<scan-id>\
 ```
 
-Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `soundness-verdict.json`, `finding-consolidation.json`, `prioritization.json`, `reachability-context.json`, `inline-suppressions.json`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `messaging-gateway.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, safe fix dry-run artifacts, verified autofix dry-run evidence, and inside-out autofix loop dry-run evidence.
+Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `soundness-verdict.json`, `runtime-plan.json`, `finding-consolidation.json`, `prioritization.json`, `reachability-context.json`, `inline-suppressions.json`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `messaging-gateway.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, safe fix dry-run artifacts, verified autofix dry-run evidence, and inside-out autofix loop dry-run evidence.
 
 The dashboard shows the saved bundle path after the scan and includes a `Report Bundle` action that opens the manifest. Set `REPORT_BUNDLE_DIR` in `.env` to place bundles somewhere else, for example:
 

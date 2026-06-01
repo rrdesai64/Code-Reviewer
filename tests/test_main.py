@@ -78,6 +78,9 @@ def test_sarif_and_reports(client, scanned):
     soundness = client.get(f"/api/scans/{sid}/soundness")
     assert soundness.status_code == 200
     assert soundness.json()["schema_version"] == "soundness-verdict-v1"
+    runtime_plan = client.get(f"/api/scans/{sid}/runtime-plan")
+    assert runtime_plan.status_code == 200
+    assert runtime_plan.json()["schema_version"] == "runtime-build-plan-v1"
     reachability = client.get(f"/api/scans/{sid}/reachability-context")
     assert reachability.status_code == 200
     assert reachability.json()["schema_version"] == "reachability-context-v1"

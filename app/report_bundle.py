@@ -33,6 +33,7 @@ from .recursive_learning import scan_recursive_learning_report
 from .report_lake import sanitized_scan_report
 from .rag_memory import rag_memory_for_scan
 from .reporting import github_pr_comment, html_report, markdown_report
+from .runtime_plan import build_runtime_plan
 from .sarif import build_sarif
 from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report, spdx_compliance_report
 from .scanner import ROOT
@@ -69,6 +70,7 @@ def build_report_bundle(scan: ScanResult, base_dir: Path | None = None, ai_revie
     write_json_artifact('secure-review.sarif', lambda: build_sarif(scan), 'application/sarif+json')
     write_text_artifact('pr-comment.md', lambda: github_pr_comment(scan), 'text/markdown')
     write_json_artifact('soundness-verdict.json', lambda: soundness_verdict(scan))
+    write_json_artifact('runtime-plan.json', lambda: build_runtime_plan(scan))
     write_json_artifact('finding-consolidation.json', lambda: consolidated_findings_report(scan))
     write_json_artifact('prioritization.json', lambda: prioritization_report(scan))
     write_json_artifact('reachability-context.json', lambda: reachability_context_report(scan))

@@ -41,6 +41,7 @@ class DisposableVmWorkerTests(unittest.TestCase):
         self.assertEqual(job['network_policy'], 'offline')
         self.assertEqual(job['quarantine_policy']['status'], 'clear')
         self.assertIn('scan.json', [item['name'] for item in job['allowed_exports']])
+        self.assertIn('runtime-plan.json', [item['name'] for item in job['allowed_exports']])
         self.assertIn('vm-worker-status.json', [item['name'] for item in job['allowed_exports']])
 
         for key in ['manifest', 'guest_runner', 'sandbox_config', 'launcher']:
@@ -54,6 +55,7 @@ class DisposableVmWorkerTests(unittest.TestCase):
         self.assertIn('<Networking>Disable</Networking>', sandbox)
         self.assertIn('<ReadOnly>true</ReadOnly>', sandbox)
         self.assertIn('robocopy', runner)
+        self.assertIn('-RuntimePlanOut', runner)
         self.assertIn('-QuarantinePolicyOut', runner)
         self.assertIn('Copy-Item', runner)
 

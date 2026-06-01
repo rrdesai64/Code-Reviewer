@@ -33,6 +33,7 @@ from .refactor import build_fix_proposal, build_remediation_plan
 from .recursive_learning import scan_recursive_learning_report
 from .report_lake import save_sanitized_scan
 from .reporting import github_pr_comment, markdown_report
+from .runtime_plan import build_runtime_plan
 from .sarif import build_sarif
 from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report, spdx_compliance_report
 from .scanner import SEVERITY_ORDER, run_scan
@@ -60,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--consolidated-findings-out')
     parser.add_argument('--prioritization-out')
     parser.add_argument('--soundness-out')
+    parser.add_argument('--runtime-plan-out')
     parser.add_argument('--reachability-context-out')
     parser.add_argument('--dependency-review-out')
     parser.add_argument('--sonarqube-out')
@@ -212,6 +214,8 @@ def main(argv: list[str] | None = None) -> int:
     soundness = soundness_verdict(scan)
     if args.soundness_out:
         Path(args.soundness_out).write_text(json.dumps(soundness, indent=2), encoding='utf-8')
+    if args.runtime_plan_out:
+        Path(args.runtime_plan_out).write_text(json.dumps(build_runtime_plan(scan), indent=2), encoding='utf-8')
     if args.reachability_context_out:
         Path(args.reachability_context_out).write_text(json.dumps(reachability_context_report(scan), indent=2), encoding='utf-8')
     if args.dependency_review_out:

@@ -409,6 +409,7 @@ function reportDefinitions(scan) {
   return [
     jsonReport('scan-json', 'Scan JSON', `/api/scans/${scanId}`, 'scan.json', 'Raw normalized scan result.'),
     jsonReport('soundness', 'Soundness Verdict', `/api/scans/${scanId}/soundness`, 'soundness-verdict.json', 'Machine-consumable gate verdict and agent remediation contract.'),
+    jsonReport('runtime-plan', 'Runtime Build Plan', `/api/scans/${scanId}/runtime-plan`, 'runtime-plan.json', 'Phase 3A planning-only runtime profile, build command, start command, and health candidates.'),
     jsonReport('scanner-mesh', 'Scanner Mesh', `/api/scans/${scanId}/scanner-mesh`, 'scanner-mesh.json', 'Unified scanner ingestion and source coverage.'),
     jsonReport('prioritization', 'Finding Prioritization', `/api/scans/${scanId}/prioritization`, 'prioritization.json', 'Ranked finding priority with dataflow, tool agreement, and coverage evidence.'),
     jsonReport('reachability-context', 'Reachability Context', `/api/scans/${scanId}/reachability-context`, 'reachability-context.json', 'Request-handler, changed-file, and exploitability context without raw code.'),
@@ -432,7 +433,7 @@ function reportDefinitions(scan) {
     jsonReport('fix-proposals', 'Fix Proposals', null, 'fix-proposals.json', 'Top fix proposals generated through the same proposal API.', buildFixProposalsArtifact),
     jsonReport('fix-bundle', 'Fix Bundle', `/api/scans/${scanId}/fixes/bundle?limit=${fixBundleLimit()}&provider=${encodeURIComponent(defaultFixProvider())}`, 'fix-bundle.json', 'Safe one-click fix bundle.'),
     jsonPostReport('fix-apply-dry-run', 'Fix Apply Dry Run', `/api/scans/${scanId}/fixes/apply`, 'fix-apply-dry-run.json', 'Dry-run safe apply workflow.', JSON.stringify({ dry_run: true, approved: true, limit: fixBundleLimit(), provider: defaultFixProvider() })),
-    jsonPostReport('inside-out-autofix-loop', 'Inside-Out Autofix Loop', `/api/scans/${scanId}/fixes/inside-out-loop`, 'inside-out-autofix-loop-dry-run.json', 'Dry-run Phase 2A soundness-driven autofix loop.', JSON.stringify({ dry_run: true, approved: true, limit: fixBundleLimit(), provider: defaultFixProvider() })),
+    jsonPostReport('inside-out-autofix-loop', 'Inside-Out Autofix Loop', `/api/scans/${scanId}/fixes/inside-out-loop`, 'inside-out-autofix-loop-dry-run.json', 'Dry-run Phase 2C soundness-driven autofix loop.', JSON.stringify({ dry_run: true, approved: true, limit: fixBundleLimit(), provider: defaultFixProvider() })),
     jsonReport('remediation-plan', 'Remediation Plan', `/api/scans/${scanId}/remediation-plan`, 'remediation-plan.json', 'Prioritized remediation plan.'),
     jsonReport('issue-plan', 'Jira/Linear Issue Plan', `/api/scans/${scanId}/issue-plan`, 'issue-plan.json', 'Dry-run Jira and Linear work item payloads.'),
     jsonReport('chat-notification', 'Slack/Teams Agent', `/api/scans/${scanId}/chat/notification`, 'chat-notification.json', 'Dry-run Slack and Teams notification payloads.'),

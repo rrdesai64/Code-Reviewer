@@ -46,6 +46,7 @@ function activate(context) {
   register(context, 'secureCodeReview.showFixProposals', () => showReportById(context, 'fix-proposals'));
   register(context, 'secureCodeReview.showFixBundle', () => showReportById(context, 'fix-bundle'));
   register(context, 'secureCodeReview.dryRunFixApply', () => showReportById(context, 'fix-apply-dry-run'));
+  register(context, 'secureCodeReview.showInsideOutAutofixLoop', () => showReportById(context, 'inside-out-autofix-loop'));
   register(context, 'secureCodeReview.showRemediationPlan', () => showReportById(context, 'remediation-plan'));
   register(context, 'secureCodeReview.showIssuePlan', () => showReportById(context, 'issue-plan'));
   register(context, 'secureCodeReview.showChatNotification', () => showReportById(context, 'chat-notification'));
@@ -431,6 +432,7 @@ function reportDefinitions(scan) {
     jsonReport('fix-proposals', 'Fix Proposals', null, 'fix-proposals.json', 'Top fix proposals generated through the same proposal API.', buildFixProposalsArtifact),
     jsonReport('fix-bundle', 'Fix Bundle', `/api/scans/${scanId}/fixes/bundle?limit=${fixBundleLimit()}&provider=${encodeURIComponent(defaultFixProvider())}`, 'fix-bundle.json', 'Safe one-click fix bundle.'),
     jsonPostReport('fix-apply-dry-run', 'Fix Apply Dry Run', `/api/scans/${scanId}/fixes/apply`, 'fix-apply-dry-run.json', 'Dry-run safe apply workflow.', JSON.stringify({ dry_run: true, approved: true, limit: fixBundleLimit(), provider: defaultFixProvider() })),
+    jsonPostReport('inside-out-autofix-loop', 'Inside-Out Autofix Loop', `/api/scans/${scanId}/fixes/inside-out-loop`, 'inside-out-autofix-loop-dry-run.json', 'Dry-run Phase 2A soundness-driven autofix loop.', JSON.stringify({ dry_run: true, approved: true, limit: fixBundleLimit(), provider: defaultFixProvider() })),
     jsonReport('remediation-plan', 'Remediation Plan', `/api/scans/${scanId}/remediation-plan`, 'remediation-plan.json', 'Prioritized remediation plan.'),
     jsonReport('issue-plan', 'Jira/Linear Issue Plan', `/api/scans/${scanId}/issue-plan`, 'issue-plan.json', 'Dry-run Jira and Linear work item payloads.'),
     jsonReport('chat-notification', 'Slack/Teams Agent', `/api/scans/${scanId}/chat/notification`, 'chat-notification.json', 'Dry-run Slack and Teams notification payloads.'),

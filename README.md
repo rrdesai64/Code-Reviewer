@@ -844,6 +844,7 @@ Implemented:
 - Source reachability context report that records request-handler, untrusted-input, changed-file, recent-change, generated-file, and non-production context without storing raw code
 - Finding prioritization that ranks raw findings with dataflow evidence, cross-tool corroboration, path class, PR/change context, and optional test coverage evidence while keeping existing `RiskScore` fields backward compatible
 - Machine soundness verdict contract for autonomous orchestrators: deterministic JSON, `pass` or `block` gate status, stable line-insensitive issue IDs, ranked deduped issues, replay digest, agent-loop readiness, precision-gated fix queue eligibility, and safe-autofix candidate flags
+- Phase 2A inside-out autofix loop protocol: consumes the soundness fix queue, runs verified autofix, reruns the soundness gate after tests pass, detects unresolved issues/new blockers, and stops on no-progress oscillation
 - Semgrep dataflow trace and SARIF code-flow ingestion without storing raw trace bodies in reports
 - `scan.ps1` now emits `scanner-mesh.json`, `finding-consolidation.json`, `prioritization.json`, `soundness-verdict.json`, and `reachability-context.json` by default and accepts optional SARIF imports with `-SarifIn`
 
@@ -966,14 +967,16 @@ Implemented:
 - Safe dependency upgrade patching for vulnerable Python requirements when scanner metadata includes a fixed version
 - File backups under `.secure-review-backups/{scan_id}/` before approved source writes
 - Verified autofix workflow that applies eligible fixes in a separate git worktree branch, runs the repository test commands, commits only if tests pass, and can push/open a PR only after the green gate
+- Inside-out autofix loop protocol that selects from `soundness.agent_fix_queue`, runs verified autofix, rescans the worktree, verifies selected issues resolved, blocks on new soundness blockers, and stops on no-progress oscillation
 - Enterprise permission `fix:apply` for admins and security reviewers, plus audit logging for bundle and apply requests
-- CLI, API, PowerShell wrapper, and web UI access to fix bundles, dry-run apply reports, and verified autofix dry-run evidence
+- CLI, API, PowerShell wrapper, and web UI access to fix bundles, dry-run apply reports, verified autofix dry-run evidence, and inside-out loop dry-run evidence
 
 Useful endpoints:
 
 - `GET /api/scans/{scan_id}/fixes/bundle`
 - `POST /api/scans/{scan_id}/fixes/apply`
 - `POST /api/scans/{scan_id}/fixes/verified-autofix`
+- `POST /api/scans/{scan_id}/fixes/inside-out-loop`
 
 CLI dry-run bundle and apply preview:
 
@@ -985,6 +988,12 @@ Verified autofix dry-run evidence:
 
 ```powershell
 .\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --verified-autofix-out verified-autofix-dry-run.json
+```
+
+Inside-out loop dry-run evidence:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --inside-out-autofix-loop-out inside-out-autofix-loop-dry-run.json
 ```
 
 Approved local apply, only when you intentionally enable it:
@@ -1009,13 +1018,26 @@ $env:VERIFIED_AUTOFIX_ENABLED="true"
 
 Add `--verified-autofix-push --verified-autofix-publish-pr` only after GitHub CLI authentication and branch policy are configured. The PR is created only if the fix applied cleanly, all test commands passed, and the branch was pushed successfully.
 
+Phase 2A inside-out loop apply, only for trusted repositories or disposable workers where host-side test execution is approved:
+
+```powershell
+$env:FIX_APPLY_ENABLED="true"
+$env:VERIFIED_AUTOFIX_ENABLED="true"
+.\.venv\Scripts\python.exe -m app.cli `
+  --path "G:\Path\To\Repo" `
+  --inside-out-autofix-loop `
+  --inside-out-autofix-loop-approved `
+  --verified-autofix-test-command "python -m pytest -q" `
+  --inside-out-autofix-loop-out inside-out-autofix-loop.json
+```
+
 PowerShell wrapper:
 
 ```powershell
 .\scan.ps1 -Path "G:\Path\To\Repo"
 ```
 
-`scan.ps1` now emits `fix-bundle.json`, `fix-apply-dry-run.json`, and `verified-autofix-dry-run.json` by default. Treat dry-run reports as review artifacts; real verified autofix should be reserved for trusted repositories or disposable workers because it runs the repository's own test commands.
+`scan.ps1` now emits `fix-bundle.json`, `fix-apply-dry-run.json`, `verified-autofix-dry-run.json`, and `inside-out-autofix-loop-dry-run.json` by default. Treat dry-run reports as review artifacts; real verified autofix and inside-out loop runs should be reserved for trusted repositories or disposable workers because they run the repository's own test commands.
 
 
 ## Roadmap Point 8: IDE/CLI Parity
@@ -1440,7 +1462,7 @@ Implemented:
 - Read-only host mounts for the app and repository source
 - Guest scratch copy before scanning
 - Scanner output written inside the guest first
-- Export allowlist for report artifacts only, including `scan.json`, SARIF, SBOM/SPDX, recursive learning, benchmark gate, quarantine policy, inline suppressions, verified autofix dry-run evidence, sanitized report lake records, RAG memory records, and worker status/log
+- Export allowlist for report artifacts only, including `scan.json`, SARIF, SBOM/SPDX, recursive learning, benchmark gate, quarantine policy, inline suppressions, verified autofix dry-run evidence, inside-out autofix loop dry-run evidence, sanitized report lake records, RAG memory records, and worker status/log
 - Offline network mode through Windows Sandbox networking disablement
 - `scanner-only` and `full` network policy metadata for future firewall-backed workers
 - Explicit approval requirement before preparing a VM job for quarantined repositories
@@ -1708,7 +1730,7 @@ Dashboard scans now write a human-shareable report bundle automatically after ea
 reports\<repo-name>\<scan-id>\
 ```
 
-Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `soundness-verdict.json`, `finding-consolidation.json`, `prioritization.json`, `reachability-context.json`, `inline-suppressions.json`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `messaging-gateway.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, safe fix dry-run artifacts, and verified autofix dry-run evidence.
+Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `soundness-verdict.json`, `finding-consolidation.json`, `prioritization.json`, `reachability-context.json`, `inline-suppressions.json`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `messaging-gateway.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, safe fix dry-run artifacts, verified autofix dry-run evidence, and inside-out autofix loop dry-run evidence.
 
 The dashboard shows the saved bundle path after the scan and includes a `Report Bundle` action that opens the manifest. Set `REPORT_BUNDLE_DIR` in `.env` to place bundles somewhere else, for example:
 

@@ -43,6 +43,7 @@ param(
   [string]$FixBundleOut = "fix-bundle.json",
   [string]$FixApplyOut = "fix-apply-dry-run.json",
   [string]$VerifiedAutofixOut = "verified-autofix-dry-run.json",
+  [string]$InsideOutAutofixLoopOut = "inside-out-autofix-loop-dry-run.json",
   [string]$SonarProjectKey = "",
   [string]$SonarProjectName = "",
   [string]$SonarBranchName = ""
@@ -149,7 +150,8 @@ $argsList = @(
   '--hermes-out', $HermesOut,
   '--fix-bundle-out', $FixBundleOut,
   '--fix-apply-out', $FixApplyOut,
-  '--verified-autofix-out', $VerifiedAutofixOut
+  '--verified-autofix-out', $VerifiedAutofixOut,
+  '--inside-out-autofix-loop-out', $InsideOutAutofixLoopOut
 )
 
 foreach ($item in $SarifIn) {

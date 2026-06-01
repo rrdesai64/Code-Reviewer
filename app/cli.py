@@ -5,9 +5,10 @@ import json
 import sys
 from pathlib import Path
 
-from .models import FixApplyRequest, VerifiedAutofixRequest
+from .models import FixApplyRequest, InsideOutAutofixLoopRequest, VerifiedAutofixRequest
 
 from .enterprise import audit, compliance_report
+from .autofix_loop import run_inside_out_autofix_loop
 from .dependency_review import dependency_review_report
 from .chat_agents import ChatAgentError, build_chat_notification
 from .code_hosts import CodeHostIntegrationError, build_code_host_review
@@ -133,6 +134,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--fix-bundle-out')
     parser.add_argument('--fix-apply-out')
     parser.add_argument('--verified-autofix-out')
+    parser.add_argument('--inside-out-autofix-loop-out')
     parser.add_argument('--fix-bundle-limit', type=int, default=10)
     parser.add_argument('--fix-finding-id', action='append', default=[])
     parser.add_argument('--apply-fixes', action='store_true', help='apply eligible fixes when FIX_APPLY_ENABLED=true and --fix-apply-approved is set')
@@ -141,6 +143,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--fix-provider', default='offline')
     parser.add_argument('--verified-autofix', action='store_true', help='create an autofix branch, apply eligible fixes, run tests, and optionally push/open a PR when green')
     parser.add_argument('--verified-autofix-approved', action='store_true', help='confirm human approval for non-dry-run verified autofix')
+    parser.add_argument('--inside-out-autofix-loop', action='store_true', help='run the Phase 2A soundness-driven autofix loop with rescan verification')
+    parser.add_argument('--inside-out-autofix-loop-approved', action='store_true', help='confirm approval for non-dry-run inside-out autofix loop')
+    parser.add_argument('--inside-out-autofix-loop-max-iterations', type=int, default=1)
+    parser.add_argument('--inside-out-autofix-loop-issue-id', action='append', default=[])
     parser.add_argument('--verified-autofix-test-command', action='append', default=[], help='test command to run in the autofix worktree; repeat for multiple commands')
     parser.add_argument('--verified-autofix-timeout', type=int, default=900)
     parser.add_argument('--verified-autofix-branch')
@@ -409,6 +415,29 @@ def main(argv: list[str] | None = None) -> int:
         if args.verified_autofix and autofix_report['status'] in {'blocked', 'failed', 'tests_failed', 'push_failed', 'pr_failed'}:
             print(f"Verified autofix failed: {autofix_report['status']} ({autofix_report['gate']})", file=sys.stderr)
             return 14
+    if args.inside_out_autofix_loop_out or args.inside_out_autofix_loop:
+        loop_report = run_inside_out_autofix_loop(scan, InsideOutAutofixLoopRequest(
+            finding_ids=args.fix_finding_id or [],
+            issue_ids=args.inside_out_autofix_loop_issue_id or [],
+            limit=args.fix_bundle_limit,
+            max_iterations=args.inside_out_autofix_loop_max_iterations,
+            provider=args.fix_provider,
+            dry_run=not args.inside_out_autofix_loop,
+            approved=args.inside_out_autofix_loop_approved,
+            allow_placeholders=args.allow_placeholder_fixes,
+            branch_name=args.verified_autofix_branch,
+            base_branch=args.verified_autofix_base_branch,
+            test_commands=args.verified_autofix_test_command or [],
+            test_timeout_seconds=args.verified_autofix_timeout,
+            push_branch=args.verified_autofix_push,
+            publish_pr=args.verified_autofix_publish_pr,
+            pr_title=args.verified_autofix_pr_title,
+        ), actor='cli')
+        if args.inside_out_autofix_loop_out:
+            Path(args.inside_out_autofix_loop_out).write_text(json.dumps(loop_report, indent=2), encoding='utf-8')
+        if args.inside_out_autofix_loop and loop_report['gate'] != 'passed':
+            print(f"Inside-out autofix loop failed: {loop_report['status']} ({loop_report['gate']})", file=sys.stderr)
+            return 16
 
     print(f'Scan {scan.scan_id}: {scan.summary.total_findings} findings across {scan.summary.files_scanned} files')
     print(f'Production gate: findings={scan.summary.production_findings}, hygiene={scan.summary.hygiene_findings}, scopes={scan.summary.scope_counts}')

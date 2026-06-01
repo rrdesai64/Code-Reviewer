@@ -38,6 +38,7 @@
     "onCommand:secureCodeReview.showFixProposals",
     "onCommand:secureCodeReview.showFixBundle",
     "onCommand:secureCodeReview.dryRunFixApply",
+    "onCommand:secureCodeReview.showInsideOutAutofixLoop",
     "onCommand:secureCodeReview.showRemediationPlan",
     "onCommand:secureCodeReview.showIssuePlan",
     "onCommand:secureCodeReview.showChatNotification",
@@ -200,6 +201,10 @@
       {
         "command": "secureCodeReview.dryRunFixApply",
         "title": "Secure Review: Dry Run Fix Apply"
+      },
+      {
+        "command": "secureCodeReview.showInsideOutAutofixLoop",
+        "title": "Secure Review: Show Inside-Out Autofix Loop"
       },
       {
         "command": "secureCodeReview.showRemediationPlan",

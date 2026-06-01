@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .benchmark_gate import benchmark_gate_report_for_recommendations
+from .autofix_loop import run_inside_out_autofix_loop
 from .catalog_coverage import catalog_coverage_map
 from .chat_agents import build_chat_notification
 from .code_hosts import build_code_host_review
@@ -23,7 +24,7 @@ from .hermes import hermes_report_for_scan
 from .ingestion import scanner_mesh_report
 from .issue_planning import build_issue_plan
 from .messaging_gateway import build_scan_gateway_report
-from .models import FixApplyRequest, ScanResult, VerifiedAutofixRequest
+from .models import FixApplyRequest, InsideOutAutofixLoopRequest, ScanResult, VerifiedAutofixRequest
 from .priority import prioritization_report
 from .quarantine import quarantine_policy_for_scan
 from .reachability import reachability_context_report
@@ -104,6 +105,7 @@ def build_report_bundle(scan: ScanResult, base_dir: Path | None = None, ai_revie
     write_json_artifact('fix-bundle.json', lambda: build_fix_bundle(scan, limit=DEFAULT_FIX_BUNDLE_LIMIT, provider='offline'))
     write_json_artifact('fix-apply-dry-run.json', lambda: apply_fix_bundle(scan, FixApplyRequest(dry_run=True, approved=True, limit=DEFAULT_FIX_BUNDLE_LIMIT, provider='offline')))
     write_json_artifact('verified-autofix-dry-run.json', lambda: run_verified_autofix(scan, VerifiedAutofixRequest(dry_run=True, approved=True, limit=DEFAULT_FIX_BUNDLE_LIMIT, provider='offline')))
+    write_json_artifact('inside-out-autofix-loop-dry-run.json', lambda: run_inside_out_autofix_loop(scan, InsideOutAutofixLoopRequest(dry_run=True, approved=True, limit=DEFAULT_FIX_BUNDLE_LIMIT, provider='offline')))
 
     manifest = report_bundle_manifest(scan, bundle_dir, artifacts, errors)
     manifest_path = bundle_dir / 'manifest.json'

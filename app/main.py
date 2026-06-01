@@ -10,8 +10,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from .models import BenchmarkLessonRequest, BenchmarkTransitionRequest, ChatNotificationRequest, CodeHostReviewRequest, DecisionRequest, DisposableVmScanRequest, FixApplyRequest, GatewaySendRequest, GitHubPrReviewRequest, HermesReviewRequest, HermesRunRequest, IssuePlanRequest, LLMRequest, MemoryRollbackRequest, QuarantineEntryRequest, QuarantineLookupRequest, RagMemoryReindexRequest, ReportLakeReindexRequest, TeachingLoopSessionRequest, TeamCampaignRequest, VerifiedAutofixRequest
+from .models import BenchmarkLessonRequest, BenchmarkTransitionRequest, ChatNotificationRequest, CodeHostReviewRequest, DecisionRequest, DisposableVmScanRequest, FixApplyRequest, GatewaySendRequest, GitHubPrReviewRequest, HermesReviewRequest, HermesRunRequest, InsideOutAutofixLoopRequest, IssuePlanRequest, LLMRequest, MemoryRollbackRequest, QuarantineEntryRequest, QuarantineLookupRequest, RagMemoryReindexRequest, ReportLakeReindexRequest, TeachingLoopSessionRequest, TeamCampaignRequest, VerifiedAutofixRequest
 from .advanced_ai import advanced_ai_status, build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, gpu_profile, local_runtime_status, phase_g_report, run_multi_agent_review, semantic_search
+from .autofix_loop import run_inside_out_autofix_loop
 from .benchmark_gate import benchmark_corpus_report, benchmark_gate_report_for_recommendations, benchmark_gate_status, list_benchmark_lessons, transition_benchmark_lesson, upsert_benchmark_lesson
 from .catalog_coverage import catalog_coverage_map
 from .chat_agents import ChatAgentError, build_chat_notification, chat_agent_status, handle_slack_command, handle_teams_command, verify_slack_signature, verify_teams_command_secret
@@ -1633,6 +1634,23 @@ def scan_verified_autofix(scan_id: str, request: VerifiedAutofixRequest, user: A
         'dry_run': str(report['dry_run']),
         'selected': str(len(report.get('selected_finding_ids', []))),
         'pr_created': str(report.get('pull_request', {}).get('created', False)),
+    })
+    return report
+
+
+@app.post('/api/scans/{scan_id}/fixes/inside-out-loop')
+def scan_inside_out_autofix_loop(scan_id: str, request: InsideOutAutofixLoopRequest, user: AuthUser = Depends(require_permission('fix:apply'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    report = run_inside_out_autofix_loop(scan, request, actor=user.username)
+    audit(user.username, 'fix.inside_out_autofix_loop_requested', scan_id, {
+        'status': report['status'],
+        'gate': report['gate'],
+        'dry_run': str(report['dry_run']),
+        'selected_issues': str(report['summary']['selected_issue_count']),
+        'iterations': str(report['summary']['iterations_attempted']),
     })
     return report
 

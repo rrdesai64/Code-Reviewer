@@ -132,6 +132,7 @@ function renderScan(scan) {
     <button class="ghost" onclick="showSecretPolicy('${scan.scan_id}')">Push Protection</button>
     <button class="ghost" onclick="showGithubPrReview('${scan.scan_id}')">GitHub PR</button>
     <button class="ghost" onclick="showCodeHostReview('${scan.scan_id}')">Code Hosts</button>
+    <button class="ghost" onclick="showSoundness('${scan.scan_id}')">Soundness</button>
     <button class="ghost" onclick="showScannerMesh('${scan.scan_id}')">Scanner Mesh</button>
     <button class="ghost" onclick="showSonarQubeReport('${scan.scan_id}')">SonarQube</button>
     <button class="ghost" onclick="showScannerDepth('${scan.scan_id}')">Scanner Depth</button>
@@ -444,6 +445,15 @@ async function showScannerMesh(scanId) {
     return;
   }
   showJsonPanel('Scanner Mesh', await response.json());
+}
+
+async function showSoundness(scanId) {
+  const response = await fetch(`/api/scans/${scanId}/soundness`);
+  if (!response.ok) {
+    statusEl.textContent = 'Could not load soundness verdict.';
+    return;
+  }
+  showJsonPanel('Soundness Verdict', await response.json());
 }
 
 async function showSonarQubeReport(scanId) {

@@ -407,6 +407,7 @@ function reportDefinitions(scan) {
   const scanId = scan.scan_id;
   return [
     jsonReport('scan-json', 'Scan JSON', `/api/scans/${scanId}`, 'scan.json', 'Raw normalized scan result.'),
+    jsonReport('soundness', 'Soundness Verdict', `/api/scans/${scanId}/soundness`, 'soundness-verdict.json', 'Machine-consumable gate verdict and agent remediation contract.'),
     jsonReport('scanner-mesh', 'Scanner Mesh', `/api/scans/${scanId}/scanner-mesh`, 'scanner-mesh.json', 'Unified scanner ingestion and source coverage.'),
     jsonReport('prioritization', 'Finding Prioritization', `/api/scans/${scanId}/prioritization`, 'prioritization.json', 'Ranked finding priority with dataflow, tool agreement, and coverage evidence.'),
     jsonReport('reachability-context', 'Reachability Context', `/api/scans/${scanId}/reachability-context`, 'reachability-context.json', 'Request-handler, changed-file, and exploitability context without raw code.'),

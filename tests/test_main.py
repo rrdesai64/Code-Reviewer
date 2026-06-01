@@ -75,6 +75,9 @@ def test_sarif_and_reports(client, scanned):
     prioritization = client.get(f"/api/scans/{sid}/prioritization")
     assert prioritization.status_code == 200
     assert prioritization.json()["schema_version"] == "finding-prioritization-v1"
+    soundness = client.get(f"/api/scans/{sid}/soundness")
+    assert soundness.status_code == 200
+    assert soundness.json()["schema_version"] == "soundness-verdict-v1"
     reachability = client.get(f"/api/scans/{sid}/reachability-context")
     assert reachability.status_code == 200
     assert reachability.json()["schema_version"] == "reachability-context-v1"

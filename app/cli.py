@@ -39,6 +39,7 @@ from .scope import is_production_impacting
 from .scanner_depth import scanner_depth_report
 from .sonarqube import sonarqube_quality_report
 from .secrets import secret_policy_report
+from .soundness import soundness_verdict
 from .storage import load_baseline, load_scan, save_baseline, save_scan
 from .suppressions import inline_suppression_report, record_suppression_governance
 from .team_learning import team_learning_dashboard
@@ -57,6 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--scanner-mesh-out')
     parser.add_argument('--consolidated-findings-out')
     parser.add_argument('--prioritization-out')
+    parser.add_argument('--soundness-out')
     parser.add_argument('--reachability-context-out')
     parser.add_argument('--dependency-review-out')
     parser.add_argument('--sonarqube-out')
@@ -158,6 +160,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--fail-on-sonarqube-gate', action='store_true', help='exit with code 9 when SonarQube quality gate fails')
     parser.add_argument('--fail-on-spdx-compliance', action='store_true', help='exit with code 4 when SPDX compliance is not procurement-ready')
     parser.add_argument('--fail-on-secrets', action='store_true', help='exit with code 5 when push protection blocks open secret findings')
+    parser.add_argument('--fail-on-soundness-block', action='store_true', help='exit with code 15 when the machine soundness gate blocks')
     args = parser.parse_args(argv)
 
     target = Path(args.path)
@@ -196,6 +199,9 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.consolidated_findings_out).write_text(json.dumps(consolidated_findings_report(scan), indent=2), encoding='utf-8')
     if args.prioritization_out:
         Path(args.prioritization_out).write_text(json.dumps(prioritization_report(scan), indent=2), encoding='utf-8')
+    soundness = soundness_verdict(scan)
+    if args.soundness_out:
+        Path(args.soundness_out).write_text(json.dumps(soundness, indent=2), encoding='utf-8')
     if args.reachability_context_out:
         Path(args.reachability_context_out).write_text(json.dumps(reachability_context_report(scan), indent=2), encoding='utf-8')
     if args.dependency_review_out:
@@ -409,6 +415,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f'Production risk: max={scan.summary.max_risk_score}, avg={scan.summary.avg_risk_score}, priorities={scan.summary.priorities}')
     print(f'Consolidated priorities: items={scan.summary.consolidated_findings}, cross-tool={scan.summary.cross_tool_clusters}, top_score={scan.summary.top_consolidated_priority_score}, priorities={scan.summary.consolidated_priorities}')
     print(f'Finding priorities: top_score={scan.summary.top_finding_priority_score}, active={scan.summary.active_prioritized_findings}, priorities={scan.summary.finding_priority_counts}')
+    print(f"Soundness gate: {soundness['verdict']['status']} blocking={soundness['verdict']['blocking_issue_count']} confidence={soundness['verdict']['confidence']}")
     print(f'Reachability context: reachability={scan.summary.reachability_counts}, exploitability={scan.summary.exploitability_counts}, changed_files={scan.summary.changed_file_findings}, request_handlers={scan.summary.request_handler_findings}')
     print(f"Tools: {', '.join(f'{k}={v}' for k, v in scan.summary.tools.items())}")
     if quarantine.get('matched'):
@@ -430,6 +437,8 @@ def main(argv: list[str] | None = None) -> int:
         return 4
     if args.fail_on_secrets and secret_policy_report(scan)['status'] == 'blocked':
         return 5
+    if args.fail_on_soundness_block and soundness['verdict']['status'] == 'block':
+        return 15
     if args.fail_on_issue_plan_publish_failure and issue_plan and issue_plan['status'] in {'failed', 'partial'}:
         return 10
     if args.fail_on_chat_publish_failure and chat_notification and chat_notification['status'] in {'failed', 'partial'}:

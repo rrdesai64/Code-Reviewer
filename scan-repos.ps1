@@ -193,6 +193,7 @@ function Add-ScanOutputArgs {
     '-ScannerMeshOut', (Join-Path $ReportDir 'scanner-mesh.json'),
     '-ConsolidatedFindingsOut', (Join-Path $ReportDir 'finding-consolidation.json'),
     '-PrioritizationOut', (Join-Path $ReportDir 'prioritization.json'),
+    '-SoundnessOut', (Join-Path $ReportDir 'soundness-verdict.json'),
     '-ReachabilityContextOut', (Join-Path $ReportDir 'reachability-context.json'),
     '-DependencyReviewOut', (Join-Path $ReportDir 'dependency-review.json'),
     '-SonarQubeOut', (Join-Path $ReportDir 'sonarqube-quality-gate.json'),

@@ -38,6 +38,7 @@ from .scanner import ROOT
 from .scanner_depth import scanner_depth_report
 from .secrets import secret_policy_report
 from .sonarqube import sonarqube_quality_report
+from .soundness import soundness_verdict
 from .storage import load_baseline, load_scan
 from .suppressions import inline_suppression_report
 from .team_learning import team_learning_dashboard
@@ -66,6 +67,7 @@ def build_report_bundle(scan: ScanResult, base_dir: Path | None = None, ai_revie
     write_text_artifact('secure-review.html', lambda: html_report(scan), 'text/html')
     write_json_artifact('secure-review.sarif', lambda: build_sarif(scan), 'application/sarif+json')
     write_text_artifact('pr-comment.md', lambda: github_pr_comment(scan), 'text/markdown')
+    write_json_artifact('soundness-verdict.json', lambda: soundness_verdict(scan))
     write_json_artifact('finding-consolidation.json', lambda: consolidated_findings_report(scan))
     write_json_artifact('prioritization.json', lambda: prioritization_report(scan))
     write_json_artifact('reachability-context.json', lambda: reachability_context_report(scan))

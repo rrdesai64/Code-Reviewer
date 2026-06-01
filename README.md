@@ -847,8 +847,9 @@ Implemented:
 - Phase 2A/2B/2C inside-out autofix loop protocol: consumes the soundness fix queue, emits structured agent task packets, ingests agent fix responses, requires the app's own regression tests, reruns the soundness gate after tests pass, detects unresolved issues/new blockers, stops on no-progress oscillation, persists loop runs, and emits governance evidence
 - Phase 3A runtime build/run planner: detects Python, Node, Go, JVM, .NET, PHP, Ruby, and container runtime profiles, emits planning-only build/start/test commands, expected ports, health URL candidates, env requirements, confidence, and blockers without executing repository code
 - Phase 3B sandboxed build/run worker: prepares container, Windows Sandbox, and manual runtime jobs from the Phase 3A plan with read-only source mounts, sandbox scratch copies, network policy metadata, resource limits, status/log evidence, and no host-side repository execution
+- Phase 3C runtime smoke/posture checks: app-start reachability, health endpoints, security headers, debug exposure, unexpected routes, and observed-port policy are previewed in normal scans and probed only from explicit base URLs or isolated runtime workers
 - Semgrep dataflow trace and SARIF code-flow ingestion without storing raw trace bodies in reports
-- `scan.ps1` now emits `scanner-mesh.json`, `finding-consolidation.json`, `prioritization.json`, `soundness-verdict.json`, `runtime-plan.json`, `runtime-build-run-worker.json`, and `reachability-context.json` by default and accepts optional SARIF imports with `-SarifIn`
+- `scan.ps1` now emits `scanner-mesh.json`, `finding-consolidation.json`, `prioritization.json`, `soundness-verdict.json`, `runtime-plan.json`, `runtime-build-run-worker.json`, `runtime-smoke-posture.json`, and `reachability-context.json` by default and accepts optional SARIF imports with `-SarifIn`
 
 Useful endpoints:
 
@@ -858,6 +859,9 @@ Useful endpoints:
 - `GET /api/scans/{scan_id}/runtime-plan`
 - `GET /api/scans/{scan_id}/runtime/build-run-preview`
 - `POST /api/scans/{scan_id}/runtime/build-run-jobs`
+- `GET /api/runtime-smoke/status`
+- `GET /api/scans/{scan_id}/runtime/smoke-preview`
+- `POST /api/scans/{scan_id}/runtime/smoke-check`
 - `GET /api/runtime-worker/status`
 - `GET /api/runtime-worker/jobs`
 - `GET /api/runtime-worker/jobs/{job_id}`
@@ -868,7 +872,7 @@ Useful endpoints:
 CLI export, SARIF import, runtime plan, and optional coverage evidence:
 
 ```powershell
-.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --sarif-in codeql.sarif --coverage-in coverage.xml --scanner-mesh-out scanner-mesh.json --consolidated-findings-out finding-consolidation.json --prioritization-out prioritization.json --soundness-out soundness-verdict.json --runtime-plan-out runtime-plan.json --runtime-build-run-preview-out runtime-build-run-worker.json --reachability-context-out reachability-context.json
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --sarif-in codeql.sarif --coverage-in coverage.xml --scanner-mesh-out scanner-mesh.json --consolidated-findings-out finding-consolidation.json --prioritization-out prioritization.json --soundness-out soundness-verdict.json --runtime-plan-out runtime-plan.json --runtime-build-run-preview-out runtime-build-run-worker.json --runtime-smoke-preview-out runtime-smoke-posture.json --reachability-context-out reachability-context.json
 ```
 
 PowerShell wrapper:
@@ -1081,7 +1085,7 @@ Implemented:
 - Container launch script with read-only source mount, writable job mount, scratch copy, `--network none` for offline mode, CPU/memory/PID limits, dropped capabilities, and `no-new-privileges`
 - Windows Sandbox `.wsb` and guest runner generation for disposable VM execution
 - Manual instructions artifact for externally managed sandboxes
-- Build command execution and start-process liveness window inside the sandbox; Phase 3C health probes remain deferred
+- Build command execution, start-process liveness window, and Phase 3C smoke/posture probing inside the sandbox
 - Optional test-command execution inside the sandboxed job when requested
 - API, CLI, report bundle, `scan.ps1`, disposable scan-worker export allowlist, and VS Code report picker access
 
@@ -1110,7 +1114,45 @@ Prepare a persistent sandbox/container job:
   --runtime-build-run-job-name owner-repo-runtime
 ```
 
-The generated job does not perform Phase 3C smoke checks. It only verifies that the configured build commands complete and the configured start command stays alive for the configured liveness window inside the sandbox.
+The generated job performs Phase 3C smoke checks only after the configured build commands complete and the configured start command stays alive for the configured liveness window inside the sandbox.
+
+## Phase 3C: Smoke Checks And Runtime Posture
+
+Phase 3C turns the runtime plan into a safe smoke/posture contract. Normal scans and report bundles stay side-effect free: they emit `runtime-smoke-posture.json` in preview mode. Real HTTP probes run only when a user supplies an explicit `base_url` or when the Phase 3B container/VM worker runs them inside the disposable runtime boundary.
+
+Implemented:
+
+- App-start reachability evidence from HTTP responses
+- Health endpoint checks using Phase 3A health URL candidates
+- Security-header posture for CSP, HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, and Permissions-Policy
+- Debug exposure checks for debug routes, debug response markers, and debug headers
+- Unexpected route probes for common debug, docs, metrics, and actuator surfaces
+- Observed-port policy checks without blind port scanning
+- API, CLI, report bundle, `scan.ps1`, disposable scan-worker export allowlist, runtime worker job artifacts, and VS Code report picker access
+
+Useful endpoints:
+
+- `GET /api/runtime-smoke/status`
+- `GET /api/scans/{scan_id}/runtime/smoke-preview`
+- `POST /api/scans/{scan_id}/runtime/smoke-check`
+
+CLI preview export:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --runtime-smoke-preview-out runtime-smoke-posture.json
+```
+
+Explicit local probe:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli `
+  --path "G:\Path\To\Repo" `
+  --runtime-smoke-check-out runtime-smoke-posture.json `
+  --runtime-smoke-base-url http://127.0.0.1:8000 `
+  --runtime-smoke-network-probe
+```
+
+Remote probes are blocked unless `--runtime-smoke-allow-remote-base-url` is set. Phase 3C uses safe HTTP GET probes and compares supplied observed ports to the expected/allowed policy; it does not run blind port scans.
 
 PowerShell wrapper:
 
@@ -1118,7 +1160,7 @@ PowerShell wrapper:
 .\scan.ps1 -Path "G:\Path\To\Repo"
 ```
 
-`scan.ps1` now emits `fix-bundle.json`, `fix-apply-dry-run.json`, `verified-autofix-dry-run.json`, and `inside-out-autofix-loop-dry-run.json` by default. Inside-out loop runs are saved under the Secure Review data directory unless `--inside-out-autofix-loop-no-persist` is used. Treat dry-run reports as review artifacts; real verified autofix and inside-out loop runs should be reserved for trusted repositories or disposable workers because they run the repository's own test commands.
+`scan.ps1` now emits `runtime-smoke-posture.json`, `fix-bundle.json`, `fix-apply-dry-run.json`, `verified-autofix-dry-run.json`, and `inside-out-autofix-loop-dry-run.json` by default. Inside-out loop runs are saved under the Secure Review data directory unless `--inside-out-autofix-loop-no-persist` is used. Treat dry-run reports as review artifacts; real verified autofix and inside-out loop runs should be reserved for trusted repositories or disposable workers because they run the repository's own test commands.
 
 
 ## Roadmap Point 8: IDE/CLI Parity
@@ -1811,7 +1853,7 @@ Dashboard scans now write a human-shareable report bundle automatically after ea
 reports\<repo-name>\<scan-id>\
 ```
 
-Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `soundness-verdict.json`, `runtime-plan.json`, `runtime-build-run-worker.json`, `finding-consolidation.json`, `prioritization.json`, `reachability-context.json`, `inline-suppressions.json`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `messaging-gateway.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, safe fix dry-run artifacts, verified autofix dry-run evidence, and inside-out autofix loop dry-run evidence.
+Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `soundness-verdict.json`, `runtime-plan.json`, `runtime-build-run-worker.json`, `runtime-smoke-posture.json`, `finding-consolidation.json`, `prioritization.json`, `reachability-context.json`, `inline-suppressions.json`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `messaging-gateway.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, safe fix dry-run artifacts, verified autofix dry-run evidence, and inside-out autofix loop dry-run evidence.
 
 The dashboard shows the saved bundle path after the scan and includes a `Report Bundle` action that opens the manifest. Set `REPORT_BUNDLE_DIR` in `.env` to place bundles somewhere else, for example:
 

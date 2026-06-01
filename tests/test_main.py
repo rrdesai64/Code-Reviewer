@@ -84,6 +84,9 @@ def test_sarif_and_reports(client, scanned):
     runtime_preview = client.get(f"/api/scans/{sid}/runtime/build-run-preview")
     assert runtime_preview.status_code == 200
     assert runtime_preview.json()["schema_version"] == "runtime-build-run-worker-v1"
+    smoke_preview = client.get(f"/api/scans/{sid}/runtime/smoke-preview")
+    assert smoke_preview.status_code == 200
+    assert smoke_preview.json()["schema_version"] == "runtime-smoke-posture-v1"
     reachability = client.get(f"/api/scans/{sid}/reachability-context")
     assert reachability.status_code == 200
     assert reachability.json()["schema_version"] == "reachability-context-v1"
@@ -138,6 +141,9 @@ def test_runtime_worker_prepare_job_endpoint(client, tmp_path):
     status = client.get("/api/runtime-worker/status")
     assert status.status_code == 200
     assert "container" in status.json()["providers"]
+    smoke_status = client.get("/api/runtime-smoke/status")
+    assert smoke_status.status_code == 200
+    assert smoke_status.json()["schema_version"] == "runtime-smoke-posture-v1"
 
     job = client.post(
         f"/api/scans/{sid}/runtime/build-run-jobs",
@@ -148,6 +154,14 @@ def test_runtime_worker_prepare_job_endpoint(client, tmp_path):
     assert body["schema_version"] == "runtime-build-run-worker-v1"
     assert body["job_id"] == "api-runtime-job"
     assert body["selected_profile"]["runtime"] == "node"
+    assert body["execution_plan"]["smoke_checks"]["schema_version"] == "runtime-smoke-posture-v1"
+
+    smoke_check = client.post(
+        f"/api/scans/{sid}/runtime/smoke-check",
+        json={"network_probe": False},
+    )
+    assert smoke_check.status_code == 200
+    assert smoke_check.json()["schema_version"] == "runtime-smoke-posture-v1"
 
     listed = client.get("/api/runtime-worker/jobs")
     assert listed.status_code == 200

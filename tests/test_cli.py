@@ -25,7 +25,7 @@ def test_cli_fail_on_high_returns_2_and_writes_all_outputs(
     # Curly quotes -> ENC-009 (HIGH) from the native catalog scanner.
     (repo / "mod.py").write_bytes(b'x = \xe2\x80\x9chi\xe2\x80\x9d\n')
     outs = {name: tmp_path / f"{name}" for name in
-            ("out.json", "out.sarif", "report.md", "pr.md", "compliance.json", "fixes.json", "prioritization.json", "soundness.json", "runtime-plan.json", "runtime-worker.json", "inside-loop.json")}
+            ("out.json", "out.sarif", "report.md", "pr.md", "compliance.json", "fixes.json", "prioritization.json", "soundness.json", "runtime-plan.json", "runtime-worker.json", "runtime-smoke.json", "inside-loop.json")}
     code = cli_main([
         "--path", str(repo),
         "--json-out", str(outs["out.json"]),
@@ -38,6 +38,7 @@ def test_cli_fail_on_high_returns_2_and_writes_all_outputs(
         "--soundness-out", str(outs["soundness.json"]),
         "--runtime-plan-out", str(outs["runtime-plan.json"]),
         "--runtime-build-run-preview-out", str(outs["runtime-worker.json"]),
+        "--runtime-smoke-preview-out", str(outs["runtime-smoke.json"]),
         "--inside-out-autofix-loop-out", str(outs["inside-loop.json"]),
         "--inside-out-autofix-loop-no-persist",
         "--save-baseline",
@@ -52,6 +53,7 @@ def test_cli_fail_on_high_returns_2_and_writes_all_outputs(
     assert json.loads(outs["soundness.json"].read_text())["schema_version"] == "soundness-verdict-v1"
     assert json.loads(outs["runtime-plan.json"].read_text())["schema_version"] == "runtime-build-plan-v1"
     assert json.loads(outs["runtime-worker.json"].read_text())["schema_version"] == "runtime-build-run-worker-v1"
+    assert json.loads(outs["runtime-smoke.json"].read_text())["schema_version"] == "runtime-smoke-posture-v1"
     assert json.loads(outs["inside-loop.json"].read_text())["schema_version"] == "inside-out-autofix-loop-v1"
 
 

@@ -5,7 +5,7 @@ import json
 import sys
 from pathlib import Path
 
-from .models import FixApplyRequest, InsideOutAutofixLoopRequest, RuntimeBuildRunRequest, VerifiedAutofixRequest
+from .models import FixApplyRequest, InsideOutAutofixLoopRequest, RuntimeBuildRunRequest, RuntimeSmokeCheckRequest, VerifiedAutofixRequest
 
 from .enterprise import audit, compliance_report
 from .autofix_loop import run_inside_out_autofix_loop
@@ -34,6 +34,7 @@ from .recursive_learning import scan_recursive_learning_report
 from .report_lake import save_sanitized_scan
 from .reporting import github_pr_comment, markdown_report
 from .runtime_plan import build_runtime_plan
+from .runtime_smoke import run_runtime_smoke_checks, runtime_smoke_preview
 from .runtime_worker import prepare_runtime_build_run_job, runtime_build_run_preview
 from .sarif import build_sarif
 from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report, spdx_compliance_report
@@ -75,6 +76,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--runtime-build-run-approved-quarantine', action='store_true')
     parser.add_argument('--runtime-build-run-job-name')
     parser.add_argument('--runtime-build-run-run-id')
+    parser.add_argument('--runtime-smoke-preview-out')
+    parser.add_argument('--runtime-smoke-check-out')
+    parser.add_argument('--runtime-smoke-base-url')
+    parser.add_argument('--runtime-smoke-network-probe', action='store_true')
+    parser.add_argument('--runtime-smoke-allow-remote-base-url', action='store_true')
+    parser.add_argument('--runtime-smoke-timeout', type=int, default=10)
+    parser.add_argument('--runtime-smoke-probe-path', action='append', default=[])
+    parser.add_argument('--runtime-smoke-allowed-port', action='append', type=int, default=[])
+    parser.add_argument('--runtime-smoke-observed-port', action='append', type=int, default=[])
     parser.add_argument('--reachability-context-out')
     parser.add_argument('--dependency-review-out')
     parser.add_argument('--sonarqube-out')
@@ -240,6 +250,9 @@ def main(argv: list[str] | None = None) -> int:
         approved_quarantine=args.runtime_build_run_approved_quarantine,
         job_name=args.runtime_build_run_job_name,
         run_id=args.runtime_build_run_run_id,
+        smoke_timeout_seconds=args.runtime_smoke_timeout,
+        smoke_probe_paths=args.runtime_smoke_probe_path or [],
+        smoke_allowed_ports=args.runtime_smoke_allowed_port or [],
     )
     if args.runtime_build_run_preview_out:
         Path(args.runtime_build_run_preview_out).write_text(json.dumps(runtime_build_run_preview(scan, runtime_request), indent=2), encoding='utf-8')
@@ -250,6 +263,20 @@ def main(argv: list[str] | None = None) -> int:
             print(f'Runtime build/run job preparation failed: {exc}', file=sys.stderr)
             return 17
         Path(args.runtime_build_run_job_out).write_text(json.dumps(runtime_job, indent=2), encoding='utf-8')
+    smoke_request = RuntimeSmokeCheckRequest(
+        profile_id=args.runtime_build_run_profile_id,
+        base_url=args.runtime_smoke_base_url,
+        network_probe=args.runtime_smoke_network_probe,
+        allow_remote_base_url=args.runtime_smoke_allow_remote_base_url,
+        timeout_seconds=args.runtime_smoke_timeout,
+        probe_paths=args.runtime_smoke_probe_path or [],
+        allowed_ports=args.runtime_smoke_allowed_port or [],
+        observed_ports=args.runtime_smoke_observed_port or [],
+    )
+    if args.runtime_smoke_preview_out:
+        Path(args.runtime_smoke_preview_out).write_text(json.dumps(runtime_smoke_preview(scan, smoke_request), indent=2), encoding='utf-8')
+    if args.runtime_smoke_check_out:
+        Path(args.runtime_smoke_check_out).write_text(json.dumps(run_runtime_smoke_checks(scan, smoke_request), indent=2), encoding='utf-8')
     if args.reachability_context_out:
         Path(args.reachability_context_out).write_text(json.dumps(reachability_context_report(scan), indent=2), encoding='utf-8')
     if args.dependency_review_out:

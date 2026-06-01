@@ -43,6 +43,7 @@ class DisposableVmWorkerTests(unittest.TestCase):
         self.assertIn('scan.json', [item['name'] for item in job['allowed_exports']])
         self.assertIn('runtime-plan.json', [item['name'] for item in job['allowed_exports']])
         self.assertIn('runtime-build-run-worker.json', [item['name'] for item in job['allowed_exports']])
+        self.assertIn('runtime-smoke-posture.json', [item['name'] for item in job['allowed_exports']])
         self.assertIn('vm-worker-status.json', [item['name'] for item in job['allowed_exports']])
 
         for key in ['manifest', 'guest_runner', 'sandbox_config', 'launcher']:
@@ -58,6 +59,7 @@ class DisposableVmWorkerTests(unittest.TestCase):
         self.assertIn('robocopy', runner)
         self.assertIn('-RuntimePlanOut', runner)
         self.assertIn('-RuntimeBuildRunPreviewOut', runner)
+        self.assertIn('-RuntimeSmokePostureOut', runner)
         self.assertIn('-QuarantinePolicyOut', runner)
         self.assertIn('Copy-Item', runner)
 

@@ -40,6 +40,8 @@ def test_runtime_worker_preview_is_side_effect_free(tmp_path, make_scan, monkeyp
     assert preview["selected_profile"]["runtime"] == "node"
     assert preview["execution_plan"]["build_commands"] == ["npm install", "npm run build"]
     assert preview["execution_plan"]["start_command"] == "npm start"
+    assert preview["execution_plan"]["smoke_checks"]["schema_version"] == "runtime-smoke-posture-v1"
+    assert preview["safety_controls"]["runs_phase_3c_smoke_checks"] is True
     assert not (tmp_path / "data" / "runtime-worker").exists()
 
 
@@ -62,6 +64,7 @@ def test_prepare_runtime_worker_job_writes_container_and_vm_artifacts(tmp_path, 
     assert job["container"]["image"] == "node:22-bookworm-slim"
     assert job["container"]["network_mode"] == "none"
     assert job["execution_plan"]["test_commands"] == ["npm test"]
+    assert job["execution_plan"]["smoke_checks"]["enabled"] is True
     assert job["safety_controls"]["runs_tests"] is True
 
     for path in job["files"].values():
@@ -73,9 +76,11 @@ def test_prepare_runtime_worker_job_writes_container_and_vm_artifacts(tmp_path, 
     manual = Path(job["files"]["manual_instructions"]).read_text(encoding="utf-8")
     assert "npm run build" in entrypoint
     assert "npm start" in entrypoint
+    assert "runtime-smoke-posture.json" in entrypoint
+    assert "Phase 3C smoke checks completed" in entrypoint
     assert "--network none" in launcher
     assert "<ReadOnly>true</ReadOnly>" in sandbox
-    assert "Health checks are intentionally deferred to Phase 3C" in manual
+    assert "Phase 3C smoke/posture checks" in manual
 
     loaded = load_runtime_build_run_job("runtime-job")
     assert loaded["job_id"] == "runtime-job"

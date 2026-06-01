@@ -411,6 +411,7 @@ function reportDefinitions(scan) {
     jsonReport('soundness', 'Soundness Verdict', `/api/scans/${scanId}/soundness`, 'soundness-verdict.json', 'Machine-consumable gate verdict and agent remediation contract.'),
     jsonReport('runtime-plan', 'Runtime Build Plan', `/api/scans/${scanId}/runtime-plan`, 'runtime-plan.json', 'Phase 3A planning-only runtime profile, build command, start command, and health candidates.'),
     jsonReport('runtime-build-run-worker', 'Runtime Build/Run Worker', `/api/scans/${scanId}/runtime/build-run-preview`, 'runtime-build-run-worker.json', 'Phase 3B sandbox/container worker job preview.'),
+    jsonReport('runtime-smoke-posture', 'Runtime Smoke/Posture', `/api/scans/${scanId}/runtime/smoke-preview`, 'runtime-smoke-posture.json', 'Phase 3C app-start, health, security-header, debug, route, and port posture checks.'),
     jsonReport('scanner-mesh', 'Scanner Mesh', `/api/scans/${scanId}/scanner-mesh`, 'scanner-mesh.json', 'Unified scanner ingestion and source coverage.'),
     jsonReport('prioritization', 'Finding Prioritization', `/api/scans/${scanId}/prioritization`, 'prioritization.json', 'Ranked finding priority with dataflow, tool agreement, and coverage evidence.'),
     jsonReport('reachability-context', 'Reachability Context', `/api/scans/${scanId}/reachability-context`, 'reachability-context.json', 'Request-handler, changed-file, and exploitability context without raw code.'),

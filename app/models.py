@@ -451,11 +451,26 @@ class RuntimeBuildRunRequest(BaseModel):
     network_policy: Literal['offline', 'scanner-only', 'full'] = 'offline'
     container_image: str | None = None
     run_tests: bool = False
+    run_smoke_checks: bool = True
     timeout_seconds: int = 900
     start_timeout_seconds: int = 60
+    smoke_timeout_seconds: int = 10
+    smoke_probe_paths: list[str] = Field(default_factory=list)
+    smoke_allowed_ports: list[int] = Field(default_factory=list)
     approved_quarantine: bool = False
     run_id: str | None = None
     job_name: str | None = None
+
+
+class RuntimeSmokeCheckRequest(BaseModel):
+    profile_id: str | None = None
+    base_url: str | None = None
+    network_probe: bool = False
+    allow_remote_base_url: bool = False
+    timeout_seconds: int = 10
+    probe_paths: list[str] = Field(default_factory=list)
+    allowed_ports: list[int] = Field(default_factory=list)
+    observed_ports: list[int] = Field(default_factory=list)
 
 
 class ReportLakeReindexRequest(BaseModel):

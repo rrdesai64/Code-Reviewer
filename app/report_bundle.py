@@ -34,6 +34,7 @@ from .report_lake import sanitized_scan_report
 from .rag_memory import rag_memory_for_scan
 from .reporting import github_pr_comment, html_report, markdown_report
 from .runtime_plan import build_runtime_plan
+from .runtime_smoke import runtime_smoke_preview
 from .runtime_worker import runtime_build_run_preview
 from .sarif import build_sarif
 from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report, spdx_compliance_report
@@ -73,6 +74,7 @@ def build_report_bundle(scan: ScanResult, base_dir: Path | None = None, ai_revie
     write_json_artifact('soundness-verdict.json', lambda: soundness_verdict(scan))
     write_json_artifact('runtime-plan.json', lambda: build_runtime_plan(scan))
     write_json_artifact('runtime-build-run-worker.json', lambda: runtime_build_run_preview(scan, RuntimeBuildRunRequest()))
+    write_json_artifact('runtime-smoke-posture.json', lambda: runtime_smoke_preview(scan))
     write_json_artifact('finding-consolidation.json', lambda: consolidated_findings_report(scan))
     write_json_artifact('prioritization.json', lambda: prioritization_report(scan))
     write_json_artifact('reachability-context.json', lambda: reachability_context_report(scan))

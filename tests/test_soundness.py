@@ -53,6 +53,73 @@ def test_soundness_issue_id_is_line_insensitive(make_scan, make_finding):
     assert first_report["issues"][0]["issue_id"] == second_report["issues"][0]["issue_id"]
 
 
+def test_soundness_merges_duplicate_agent_issues_across_line_shifted_clusters(make_scan, make_finding):
+    first = make_finding(
+        id="semgrep",
+        fingerprint="semgrep",
+        source="semgrep",
+        rule_id="python.sql-injection",
+        severity="HIGH",
+        path="src/db.py",
+        line=10,
+        message="SQL injection",
+        cwe=["CWE-89"],
+    )
+    second = make_finding(
+        id="codeql",
+        fingerprint="codeql",
+        source="codeql",
+        rule_id="py/sql-injection",
+        severity="HIGH",
+        path="src/db.py",
+        line=80,
+        message="SQL injection",
+        cwe=["CWE-89"],
+    )
+
+    report = soundness_verdict(make_scan(findings=[first, second]))
+
+    assert report["summary"]["consolidated_issue_count"] == 1
+    issue = report["issues"][0]
+    assert issue["correlation"]["duplicate_cluster_count"] == 2
+    assert len(issue["correlation"]["legacy_cluster_ids"]) == 2
+    assert [location["line"] for location in issue["locations"]] == [10, 80]
+    assert issue["evidence"]["sources"] == ["codeql", "semgrep"]
+    assert issue["evidence"]["tool_agreement_count"] == 2
+
+
+def test_soundness_collapses_multi_tool_duplicate_into_one_agent_queue_item(make_scan, make_finding):
+    findings = [
+        make_finding(id="sg", fingerprint="sg", source="semgrep", rule_id="python.sql-injection", severity="HIGH", path="app/db.py", line=42, message="User input reaches SQL query", cwe=["CWE-89"]),
+        make_finding(id="ql", fingerprint="ql", source="codeql", rule_id="py/sql-injection", severity="HIGH", path="app/db.py", line=43, message="SQL injection sink", cwe=["CWE-89"]),
+        make_finding(id="bandit", fingerprint="bandit", source="bandit", rule_id="B608", severity="MEDIUM", path="app/db.py", line=41, message="Possible SQL injection vector"),
+        make_finding(id="sonar", fingerprint="sonar", source="sonarqube", rule_id="python:S3649", severity="HIGH", path="app/db.py", line=44, message="SQL injection risk in dynamic SQL"),
+    ]
+
+    report = soundness_verdict(make_scan(findings=findings))
+
+    assert len(report["issues"]) == 1
+    assert report["issues"][0]["evidence"]["sources"] == ["bandit", "codeql", "semgrep", "sonarqube"]
+    assert report["issues"][0]["evidence"]["actionable_finding_count"] == 4
+    assert report["summary"]["agent_fix_queue_count"] == 1
+    assert report["agent_fix_queue"][0]["issue_id"] == report["issues"][0]["issue_id"]
+
+
+def test_soundness_agent_fix_queue_excludes_low_value_test_and_vendor_items(make_scan, make_finding):
+    test_finding = make_finding(id="test", fingerprint="test", severity="CRITICAL", path="tests/test_db.py", message="SQL injection", cwe=["CWE-89"])
+    vendor_finding = make_finding(id="vendor", fingerprint="vendor", severity="HIGH", path="vendor/pkg/db.py", message="SQL injection", cwe=["CWE-89"])
+
+    report = soundness_verdict(make_scan(findings=[test_finding, vendor_finding]))
+
+    assert report["summary"]["agent_fix_queue_count"] == 0
+    assert report["agent_fix_queue"] == []
+    decisions = {issue["location"]["path"]: issue["agent"] for issue in report["issues"]}
+    assert decisions["tests/test_db.py"]["fix_queue_eligible"] is False
+    assert "excluded:path-class:test" in decisions["tests/test_db.py"]["reason_codes"]
+    assert decisions["vendor/pkg/db.py"]["fix_queue_eligible"] is False
+    assert "excluded:path-class:vendor" in decisions["vendor/pkg/db.py"]["reason_codes"]
+
+
 def test_soundness_uses_catalog_grounded_fix_guidance(make_scan, make_finding):
     finding = make_finding(
         source="catalog-native",

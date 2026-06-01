@@ -844,7 +844,7 @@ Implemented:
 - Source reachability context report that records request-handler, untrusted-input, changed-file, recent-change, generated-file, and non-production context without storing raw code
 - Finding prioritization that ranks raw findings with dataflow evidence, cross-tool corroboration, path class, PR/change context, and optional test coverage evidence while keeping existing `RiskScore` fields backward compatible
 - Machine soundness verdict contract for autonomous orchestrators: deterministic JSON, `pass` or `block` gate status, stable line-insensitive issue IDs, ranked deduped issues, replay digest, agent-loop readiness, precision-gated fix queue eligibility, and safe-autofix candidate flags
-- Phase 2A/2B inside-out autofix loop protocol: consumes the soundness fix queue, runs verified autofix, reruns the soundness gate after tests pass, detects unresolved issues/new blockers, stops on no-progress oscillation, persists loop runs, and emits governance evidence
+- Phase 2A/2B/2C inside-out autofix loop protocol: consumes the soundness fix queue, emits structured agent task packets, ingests agent fix responses, requires the app's own regression tests, reruns the soundness gate after tests pass, detects unresolved issues/new blockers, stops on no-progress oscillation, persists loop runs, and emits governance evidence
 - Semgrep dataflow trace and SARIF code-flow ingestion without storing raw trace bodies in reports
 - `scan.ps1` now emits `scanner-mesh.json`, `finding-consolidation.json`, `prioritization.json`, `soundness-verdict.json`, and `reachability-context.json` by default and accepts optional SARIF imports with `-SarifIn`
 
@@ -967,7 +967,7 @@ Implemented:
 - Safe dependency upgrade patching for vulnerable Python requirements when scanner metadata includes a fixed version
 - File backups under `.secure-review-backups/{scan_id}/` before approved source writes
 - Verified autofix workflow that applies eligible fixes in a separate git worktree branch, runs the repository test commands, commits only if tests pass, and can push/open a PR only after the green gate
-- Inside-out autofix loop protocol that selects from `soundness.agent_fix_queue`, runs verified autofix, rescans the worktree, verifies selected issues resolved, blocks on new soundness blockers, and stops on no-progress oscillation
+- Inside-out autofix loop protocol that selects from `soundness.agent_fix_queue`, creates agent task packets, runs verified autofix as the default controlled agent, records agent responses, requires the target app test gate, rescans the worktree, verifies selected issues resolved, blocks on new soundness blockers, and stops on no-progress oscillation
 - Enterprise permission `fix:apply` for admins and security reviewers, plus audit logging for bundle and apply requests
 - CLI, API, PowerShell wrapper, and web UI access to fix bundles, dry-run apply reports, verified autofix dry-run evidence, and inside-out loop dry-run evidence
 
@@ -1020,7 +1020,7 @@ $env:VERIFIED_AUTOFIX_ENABLED="true"
 
 Add `--verified-autofix-push --verified-autofix-publish-pr` only after GitHub CLI authentication and branch policy are configured. The PR is created only if the fix applied cleanly, all test commands passed, and the branch was pushed successfully.
 
-Phase 2A inside-out loop apply, only for trusted repositories or disposable workers where host-side test execution is approved:
+Phase 2C inside-out loop apply, only for trusted repositories or disposable workers where host-side test execution is approved:
 
 ```powershell
 $env:FIX_APPLY_ENABLED="true"
@@ -1029,9 +1029,13 @@ $env:VERIFIED_AUTOFIX_ENABLED="true"
   --path "G:\Path\To\Repo" `
   --inside-out-autofix-loop `
   --inside-out-autofix-loop-approved `
+  --inside-out-autofix-loop-agent-id "verified-autofix" `
+  --inside-out-autofix-loop-max-iterations 2 `
   --verified-autofix-test-command "python -m pytest -q" `
   --inside-out-autofix-loop-out inside-out-autofix-loop.json
 ```
+
+The Phase 2C loop only finishes as `resolved` when the selected soundness issues disappear, no new blocking issues are introduced, and the target app's regression tests pass. Other deterministic outcomes are `unresolved`, `regressed`, `oscillating`, `needs-human-review`, `new_blockers`, or `rescan_failed`. Use `--inside-out-autofix-loop-no-regression-required` only for dry labs where no app test command exists, and `--inside-out-autofix-loop-allow-oscillation` only when you intentionally want the loop to continue until the iteration cap even after a repeated issue set.
 
 PowerShell wrapper:
 

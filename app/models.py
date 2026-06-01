@@ -357,6 +357,7 @@ class InsideOutAutofixLoopRequest(BaseModel):
     issue_ids: list[str] = Field(default_factory=list)
     limit: int = 5
     max_iterations: int = 1
+    agent_id: str = 'verified-autofix'
     provider: str = 'offline'
     model: str | None = None
     dry_run: bool = True
@@ -375,6 +376,8 @@ class InsideOutAutofixLoopRequest(BaseModel):
     pr_body: str | None = None
     commit_message: str | None = None
     rescan_after_apply: bool = True
+    require_regression_tests: bool = True
+    stop_on_oscillation: bool = True
     persist: bool = True
 
 

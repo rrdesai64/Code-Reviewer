@@ -143,10 +143,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--fix-provider', default='offline')
     parser.add_argument('--verified-autofix', action='store_true', help='create an autofix branch, apply eligible fixes, run tests, and optionally push/open a PR when green')
     parser.add_argument('--verified-autofix-approved', action='store_true', help='confirm human approval for non-dry-run verified autofix')
-    parser.add_argument('--inside-out-autofix-loop', action='store_true', help='run the Phase 2A soundness-driven autofix loop with rescan verification')
+    parser.add_argument('--inside-out-autofix-loop', action='store_true', help='run the Phase 2C soundness-driven autofix loop with agent handoff, tests, and rescan verification')
     parser.add_argument('--inside-out-autofix-loop-approved', action='store_true', help='confirm approval for non-dry-run inside-out autofix loop')
     parser.add_argument('--inside-out-autofix-loop-max-iterations', type=int, default=1)
+    parser.add_argument('--inside-out-autofix-loop-agent-id', default='verified-autofix')
     parser.add_argument('--inside-out-autofix-loop-issue-id', action='append', default=[])
+    parser.add_argument('--inside-out-autofix-loop-no-regression-required', action='store_true', help='allow loop reports without target app test evidence')
+    parser.add_argument('--inside-out-autofix-loop-allow-oscillation', action='store_true', help='continue until max iterations even when the same issue set repeats')
     parser.add_argument('--inside-out-autofix-loop-no-persist', action='store_true', help='write the loop report artifact without saving a durable loop run record')
     parser.add_argument('--verified-autofix-test-command', action='append', default=[], help='test command to run in the autofix worktree; repeat for multiple commands')
     parser.add_argument('--verified-autofix-timeout', type=int, default=900)
@@ -410,7 +413,6 @@ def main(argv: list[str] | None = None) -> int:
             push_branch=args.verified_autofix_push,
             publish_pr=args.verified_autofix_publish_pr,
             pr_title=args.verified_autofix_pr_title,
-            persist=not args.inside_out_autofix_loop_no_persist,
         ), actor='cli')
         if args.verified_autofix_out:
             Path(args.verified_autofix_out).write_text(json.dumps(autofix_report, indent=2), encoding='utf-8')
@@ -423,6 +425,7 @@ def main(argv: list[str] | None = None) -> int:
             issue_ids=args.inside_out_autofix_loop_issue_id or [],
             limit=args.fix_bundle_limit,
             max_iterations=args.inside_out_autofix_loop_max_iterations,
+            agent_id=args.inside_out_autofix_loop_agent_id,
             provider=args.fix_provider,
             dry_run=not args.inside_out_autofix_loop,
             approved=args.inside_out_autofix_loop_approved,
@@ -434,6 +437,9 @@ def main(argv: list[str] | None = None) -> int:
             push_branch=args.verified_autofix_push,
             publish_pr=args.verified_autofix_publish_pr,
             pr_title=args.verified_autofix_pr_title,
+            require_regression_tests=not args.inside_out_autofix_loop_no_regression_required,
+            stop_on_oscillation=not args.inside_out_autofix_loop_allow_oscillation,
+            persist=not args.inside_out_autofix_loop_no_persist,
         ), actor='cli')
         if args.inside_out_autofix_loop_out:
             Path(args.inside_out_autofix_loop_out).write_text(json.dumps(loop_report, indent=2), encoding='utf-8')

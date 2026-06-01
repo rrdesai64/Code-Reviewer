@@ -16,11 +16,13 @@ from .soundness import soundness_verdict
 from .verified_autofix import run_verified_autofix
 
 REPORT_SCHEMA = 'inside-out-autofix-loop-v1'
-PHASE2A_MAX_ITERATIONS = 1
+TASK_PACKET_SCHEMA = 'inside-out-agent-task-v1'
+PHASE2C_MAX_ITERATIONS = 5
 PASSED_AUTOFIX_STATUSES = {'verified', 'pr_opened'}
 LOOP_RUNS_DIRNAME = 'inside-out-autofix-loops'
 
 ScannerFn = Callable[[Path, str | None], ScanResult]
+AutofixFn = Callable[[ScanResult, VerifiedAutofixRequest, str], dict[str, Any]]
 
 
 def run_inside_out_autofix_loop(
@@ -28,8 +30,10 @@ def run_inside_out_autofix_loop(
     request: InsideOutAutofixLoopRequest,
     actor: str = 'system',
     scanner_fn: ScannerFn | None = None,
+    autofix_fn: AutofixFn | None = None,
 ) -> dict[str, Any]:
     scanner_fn = scanner_fn or rescan_target
+    autofix_fn = autofix_fn or run_verified_autofix
     initial_verdict = soundness_verdict(scan)
     selected = select_loop_issues(initial_verdict, request)
     selected_finding_ids = selected_finding_ids_for_issues(selected, request)
@@ -46,74 +50,128 @@ def run_inside_out_autofix_loop(
         report['termination'] = 'no_soundness_queue_items_selected'
         return finalize_loop_report(report, request)
 
-    verified_request = verified_request_from_loop(request, selected_finding_ids)
-    autofix_report = run_verified_autofix(scan, verified_request, actor=actor)
-    iteration = iteration_record(1, selected, selected_finding_ids, autofix_report)
-    report['iterations'].append(iteration)
-    report['summary']['iterations_attempted'] = 1
-    report['summary']['autofix_status'] = autofix_report['status']
+    active_scan = scan
+    active_verdict = initial_verdict
+    active_selected = selected
+    max_iterations = bounded_max_iterations(request)
 
-    if request.dry_run:
-        report['status'] = 'dry_run'
-        report['gate'] = 'not_run'
-        report['termination'] = 'dry_run_no_files_changed'
-        return finalize_loop_report(report, request)
+    for index in range(1, max_iterations + 1):
+        active_finding_ids = selected_finding_ids_for_issues(
+            active_selected,
+            request,
+            respect_requested_findings=index == 1,
+        )
+        if not active_selected or not active_finding_ids:
+            report['status'] = 'needs-human-review'
+            report['gate'] = 'blocked'
+            report['termination'] = 'unresolved_issues_no_longer_have_agent_eligible_fixes'
+            report['blocked_reasons'].append('remaining issues could not be converted into an agent task packet')
+            return finalize_loop_report(report, request)
 
-    if autofix_report['status'] not in PASSED_AUTOFIX_STATUSES:
-        report['status'] = autofix_report['status']
-        report['gate'] = autofix_report.get('gate') or 'failed'
-        report['termination'] = 'verified_autofix_did_not_reach_green_test_gate'
-        return finalize_loop_report(report, request)
+        task_packet = agent_task_packet(report, request, active_scan, active_verdict, active_selected, active_finding_ids, index)
+        verified_request = verified_request_from_loop(request, active_finding_ids, index)
+        autofix_report = autofix_fn(active_scan, verified_request, actor)
+        regression = regression_check_from_autofix(autofix_report, request)
+        iteration = iteration_record(index, active_selected, active_finding_ids, task_packet, autofix_report, regression)
+        report['iterations'].append(iteration)
+        report['summary']['iterations_attempted'] = index
+        report['summary']['agent_task_count'] = len(report['iterations'])
+        report['summary']['autofix_status'] = autofix_report['status']
+        report['summary']['regression_status'] = regression['status']
+        if regression['status'] == 'failed':
+            report['summary']['regression_failures'] += 1
 
-    if not request.rescan_after_apply:
-        report['status'] = 'verified_without_rescan'
-        report['gate'] = 'blocked'
-        report['termination'] = 'rescan_gate_disabled'
-        report['blocked_reasons'].append('rescan_after_apply=true is required for Phase 2A closure')
-        return finalize_loop_report(report, request)
+        if request.dry_run:
+            report['status'] = 'dry_run'
+            report['gate'] = 'not_run'
+            report['termination'] = 'dry_run_no_files_changed'
+            return finalize_loop_report(report, request)
 
-    worktree_target = rescan_path_from_autofix(scan, autofix_report)
-    if not worktree_target:
-        report['status'] = 'rescan_failed'
-        report['gate'] = 'failed'
-        report['termination'] = 'could_not_resolve_worktree_rescan_path'
-        report['blocked_reasons'].append('verified autofix did not report a usable worktree path')
-        return finalize_loop_report(report, request)
+        if regression['status'] == 'failed':
+            report['status'] = 'regressed'
+            report['gate'] = 'blocked'
+            report['termination'] = 'regression_tests_failed'
+            report['blocked_reasons'].append('the attempted fix failed the target app test gate')
+            return finalize_loop_report(report, request)
 
-    try:
-        rescan = scanner_fn(worktree_target, scan.project_name)
-    except Exception as exc:  # defensive: loop reports scanner failures instead of hiding them
-        report['status'] = 'rescan_failed'
-        report['gate'] = 'failed'
-        report['termination'] = 'rescan_exception'
-        report['blocked_reasons'].append(str(exc)[:1000])
-        return finalize_loop_report(report, request)
+        if regression['status'] == 'missing' and request.require_regression_tests:
+            report['status'] = 'needs-human-review'
+            report['gate'] = 'blocked'
+            report['termination'] = 'regression_tests_missing'
+            report['blocked_reasons'].append('no target app regression test evidence was produced')
+            return finalize_loop_report(report, request)
 
-    rescan_verdict = soundness_verdict(rescan)
-    verification = verify_loop_resolution(initial_verdict, rescan_verdict, selected)
-    iteration['rescan'] = rescan_summary(rescan, rescan_verdict)
-    iteration['verification'] = verification
-    report['rescan'] = iteration['rescan']
-    report['verification'] = verification
-    report['anti_oscillation'] = anti_oscillation(initial_verdict, rescan_verdict, verification)
-    report['summary'].update({
-        'resolved_issues': len(verification['resolved_issue_ids']),
-        'unresolved_issues': len(verification['unresolved_issue_ids']),
-        'new_blockers': len(verification['new_blocker_issue_ids']),
-    })
+        if autofix_report['status'] not in PASSED_AUTOFIX_STATUSES:
+            report['status'] = autofix_report['status']
+            report['gate'] = autofix_report.get('gate') or 'failed'
+            report['termination'] = 'agent_response_did_not_reach_verified_green_gate'
+            return finalize_loop_report(report, request)
 
-    if verification['new_blocker_issue_ids']:
-        report['status'] = 'new_blockers'
-        report['gate'] = 'blocked'
-        report['termination'] = 'rescan_found_new_blockers'
-    elif verification['unresolved_issue_ids']:
-        report['status'] = 'max_iterations_reached'
-        report['gate'] = 'blocked'
-        report['termination'] = 'selected_issues_still_present_after_phase2a_iteration'
-    else:
-        report['status'] = 'resolved'
-        report['gate'] = 'passed'
-        report['termination'] = 'selected_issues_resolved_without_new_blockers'
+        if not request.rescan_after_apply:
+            report['status'] = 'verified_without_rescan'
+            report['gate'] = 'blocked'
+            report['termination'] = 'rescan_gate_disabled'
+            report['blocked_reasons'].append('rescan_after_apply=true is required for Phase 2C closure')
+            return finalize_loop_report(report, request)
+
+        worktree_target = rescan_path_from_autofix(active_scan, autofix_report)
+        if not worktree_target:
+            report['status'] = 'rescan_failed'
+            report['gate'] = 'failed'
+            report['termination'] = 'could_not_resolve_worktree_rescan_path'
+            report['blocked_reasons'].append('agent response did not report a usable worktree path')
+            return finalize_loop_report(report, request)
+
+        try:
+            rescan = scanner_fn(worktree_target, active_scan.project_name)
+        except Exception as exc:  # defensive: loop reports scanner failures instead of hiding them
+            report['status'] = 'rescan_failed'
+            report['gate'] = 'failed'
+            report['termination'] = 'rescan_exception'
+            report['blocked_reasons'].append(str(exc)[:1000])
+            return finalize_loop_report(report, request)
+
+        rescan_verdict = soundness_verdict(rescan)
+        verification = verify_loop_resolution(active_verdict, rescan_verdict, active_selected)
+        iteration['rescan'] = rescan_summary(rescan, rescan_verdict)
+        iteration['verification'] = verification
+        iteration['anti_oscillation'] = anti_oscillation(active_verdict, rescan_verdict, verification)
+        report['rescan'] = iteration['rescan']
+        report['verification'] = verification
+        report['anti_oscillation'] = iteration['anti_oscillation']
+        report['summary'].update({
+            'resolved_issues': len(verification['resolved_issue_ids']),
+            'unresolved_issues': len(verification['unresolved_issue_ids']),
+            'new_blockers': len(verification['new_blocker_issue_ids']),
+        })
+
+        if verification['new_blocker_issue_ids']:
+            report['status'] = 'new_blockers'
+            report['gate'] = 'blocked'
+            report['termination'] = 'rescan_found_new_blockers'
+            return finalize_loop_report(report, request)
+        if not verification['unresolved_issue_ids']:
+            report['status'] = 'resolved'
+            report['gate'] = 'passed'
+            report['termination'] = 'selected_issues_resolved_without_new_blockers_and_with_green_tests'
+            return finalize_loop_report(report, request)
+        if iteration['anti_oscillation']['no_progress_detected'] and request.stop_on_oscillation:
+            report['status'] = 'oscillating'
+            report['gate'] = 'blocked'
+            report['termination'] = 'same_issue_set_repeated_after_agent_attempt'
+            report['blocked_reasons'].append('anti-oscillation guard stopped the loop after no progress')
+            return finalize_loop_report(report, request)
+        if index == max_iterations:
+            report['status'] = 'unresolved'
+            report['gate'] = 'blocked'
+            report['termination'] = 'max_iterations_reached_with_unresolved_issues'
+            return finalize_loop_report(report, request)
+
+        active_scan = rescan
+        active_verdict = rescan_verdict
+        next_request = request.model_copy(update={'issue_ids': verification['unresolved_issue_ids'], 'finding_ids': []})
+        active_selected = select_loop_issues(active_verdict, next_request)
+
     return finalize_loop_report(report, request)
 
 
@@ -201,15 +259,19 @@ def base_report(
         'termination': '',
         'blocked_reasons': [],
         'policy': {
-            'phase': '2A',
+            'phase': '2C',
+            'agent_id': request.agent_id,
             'max_iterations_requested': max(1, request.max_iterations),
-            'max_iterations_supported': PHASE2A_MAX_ITERATIONS,
+            'max_iterations_supported': PHASE2C_MAX_ITERATIONS,
+            'max_iterations_effective': bounded_max_iterations(request),
             'queue_source': 'soundness.agent_fix_queue',
             'safe_autofix_only': request.safe_autofix_only,
             'requires_verified_autofix_green_gate': True,
+            'requires_regression_tests': request.require_regression_tests,
             'requires_rescan_after_apply': True,
             'requires_no_new_blockers': True,
             'anti_oscillation_enabled': True,
+            'stop_on_oscillation': request.stop_on_oscillation,
             'persist_requested': request.persist,
             'raw_code_included': False,
         },
@@ -220,7 +282,10 @@ def base_report(
             'selected_issue_count': len(selected),
             'selected_finding_count': len(selected_finding_ids),
             'iterations_attempted': 0,
+            'agent_task_count': 0,
             'autofix_status': '',
+            'regression_status': 'not_run',
+            'regression_failures': 0,
             'resolved_issues': 0,
             'unresolved_issues': 0,
             'new_blockers': 0,
@@ -254,19 +319,23 @@ def select_loop_issues(verdict: dict[str, Any], request: InsideOutAutofixLoopReq
     return sorted(candidates, key=lambda item: int(item.get('rank') or 0))[:max(1, request.limit)]
 
 
-def selected_finding_ids_for_issues(issues: list[dict[str, Any]], request: InsideOutAutofixLoopRequest) -> list[str]:
+def selected_finding_ids_for_issues(
+    issues: list[dict[str, Any]],
+    request: InsideOutAutofixLoopRequest,
+    respect_requested_findings: bool = True,
+) -> list[str]:
     requested = set(request.finding_ids)
     selected: list[str] = []
     for issue in issues:
         finding_ids = [str(item) for item in issue.get('evidence', {}).get('finding_ids', []) if item]
-        if requested:
+        if requested and respect_requested_findings:
             finding_ids = [item for item in finding_ids if item in requested]
         if finding_ids:
             selected.append(sorted(finding_ids)[0])
     return dedupe(selected)[:max(1, request.limit)]
 
 
-def verified_request_from_loop(request: InsideOutAutofixLoopRequest, finding_ids: list[str]) -> VerifiedAutofixRequest:
+def verified_request_from_loop(request: InsideOutAutofixLoopRequest, finding_ids: list[str], iteration_index: int = 1) -> VerifiedAutofixRequest:
     return VerifiedAutofixRequest(
         finding_ids=finding_ids,
         limit=request.limit,
@@ -275,7 +344,7 @@ def verified_request_from_loop(request: InsideOutAutofixLoopRequest, finding_ids
         dry_run=request.dry_run,
         approved=request.approved,
         allow_placeholders=request.allow_placeholders,
-        branch_name=request.branch_name,
+        branch_name=branch_name_for_iteration(request, iteration_index),
         base_branch=request.base_branch,
         remote=request.remote,
         test_commands=request.test_commands,
@@ -289,15 +358,196 @@ def verified_request_from_loop(request: InsideOutAutofixLoopRequest, finding_ids
     )
 
 
-def iteration_record(index: int, selected: list[dict[str, Any]], finding_ids: list[str], autofix_report: dict[str, Any]) -> dict[str, Any]:
+def iteration_record(
+    index: int,
+    selected: list[dict[str, Any]],
+    finding_ids: list[str],
+    task_packet: dict[str, Any],
+    autofix_report: dict[str, Any],
+    regression: dict[str, Any],
+) -> dict[str, Any]:
     return {
         'iteration': index,
+        'iteration_id': task_packet['iteration_id'],
         'selected_issue_ids': [issue['issue_id'] for issue in selected],
         'selected_finding_ids': finding_ids,
+        'agent_task_packet': task_packet,
+        'agent_response': agent_response_record(autofix_report),
         'verified_autofix': autofix_report,
+        'regression_check': regression,
         'rescan': None,
         'verification': None,
+        'anti_oscillation': None,
     }
+
+
+def bounded_max_iterations(request: InsideOutAutofixLoopRequest) -> int:
+    return max(1, min(PHASE2C_MAX_ITERATIONS, request.max_iterations))
+
+
+def branch_name_for_iteration(request: InsideOutAutofixLoopRequest, iteration_index: int) -> str | None:
+    if not request.branch_name or iteration_index <= 1:
+        return request.branch_name
+    return f'{request.branch_name}-iter-{iteration_index}'
+
+
+def agent_task_packet(
+    report: dict[str, Any],
+    request: InsideOutAutofixLoopRequest,
+    scan: ScanResult,
+    verdict: dict[str, Any],
+    selected: list[dict[str, Any]],
+    finding_ids: list[str],
+    iteration_index: int,
+) -> dict[str, Any]:
+    iteration = f"{report['loop_id']}-iter-{iteration_index}"
+    return {
+        'schema_version': TASK_PACKET_SCHEMA,
+        'task_id': stable_id(f"{report['loop_id']}:{iteration_index}:{','.join(finding_ids)}"),
+        'loop_id': report['loop_id'],
+        'iteration_id': iteration,
+        'iteration': iteration_index,
+        'created_at': datetime.now(timezone.utc).isoformat(),
+        'agent_id': request.agent_id,
+        'target': {
+            'scan_id': scan.scan_id,
+            'project_name': scan.project_name,
+            'target_path_hash': verdict['subject']['target_path_hash'],
+            'target_name_hint': verdict['subject'].get('target_name_hint', ''),
+        },
+        'constraints': {
+            'raw_code_included': False,
+            'safe_autofix_only': request.safe_autofix_only,
+            'approved_to_edit': request.approved and not request.dry_run,
+            'dry_run': request.dry_run,
+            'rescan_after_apply': request.rescan_after_apply,
+            'require_regression_tests': request.require_regression_tests,
+            'stop_on_oscillation': request.stop_on_oscillation,
+            'max_iterations_effective': bounded_max_iterations(request),
+        },
+        'regression_gate': {
+            'required': request.require_regression_tests,
+            'test_commands': request.test_commands,
+            'allow_auto_detect_tests': request.allow_auto_detect_tests,
+            'timeout_seconds': request.test_timeout_seconds,
+        },
+        'expected_outcome': {
+            'selected_findings_resolved': True,
+            'no_new_blockers': True,
+            'app_tests_pass': request.require_regression_tests,
+            'final_allowed_statuses': [
+                'resolved',
+                'unresolved',
+                'regressed',
+                'oscillating',
+                'needs-human-review',
+                'new_blockers',
+                'rescan_failed',
+            ],
+        },
+        'issues': [task_issue_record(issue) for issue in selected],
+        'selected_finding_ids': finding_ids,
+    }
+
+
+def task_issue_record(issue: dict[str, Any]) -> dict[str, Any]:
+    remediation = issue.get('remediation') or {}
+    evidence = issue.get('evidence') or {}
+    agent = issue.get('agent') or {}
+    return {
+        'issue_id': issue.get('issue_id'),
+        'agent_correlation_key': (issue.get('correlation') or {}).get('agent_correlation_key', ''),
+        'priority': issue.get('priority') or {},
+        'gate': issue.get('gate') or {},
+        'location': issue.get('location') or {},
+        'vulnerability': issue.get('vulnerability') or {},
+        'evidence_summary': {
+            'sources': evidence.get('sources', []),
+            'rules': evidence.get('rules', []),
+            'finding_ids': evidence.get('finding_ids', []),
+            'tool_agreement_count': evidence.get('tool_agreement_count', 0),
+            'cwe': evidence.get('cwe', []),
+            'sink': evidence.get('sink', ''),
+        },
+        'remediation': {
+            'summary': remediation.get('summary', ''),
+            'guidance': remediation.get('guidance', []),
+            'agent_actions': remediation.get('agent_actions', []),
+            'mechanical_patch_available': bool(remediation.get('mechanical_patch_available')),
+            'validation_commands': remediation.get('validation_commands', []),
+            'rescan_required': bool(remediation.get('rescan_required', True)),
+        },
+        'safety': agent.get('safety') or {},
+        'precision': agent.get('precision') or {},
+    }
+
+
+def agent_response_record(autofix_report: dict[str, Any]) -> dict[str, Any]:
+    apply_report = autofix_report.get('apply') or {}
+    branch = autofix_report.get('branch') or {}
+    pull_request = autofix_report.get('pull_request') or {}
+    tests = (autofix_report.get('verification') or {}).get('tests') or []
+    return {
+        'schema_version': 'inside-out-agent-response-v1',
+        'status': autofix_report.get('status', ''),
+        'gate': autofix_report.get('gate', ''),
+        'selected_finding_ids': autofix_report.get('selected_finding_ids', []),
+        'applied_change_count': len(apply_report.get('applied', [])),
+        'changed_paths': sorted({normalize_path(item.get('path', '')) for item in apply_report.get('applied', []) if item.get('path')}),
+        'commit_sha': branch.get('commit_sha', ''),
+        'branch_name': branch.get('name', ''),
+        'worktree_path_hash': stable_id(branch.get('worktree_path', '')),
+        'pull_request_created': bool(pull_request.get('created')),
+        'pull_request_url': pull_request.get('url', ''),
+        'test_count': len(tests),
+        'tests_passed': bool(tests) and all(item.get('passed') for item in tests),
+        'blocked_reasons': autofix_report.get('blocked_reasons', []),
+    }
+
+
+def regression_check_from_autofix(autofix_report: dict[str, Any], request: InsideOutAutofixLoopRequest) -> dict[str, Any]:
+    tests = (autofix_report.get('verification') or {}).get('tests') or []
+    if request.dry_run:
+        status = 'not_run'
+    elif not tests:
+        status = 'missing' if request.require_regression_tests else 'not_required'
+    elif all(item.get('passed') for item in tests):
+        status = 'passed'
+    else:
+        status = 'failed'
+    return {
+        'required': request.require_regression_tests,
+        'status': status,
+        'test_count': len(tests),
+        'passed': status == 'passed',
+        'timeout_seconds': request.test_timeout_seconds,
+        'tests': regression_test_records(tests),
+    }
+
+
+def regression_test_records(tests: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            'command': item.get('command', ''),
+            'cwd_hash': stable_id(item.get('cwd', '')),
+            'exit_code': item.get('exit_code', 0),
+            'passed': bool(item.get('passed')),
+            'duration_seconds': item.get('duration_seconds', 0),
+            'timed_out': bool(item.get('timed_out')),
+            'stdout_summary': output_summary(item.get('stdout', '')),
+            'stderr_summary': output_summary(item.get('stderr', '')),
+        }
+        for item in tests
+    ]
+
+
+def output_summary(value: str, limit: int = 1000) -> str:
+    text = re.sub(r'\s+', ' ', str(value or '')).strip()
+    return text if len(text) <= limit else text[: max(0, limit - 3)] + '...'
+
+
+def normalize_path(value: str) -> str:
+    return str(value or '').replace('\\', '/').strip()
 
 
 def rescan_path_from_autofix(scan: ScanResult, autofix_report: dict[str, Any]) -> Path | None:
@@ -428,14 +678,36 @@ def record_loop_governance_events(report: dict[str, Any]) -> list[dict[str, Any]
             metadata={'selected_issue_count': len(selected_issue_ids), 'selected_finding_count': len(selected_finding_ids)},
             evidence_refs={'loop_id': loop_id, 'scan_id': scan_id, 'selected_issue_ids': selected_issue_ids, 'selected_finding_ids': selected_finding_ids},
         ))
-    if report.get('iterations'):
-        iteration = report['iterations'][0]
+    for iteration in report.get('iterations') or []:
         autofix = iteration.get('verified_autofix') or {}
+        iteration_id = str(iteration.get('iteration_id') or '')
+        task = iteration.get('agent_task_packet') or {}
+        events.append(record_governance_event(
+            **common,
+            action='inside_out_loop.agent_task_created',
+            reason='Loop created a structured agent task packet from the soundness fix queue.',
+            metadata={
+                'iteration_id': iteration_id,
+                'iteration': str(iteration.get('iteration') or ''),
+                'agent_id': str(task.get('agent_id') or ''),
+                'issue_count': str(len(task.get('issues') or [])),
+                'finding_count': str(len(task.get('selected_finding_ids') or [])),
+            },
+            evidence_refs={
+                'loop_id': loop_id,
+                'scan_id': scan_id,
+                'iteration_id': iteration_id,
+                'task_id': task.get('task_id', ''),
+                'selected_issue_ids': iteration.get('selected_issue_ids', []),
+                'selected_finding_ids': iteration.get('selected_finding_ids', []),
+            },
+        ))
         events.append(record_governance_event(
             **common,
             action='inside_out_loop.verified_autofix_invoked',
             reason='Loop invoked verified autofix as its controlled edit mechanism.',
             metadata={
+                'iteration_id': iteration_id,
                 'autofix_status': autofix.get('status', ''),
                 'autofix_gate': autofix.get('gate', ''),
                 'dry_run': str(bool(report.get('dry_run'))),
@@ -443,14 +715,40 @@ def record_loop_governance_events(report: dict[str, Any]) -> list[dict[str, Any]
             },
             evidence_refs=loop_evidence_refs(report),
         ))
-        test_action = test_governance_action(autofix)
-        if test_action:
+        events.append(record_governance_event(
+            **common,
+            action='inside_out_loop.agent_response_ingested',
+            reason='Loop ingested the agent fix response and normalized it for convergence checks.',
+            metadata=agent_response_metadata(iteration),
+            evidence_refs={
+                'loop_id': loop_id,
+                'scan_id': scan_id,
+                'iteration_id': iteration_id,
+                'changed_paths': (iteration.get('agent_response') or {}).get('changed_paths', []),
+                'commit_sha': (iteration.get('agent_response') or {}).get('commit_sha', ''),
+            },
+        ))
+        regression_action = regression_governance_action(iteration)
+        if regression_action:
             events.append(record_governance_event(
                 **common,
-                action=test_action,
-                reason='Loop recorded the verified autofix test gate outcome.',
-                metadata=test_metadata(autofix),
-                evidence_refs={'loop_id': loop_id, 'scan_id': scan_id, 'test_commands': test_command_names(autofix)},
+                action=regression_action,
+                reason='Loop recorded the target application regression test gate outcome.',
+                metadata=regression_metadata(iteration),
+                evidence_refs={
+                    'loop_id': loop_id,
+                    'scan_id': scan_id,
+                    'iteration_id': iteration_id,
+                    'test_commands': test_command_names(autofix),
+                },
+            ))
+        if (iteration.get('anti_oscillation') or {}).get('no_progress_detected'):
+            events.append(record_governance_event(
+                **common,
+                action='inside_out_loop.oscillation_detected',
+                reason='Loop stopped because the same issue set repeated after an agent attempt.',
+                metadata={'iteration_id': iteration_id},
+                evidence_refs={'loop_id': loop_id, 'scan_id': scan_id, 'iteration_id': iteration_id, 'anti_oscillation': iteration.get('anti_oscillation') or {}},
             ))
     if report.get('rescan'):
         rescan_status = ((report.get('rescan') or {}).get('verdict') or {}).get('status', '')
@@ -493,6 +791,9 @@ def loop_run_card(report: dict[str, Any]) -> dict[str, Any]:
         'selected_issue_count': summary.get('selected_issue_count', 0),
         'selected_finding_count': summary.get('selected_finding_count', 0),
         'iterations_attempted': summary.get('iterations_attempted', 0),
+        'agent_task_count': summary.get('agent_task_count', 0),
+        'regression_status': summary.get('regression_status', 'not_run'),
+        'regression_failures': summary.get('regression_failures', 0),
         'resolved_issues': summary.get('resolved_issues', 0),
         'unresolved_issues': summary.get('unresolved_issues', 0),
         'new_blockers': summary.get('new_blockers', 0),
@@ -513,6 +814,9 @@ def loop_metadata(report: dict[str, Any]) -> dict[str, Any]:
         'selected_issue_count': str(summary.get('selected_issue_count', 0)),
         'selected_finding_count': str(summary.get('selected_finding_count', 0)),
         'iterations_attempted': str(summary.get('iterations_attempted', 0)),
+        'agent_task_count': str(summary.get('agent_task_count', 0)),
+        'regression_status': str(summary.get('regression_status', 'not_run')),
+        'regression_failures': str(summary.get('regression_failures', 0)),
         'resolved_issues': str(summary.get('resolved_issues', 0)),
         'unresolved_issues': str(summary.get('unresolved_issues', 0)),
         'new_blockers': str(summary.get('new_blockers', 0)),
@@ -548,19 +852,42 @@ def loop_evidence_refs(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def test_governance_action(autofix: dict[str, Any]) -> str:
-    tests = (autofix.get('verification') or {}).get('tests') or []
-    if not tests:
-        return ''
-    return 'inside_out_loop.tests_passed' if all(item.get('passed') for item in tests) else 'inside_out_loop.tests_failed'
-
-
-def test_metadata(autofix: dict[str, Any]) -> dict[str, str]:
-    tests = (autofix.get('verification') or {}).get('tests') or []
+def agent_response_metadata(iteration: dict[str, Any]) -> dict[str, str]:
+    response = iteration.get('agent_response') or {}
     return {
-        'test_count': str(len(tests)),
-        'passed': str(all(item.get('passed') for item in tests) if tests else False),
-        'timed_out': str(any(item.get('timed_out') for item in tests)),
+        'iteration_id': str(iteration.get('iteration_id') or ''),
+        'status': str(response.get('status') or ''),
+        'gate': str(response.get('gate') or ''),
+        'applied_change_count': str(response.get('applied_change_count', 0)),
+        'test_count': str(response.get('test_count', 0)),
+        'tests_passed': str(bool(response.get('tests_passed'))),
+        'pull_request_created': str(bool(response.get('pull_request_created'))),
+    }
+
+
+def regression_governance_action(iteration: dict[str, Any]) -> str:
+    regression = iteration.get('regression_check') or {}
+    status = str(regression.get('status') or '')
+    if status == 'passed':
+        return 'inside_out_loop.regression_passed'
+    if status == 'failed':
+        return 'inside_out_loop.regression_failed'
+    if status == 'missing':
+        return 'inside_out_loop.regression_missing'
+    if status == 'not_run':
+        return 'inside_out_loop.regression_not_run'
+    return ''
+
+
+def regression_metadata(iteration: dict[str, Any]) -> dict[str, str]:
+    regression = iteration.get('regression_check') or {}
+    return {
+        'iteration_id': str(iteration.get('iteration_id') or ''),
+        'required': str(bool(regression.get('required'))),
+        'status': str(regression.get('status') or ''),
+        'test_count': str(regression.get('test_count', 0)),
+        'passed': str(bool(regression.get('passed'))),
+        'timeout_seconds': str(regression.get('timeout_seconds', 0)),
     }
 
 

@@ -24,12 +24,14 @@ class PriorityConfig:
         'INFO': 5,
     })
     dataflow_reachable: float = 25
+    confirmed_exploitable: float = 35
     high_precision_without_dataflow: float = 10
     tool_agreement_per_extra_tool: float = 8
     tool_agreement_cap: float = 24
     path_class_weights: dict[str, float] = field(default_factory=lambda: {
         'production': 0,
         'dependency': 0,
+        'endpoint': 0,
         'unknown': 0,
         'config': -10,
         'docs': -20,
@@ -101,6 +103,9 @@ def score_priority(finding: Finding, config: PriorityConfig) -> FindingPriority:
         add_factor(factors, 'dataflow_reachable', config.dataflow_reachable, 'Scanner reported source-to-sink dataflow.')
     elif finding.dataflow.tool_precision in {'high', 'very-high'}:
         add_factor(factors, 'tool_precision', config.high_precision_without_dataflow, f'{finding.dataflow.tool_precision} tool precision without explicit dataflow.')
+    if finding.dataflow.confirmed_exploitable:
+        detail = dynamic_detail(finding)
+        add_factor(factors, 'confirmed_exploitable', config.confirmed_exploitable, f'DAST dynamically confirmed exploitability{detail}.')
 
     tools = sorted(set(finding.priority_context.corroborating_tools or [finding.source]))
     agreement = min(config.tool_agreement_cap, max(0, len(tools) - 1) * config.tool_agreement_per_extra_tool)
@@ -135,7 +140,7 @@ def score_priority(finding: Finding, config: PriorityConfig) -> FindingPriority:
 def assign_tier(finding: Finding, score: float, tools: list[str], path_class: FindingScope, config: PriorityConfig) -> str:
     if path_class in PATH_CAP_P3:
         return 'P3'
-    p0_guard = finding.dataflow.has_dataflow or len(set(tools)) >= 2
+    p0_guard = finding.dataflow.confirmed_exploitable or finding.dataflow.has_dataflow or len(set(tools)) >= 2
     if score >= config.p0_threshold and p0_guard:
         return 'P0'
     if score >= config.p1_threshold:
@@ -192,6 +197,7 @@ def priority_record(finding: Finding) -> dict[str, Any]:
         'decision': finding.decision,
         'priority': priority.model_dump(mode='json'),
         'dataflow': finding.dataflow.model_dump(mode='json'),
+        'dynamic': finding.dynamic.model_dump(mode='json') if finding.dynamic else None,
         'context': finding.priority_context.model_dump(mode='json'),
     }
 
@@ -211,3 +217,12 @@ def priority_sort_key(finding: Finding) -> tuple[int, float, str, int, str]:
 def add_factor(factors: list[PriorityDecisionFactor], name: str, delta: float, reason: str) -> None:
     if delta:
         factors.append(PriorityDecisionFactor(name=name, delta=delta, reason=reason))
+
+
+def dynamic_detail(finding: Finding) -> str:
+    if not finding.dynamic:
+        return ''
+    values = [finding.dynamic.tool or finding.source, finding.dynamic.method, finding.dynamic.url]
+    if finding.dynamic.param:
+        values.append(f'param {finding.dynamic.param}')
+    return f" ({' '.join(str(value) for value in values if value)})"

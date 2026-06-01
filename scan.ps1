@@ -11,6 +11,8 @@ param(
   [string]$RuntimePlanOut = "runtime-plan.json",
   [string]$RuntimeBuildRunPreviewOut = "runtime-build-run-worker.json",
   [string]$RuntimeSmokePostureOut = "runtime-smoke-posture.json",
+  [string]$DastOut = "dast-verification.json",
+  [string[]]$DastIn = @(),
   [string]$ReachabilityContextOut = "reachability-context.json",
   [string]$DependencyReviewOut = "dependency-review.json",
   [string]$SonarQubeOut = "sonarqube-quality-gate.json",
@@ -122,6 +124,7 @@ $argsList = @(
   '--runtime-plan-out', $RuntimePlanOut,
   '--runtime-build-run-preview-out', $RuntimeBuildRunPreviewOut,
   '--runtime-smoke-preview-out', $RuntimeSmokePostureOut,
+  '--dast-out', $DastOut,
   '--reachability-context-out', $ReachabilityContextOut,
   '--dependency-review-out', $DependencyReviewOut,
   '--sonarqube-out', $SonarQubeOut,
@@ -166,6 +169,10 @@ foreach ($item in $SarifIn) {
 
 foreach ($item in $CoverageIn) {
   $argsList += @('--coverage-in', $item)
+}
+
+foreach ($item in $DastIn) {
+  $argsList += @('--dast-in', $item)
 }
 
 & .\.venv\Scripts\python.exe @argsList

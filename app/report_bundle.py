@@ -14,6 +14,7 @@ from .chat_agents import build_chat_notification
 from .code_hosts import build_code_host_review
 from .consolidation import consolidated_findings_report
 from .compliance_api import compliance_evidence_bundle
+from .dast import dast_verification_report
 from .dependency_review import dependency_review_report
 from .enterprise import compliance_report
 from .finding_ai import build_scan_ai_review
@@ -24,7 +25,7 @@ from .hermes import hermes_report_for_scan
 from .ingestion import scanner_mesh_report
 from .issue_planning import build_issue_plan
 from .messaging_gateway import build_scan_gateway_report
-from .models import FixApplyRequest, InsideOutAutofixLoopRequest, RuntimeBuildRunRequest, ScanResult, VerifiedAutofixRequest
+from .models import DastScanRequest, FixApplyRequest, InsideOutAutofixLoopRequest, RuntimeBuildRunRequest, ScanResult, VerifiedAutofixRequest
 from .priority import prioritization_report
 from .quarantine import quarantine_policy_for_scan
 from .reachability import reachability_context_report
@@ -75,6 +76,7 @@ def build_report_bundle(scan: ScanResult, base_dir: Path | None = None, ai_revie
     write_json_artifact('runtime-plan.json', lambda: build_runtime_plan(scan))
     write_json_artifact('runtime-build-run-worker.json', lambda: runtime_build_run_preview(scan, RuntimeBuildRunRequest()))
     write_json_artifact('runtime-smoke-posture.json', lambda: runtime_smoke_preview(scan))
+    write_json_artifact('dast-verification.json', lambda: dast_verification_report(scan, DastScanRequest()))
     write_json_artifact('finding-consolidation.json', lambda: consolidated_findings_report(scan))
     write_json_artifact('prioritization.json', lambda: prioritization_report(scan))
     write_json_artifact('reachability-context.json', lambda: reachability_context_report(scan))

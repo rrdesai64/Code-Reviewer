@@ -5,11 +5,12 @@ import json
 import sys
 from pathlib import Path
 
-from .models import FixApplyRequest, InsideOutAutofixLoopRequest, RuntimeBuildRunRequest, RuntimeSmokeCheckRequest, VerifiedAutofixRequest
+from .models import DastScanRequest, FixApplyRequest, InsideOutAutofixLoopRequest, RuntimeBuildRunRequest, RuntimeSmokeCheckRequest, VerifiedAutofixRequest
 
 from .enterprise import audit, compliance_report
 from .autofix_loop import run_inside_out_autofix_loop
 from .dependency_review import dependency_review_report
+from .dast import dast_verification_report
 from .chat_agents import ChatAgentError, build_chat_notification
 from .code_hosts import CodeHostIntegrationError, build_code_host_review
 from .consolidation import consolidated_findings_report
@@ -85,6 +86,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--runtime-smoke-probe-path', action='append', default=[])
     parser.add_argument('--runtime-smoke-allowed-port', action='append', type=int, default=[])
     parser.add_argument('--runtime-smoke-observed-port', action='append', type=int, default=[])
+    parser.add_argument('--dast-out')
+    parser.add_argument('--dast-in', action='append', default=[], help='ingest ZAP JSON, Nuclei JSONL/JSON, or DAST SARIF evidence')
+    parser.add_argument('--dast-base-url')
+    parser.add_argument('--dast-tool', choices=['auto', 'zap', 'nuclei'], default='auto')
+    parser.add_argument('--dast-run-tools', action='store_true', help='run configured DAST tool(s) against an explicit Phase 3 loopback base URL')
+    parser.add_argument('--dast-allow-remote-base-url', action='store_true')
+    parser.add_argument('--dast-timeout', type=int, default=300)
+    parser.add_argument('--dast-no-sandbox-required', action='store_true')
     parser.add_argument('--reachability-context-out')
     parser.add_argument('--dependency-review-out')
     parser.add_argument('--sonarqube-out')
@@ -196,6 +205,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--fail-on-spdx-compliance', action='store_true', help='exit with code 4 when SPDX compliance is not procurement-ready')
     parser.add_argument('--fail-on-secrets', action='store_true', help='exit with code 5 when push protection blocks open secret findings')
     parser.add_argument('--fail-on-soundness-block', action='store_true', help='exit with code 15 when the machine soundness gate blocks')
+    parser.add_argument('--fail-on-dast-gate', action='store_true', help='exit with code 18 when DAST verification blocks')
     args = parser.parse_args(argv)
 
     target = Path(args.path)
@@ -277,6 +287,19 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.runtime_smoke_preview_out).write_text(json.dumps(runtime_smoke_preview(scan, smoke_request), indent=2), encoding='utf-8')
     if args.runtime_smoke_check_out:
         Path(args.runtime_smoke_check_out).write_text(json.dumps(run_runtime_smoke_checks(scan, smoke_request), indent=2), encoding='utf-8')
+    dast_report = None
+    if args.dast_out or args.dast_in or args.dast_run_tools:
+        dast_report = dast_verification_report(scan, DastScanRequest(
+            report_paths=args.dast_in or [],
+            base_url=args.dast_base_url,
+            tool=args.dast_tool,
+            run_tools=args.dast_run_tools,
+            allow_remote_base_url=args.dast_allow_remote_base_url,
+            timeout_seconds=args.dast_timeout,
+            require_sandbox_running=not args.dast_no_sandbox_required,
+        ))
+        if args.dast_out:
+            Path(args.dast_out).write_text(json.dumps(dast_report, indent=2), encoding='utf-8')
     if args.reachability_context_out:
         Path(args.reachability_context_out).write_text(json.dumps(reachability_context_report(scan), indent=2), encoding='utf-8')
     if args.dependency_review_out:
@@ -541,6 +564,8 @@ def main(argv: list[str] | None = None) -> int:
         return 5
     if args.fail_on_soundness_block and soundness['verdict']['status'] == 'block':
         return 15
+    if args.fail_on_dast_gate and dast_report and dast_report['gate']['status'] == 'block':
+        return 18
     if args.fail_on_issue_plan_publish_failure and issue_plan and issue_plan['status'] in {'failed', 'partial'}:
         return 10
     if args.fail_on_chat_publish_failure and chat_notification and chat_notification['status'] in {'failed', 'partial'}:

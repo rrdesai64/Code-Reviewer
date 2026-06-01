@@ -115,7 +115,7 @@ def issue_from_cluster(scan: ScanResult, cluster: ConsolidatedFinding, by_id: di
     representative = sorted(actionable, key=priority_sort_key)[0]
     rule = catalog_rule_for(representative)
     fix = catalog.build_fix(rule) if rule else representative.fix
-    gate = gate_for_issue(representative)
+    gate = gate_for_findings(actionable, representative)
     issue_id = stable_issue_id(cluster, representative, rule)
     machine = machine_key(cluster, representative, rule)
     location = {
@@ -148,7 +148,8 @@ def issue_from_cluster(scan: ScanResult, cluster: ConsolidatedFinding, by_id: di
             'tool_agreement_count': int(cluster.agreement_count),
             'cwe': sorted(cluster.cwe),
             'sink': cluster.sink,
-            'dataflow': representative.dataflow.model_dump(mode='json'),
+            'dataflow': aggregate_dataflow(actionable, representative),
+            'dynamic': dynamic_evidence_payload(actionable),
             'context': representative.priority_context.model_dump(mode='json'),
         },
         'remediation': remediation_payload(scan, representative, fix, rule),
@@ -223,7 +224,7 @@ def merge_agent_decisions(left: dict[str, Any], right: dict[str, Any]) -> dict[s
 
 
 def merge_evidence(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
-    dataflow = left.get('dataflow') if (left.get('dataflow') or {}).get('has_dataflow') else right.get('dataflow')
+    dataflow = preferred_dataflow(left.get('dataflow') or {}, right.get('dataflow') or {})
     return {
         **left,
         'sources': sorted(set(left.get('sources', []) + right.get('sources', []))),
@@ -235,8 +236,19 @@ def merge_evidence(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any
         'cwe': sorted(set(left.get('cwe', []) + right.get('cwe', []))),
         'sink': left.get('sink') or right.get('sink') or '',
         'dataflow': dataflow or {},
+        'dynamic': sorted_dynamic([*(left.get('dynamic') or []), *(right.get('dynamic') or [])]),
         'context': left.get('context') or right.get('context') or {},
     }
+
+
+def preferred_dataflow(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    if left.get('confirmed_exploitable') and not right.get('confirmed_exploitable'):
+        return left
+    if right.get('confirmed_exploitable') and not left.get('confirmed_exploitable'):
+        return right
+    if left.get('has_dataflow'):
+        return left
+    return right
 
 
 def refresh_agent_decisions(issues: list[dict[str, Any]]) -> None:
@@ -247,6 +259,8 @@ def refresh_agent_decisions(issues: list[dict[str, Any]]) -> None:
 def gate_for_issue(finding: Finding) -> dict[str, Any]:
     reasons: list[str] = []
     priority_tier = finding.priority.tier if finding.priority else finding.risk.priority
+    if finding.dataflow.confirmed_exploitable:
+        reasons.append(dynamic_gate_reason(finding))
     if priority_tier in BLOCK_PRIORITIES and is_production_impacting(finding):
         reasons.append(f'priority:{priority_tier}')
     if finding.severity == 'CRITICAL' and is_production_impacting(finding):
@@ -259,10 +273,22 @@ def gate_for_issue(finding: Finding) -> dict[str, Any]:
     }
 
 
+def gate_for_findings(findings: list[Finding], representative: Finding) -> dict[str, Any]:
+    reasons = set(gate_for_issue(representative)['reason_codes'])
+    for finding in findings:
+        if finding.dataflow.confirmed_exploitable:
+            reasons.add(dynamic_gate_reason(finding))
+    return {'effect': 'block' if reasons else 'none', 'reason_codes': sorted(reasons)}
+
+
 def agent_queue_decision(issue: dict[str, Any]) -> dict[str, Any]:
     reasons: list[str] = []
     priority_tier = str((issue.get('priority') or {}).get('tier') or '')
     path_class = issue_path_class(issue)
+    sources = set((issue.get('evidence') or {}).get('sources') or [])
+    non_dast_sources = {source for source in sources if not str(source).startswith('dast:')}
+    if sources and not non_dast_sources:
+        reasons.append('excluded:dast-only:no-inside-out-source')
     if priority_tier not in AGENT_FIX_PRIORITIES:
         reasons.append(f'excluded:priority:{priority_tier}')
     if path_class in AGENT_FIX_EXCLUDED_PATH_CLASSES:
@@ -358,6 +384,8 @@ def precision_evidence(issue: dict[str, Any]) -> dict[str, Any]:
     signals: list[str] = []
     if dataflow.get('has_dataflow'):
         signals.append('dataflow')
+    if dataflow.get('confirmed_exploitable'):
+        signals.append('dast-confirmed-exploitable')
     if int(evidence.get('tool_agreement_count') or 0) >= 2:
         signals.append('tool-agreement')
     if catalog_payload.get('matched') and confidence == 'HIGH' and severity in {'HIGH', 'CRITICAL'}:
@@ -415,9 +443,69 @@ def issue_path_class(issue: dict[str, Any]) -> str:
 
 
 def issue_production_impacting(issue: dict[str, Any]) -> bool:
+    dataflow = ((issue.get('evidence') or {}).get('dataflow') or {})
+    if dataflow.get('confirmed_exploitable'):
+        return True
     if 'blocking-secret' in issue.get('gate', {}).get('reason_codes', []):
         return True
     return is_production_scope(issue_path_class(issue))
+
+
+def dynamic_evidence_payload(findings: list[Finding]) -> list[dict[str, Any]]:
+    items = [
+        {
+            **finding.dynamic.model_dump(mode='json'),
+            'finding_id': finding.id,
+            'source': finding.source,
+        }
+        for finding in findings
+        if finding.dynamic is not None
+    ]
+    return sorted_dynamic(items)
+
+
+def aggregate_dataflow(findings: list[Finding], representative: Finding) -> dict[str, Any]:
+    payload = representative.dataflow.model_dump(mode='json')
+    if any(finding.dataflow.confirmed_exploitable for finding in findings):
+        payload['confirmed_exploitable'] = True
+    dataflow_finding = next((finding for finding in findings if finding.dataflow.has_dataflow), None)
+    if dataflow_finding:
+        merged = dataflow_finding.dataflow.model_dump(mode='json')
+        merged['confirmed_exploitable'] = bool(payload.get('confirmed_exploitable') or merged.get('confirmed_exploitable'))
+        return merged
+    return payload
+
+
+def sorted_dynamic(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    keyed = {
+        (
+            str(item.get('source') or ''),
+            str(item.get('method') or ''),
+            str(item.get('url') or ''),
+            str(item.get('param') or ''),
+            str(item.get('finding_id') or ''),
+        ): item
+        for item in items
+    }
+    return [keyed[key] for key in sorted(keyed)]
+
+
+def dynamic_gate_reason(finding: Finding) -> str:
+    if not finding.dynamic:
+        return 'dast-confirmed:dynamic-proof'
+    param = f', param {finding.dynamic.param}' if finding.dynamic.param else ''
+    tool = finding.dynamic.tool or finding.source.replace('dast:', '')
+    parsed = normalize_dynamic_path(finding.dynamic.url)
+    return f'dast-confirmed:{tool}:{finding.dynamic.method} {parsed}{param}'
+
+
+def normalize_dynamic_path(url: str) -> str:
+    parsed = re.sub(r'\?.*$', '', str(url or ''))
+    if parsed.startswith('http://') or parsed.startswith('https://'):
+        from urllib.parse import urlparse
+        parsed_url = urlparse(parsed)
+        return parsed_url.path or '/'
+    return parsed or '/'
 
 
 def priority_payload(finding: Finding) -> dict[str, Any]:

@@ -24,7 +24,7 @@ SARIF_LEVEL_SEVERITY = {'error': 'HIGH', 'warning': 'MEDIUM', 'note': 'LOW', 'no
 SOURCE_FAMILIES = {
     'semgrep': 'sast', 'bandit': 'sast', 'python-ast': 'sast', 'codeql': 'sast', 'sonarqube': 'quality-security',
     'shellcheck': 'sast', 'shell-policy': 'sast', 'sql-artifact': 'sast', 'pip-audit': 'sca', 'govulncheck': 'sca', 'dependency-manifest': 'sca', 'secret-scan': 'secrets', 'gitleaks': 'secrets',
-    'trufflehog': 'secrets', 'snyk': 'sca-sast', 'sarif-import': 'sarif',
+    'trufflehog': 'secrets', 'snyk': 'sca-sast', 'sarif-import': 'sarif', 'dast:zap': 'dast', 'dast:nuclei': 'dast', 'dast:sarif': 'dast',
 }
 SUPPORTED_SOURCES = [
     {'source': 'semgrep', 'status': 'implemented', 'input': 'Semgrep JSON'},
@@ -41,6 +41,9 @@ SUPPORTED_SOURCES = [
     {'source': 'trufflehog', 'status': 'implemented', 'input': 'TruffleHog JSON lines'},
     {'source': 'sarif-import', 'status': 'implemented', 'input': 'External SARIF 2.1.0'},
     {'source': 'snyk', 'status': 'ready-adapter', 'input': 'Snyk JSON vulnerability/issues payload'},
+    {'source': 'dast:zap', 'status': 'implemented', 'input': 'OWASP ZAP JSON alerts'},
+    {'source': 'dast:nuclei', 'status': 'implemented', 'input': 'Nuclei JSONL/JSON findings'},
+    {'source': 'dast:sarif', 'status': 'implemented', 'input': 'DAST SARIF 2.1.0'},
 ]
 EXPLOITABLE_KEYWORDS = (
     'command injection', 'sql injection', 'injection', 'xss', 'cross-site scripting', 'path traversal',
@@ -105,6 +108,8 @@ def enrich_finding(finding: Finding) -> Finding:
     metadata.setdefault('normalized_severity', finding.severity)
     metadata.setdefault('normalized_confidence', finding.confidence)
     finding.scanner_metadata = metadata
+    if finding.source.startswith('dast:') or finding.dynamic:
+        finding.dataflow.confirmed_exploitable = True
     finding.exploitability = finding.exploitability if finding.exploitability != 'unknown' else infer_exploitability(finding)
     finding.reachability = finding.reachability if finding.reachability != 'unknown' else infer_reachability(finding)
     if not finding.policy_impact:
@@ -414,7 +419,7 @@ def scanner_mesh_status() -> dict[str, Any]:
     return {
         'schema_version': NORMALIZATION_VERSION,
         'supported_sources': SUPPORTED_SOURCES,
-        'normalized_fields': ['source', 'rule_id', 'severity', 'confidence', 'cwe', 'owasp', 'references', 'scope', 'risk', 'dataflow', 'priority_context', 'priority', 'scanner_metadata', 'exploitability', 'reachability', 'policy_impact', 'remediation'],
+        'normalized_fields': ['source', 'rule_id', 'severity', 'confidence', 'cwe', 'owasp', 'references', 'scope', 'risk', 'dataflow', 'dynamic', 'priority_context', 'priority', 'scanner_metadata', 'exploitability', 'reachability', 'policy_impact', 'remediation'],
         'consolidation': {
             'enabled': True,
             'cluster_key': 'normalized path + close line range + compatible CWE/sink token',
@@ -477,6 +482,8 @@ def scanner_mesh_report(scan: ScanResult) -> dict[str, Any]:
 
 def infer_exploitability(finding: Finding) -> str:
     text = ' '.join([finding.title, finding.rule_id, finding.message, finding.explanation]).lower()
+    if finding.source.startswith('dast:') or finding.dynamic:
+        return 'confirmed-exploitable'
     if finding.source in {'secret-scan', 'gitleaks', 'trufflehog'} or any(token in text for token in ('secret', 'token', 'password', 'credential', 'private key')):
         return 'credential-exposure'
     if finding.source in {'pip-audit', 'snyk'} or re.search(r'\b(cve|pysec|ghsa)-', text):
@@ -490,6 +497,8 @@ def infer_exploitability(finding: Finding) -> str:
 
 def infer_reachability(finding: Finding) -> str:
     path = finding.location.path.lower()
+    if finding.source.startswith('dast:') or finding.dynamic:
+        return 'dynamic-confirmed'
     if any(path.endswith(name.lower()) for name in MANIFEST_NAMES) or finding.source in {'pip-audit', 'dependency-manifest', 'snyk'}:
         return 'package-level'
     if path.endswith(CONFIG_PATTERNS):
@@ -509,7 +518,9 @@ def infer_policy_impact(finding: Finding) -> list[str]:
         impacts.append('dependency-review')
     if finding.source in {'sonarqube'}:
         impacts.append('quality-gate')
-    if finding.source in {'codeql', 'semgrep', 'bandit', 'shellcheck', 'shell-policy', 'sql-artifact', 'python-ast', 'sarif-import'}:
+    if finding.source.startswith('dast:') or finding.dynamic:
+        impacts.append('runtime-security-gate')
+    if finding.source in {'codeql', 'semgrep', 'bandit', 'shellcheck', 'shell-policy', 'sql-artifact', 'python-ast', 'sarif-import'} or finding.source.startswith('dast:'):
         impacts.append('security-review')
     if finding.severity in {'CRITICAL', 'HIGH'} or finding.risk.priority in {'P0', 'P1'}:
         impacts.append('pr-gate')
@@ -652,6 +663,8 @@ def source_family(source: str) -> str:
         return SOURCE_FAMILIES[source]
     if source.startswith('sarif'):
         return 'sarif'
+    if source.startswith('dast:'):
+        return 'dast'
     return 'unknown'
 
 

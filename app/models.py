@@ -9,7 +9,7 @@ Severity = Literal['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
 DecisionState = Literal['open', 'false_positive', 'accepted_fix', 'risk_accepted', 'suppressed']
 Priority = Literal['P0', 'P1', 'P2', 'P3', 'P4']
 ValidationStatus = Literal['passed', 'warning', 'blocked', 'manual']
-FindingScope = Literal['production', 'test', 'docs', 'example', 'config', 'dependency', 'generated', 'vendor', 'unknown']
+FindingScope = Literal['production', 'test', 'docs', 'example', 'config', 'dependency', 'endpoint', 'generated', 'vendor', 'unknown']
 
 
 class Location(BaseModel):
@@ -25,6 +25,18 @@ class FindingDataflow(BaseModel):
     sink: Location | None = None
     steps: int | None = None
     tool_precision: Literal['very-high', 'high', 'medium', 'low'] | None = None
+    confirmed_exploitable: bool = False
+
+
+class DynamicEvidence(BaseModel):
+    method: str = 'GET'
+    url: str
+    param: str | None = None
+    payload: str | None = None
+    request_excerpt: str | None = None
+    response_excerpt: str | None = None
+    status_code: int | None = None
+    tool: str | None = None
 
 
 class ExecutionEvidence(BaseModel):
@@ -95,6 +107,7 @@ class Finding(BaseModel):
     exploitability: str = 'unknown'
     reachability: str = 'unknown'
     dataflow: FindingDataflow = Field(default_factory=FindingDataflow)
+    dynamic: DynamicEvidence | None = None
     priority_context: FindingPriorityContext = Field(default_factory=FindingPriorityContext)
     priority: FindingPriority | None = None
     cluster_id: str | None = None
@@ -471,6 +484,16 @@ class RuntimeSmokeCheckRequest(BaseModel):
     probe_paths: list[str] = Field(default_factory=list)
     allowed_ports: list[int] = Field(default_factory=list)
     observed_ports: list[int] = Field(default_factory=list)
+
+
+class DastScanRequest(BaseModel):
+    report_paths: list[str] = Field(default_factory=list)
+    base_url: str | None = None
+    tool: Literal['auto', 'zap', 'nuclei'] = 'auto'
+    run_tools: bool = False
+    allow_remote_base_url: bool = False
+    timeout_seconds: int = 300
+    require_sandbox_running: bool = True
 
 
 class ReportLakeReindexRequest(BaseModel):

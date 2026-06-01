@@ -4,7 +4,7 @@ from collections import Counter
 from pathlib import PurePosixPath
 from typing import Any
 
-PRODUCTION_SCOPES = {'production', 'config', 'dependency'}
+PRODUCTION_SCOPES = {'production', 'config', 'dependency', 'endpoint'}
 NON_PRODUCTION_SCOPES = {'test', 'docs', 'example', 'generated', 'vendor', 'unknown'}
 SECRET_SOURCES = {'secret-scan', 'gitleaks', 'trufflehog'}
 EXTERNAL_SECRET_SOURCES = {'gitleaks', 'trufflehog'}
@@ -33,6 +33,8 @@ def classify_path_scope(path: str) -> str:
     normalized = normalize_path(path)
     if not normalized:
         return 'unknown'
+    if normalized.startswith('[endpoint] '):
+        return 'endpoint'
     pure = PurePosixPath(normalized)
     parts = [part.lower() for part in pure.parts if part not in {'', '.'}]
     name = pure.name.lower()
@@ -120,7 +122,7 @@ def scope_sort_rank(finding: Any) -> int:
     scope = finding_scope(finding)
     if is_production_impacting(finding):
         return 4
-    return {'test': 3, 'config': 4, 'dependency': 4, 'docs': 2, 'example': 2, 'generated': 1, 'vendor': 1}.get(scope, 0)
+    return {'test': 3, 'config': 4, 'dependency': 4, 'endpoint': 4, 'docs': 2, 'example': 2, 'generated': 1, 'vendor': 1}.get(scope, 0)
 
 
 def normalize_path(path: str) -> str:

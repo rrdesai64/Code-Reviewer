@@ -87,6 +87,9 @@ def test_sarif_and_reports(client, scanned):
     smoke_preview = client.get(f"/api/scans/{sid}/runtime/smoke-preview")
     assert smoke_preview.status_code == 200
     assert smoke_preview.json()["schema_version"] == "runtime-smoke-posture-v1"
+    dast_status = client.get("/api/dast/status")
+    assert dast_status.status_code == 200
+    assert dast_status.json()["schema_version"] == "dast-verification-v1"
     reachability = client.get(f"/api/scans/{sid}/reachability-context")
     assert reachability.status_code == 200
     assert reachability.json()["schema_version"] == "reachability-context-v1"
@@ -162,6 +165,9 @@ def test_runtime_worker_prepare_job_endpoint(client, tmp_path):
     )
     assert smoke_check.status_code == 200
     assert smoke_check.json()["schema_version"] == "runtime-smoke-posture-v1"
+    dast = client.post(f"/api/scans/{sid}/dast/verification", json={"report_paths": []})
+    assert dast.status_code == 200
+    assert dast.json()["schema_version"] == "dast-verification-v1"
 
     listed = client.get("/api/runtime-worker/jobs")
     assert listed.status_code == 200

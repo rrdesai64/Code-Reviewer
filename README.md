@@ -848,8 +848,9 @@ Implemented:
 - Phase 3A runtime build/run planner: detects Python, Node, Go, JVM, .NET, PHP, Ruby, and container runtime profiles, emits planning-only build/start/test commands, expected ports, health URL candidates, env requirements, confidence, and blockers without executing repository code
 - Phase 3B sandboxed build/run worker: prepares container, Windows Sandbox, and manual runtime jobs from the Phase 3A plan with read-only source mounts, sandbox scratch copies, network policy metadata, resource limits, status/log evidence, and no host-side repository execution
 - Phase 3C runtime smoke/posture checks: app-start reachability, health endpoints, security headers, debug exposure, unexpected routes, and observed-port policy are previewed in normal scans and probed only from explicit base URLs or isolated runtime workers
+- Phase 4 DAST verification gate: ingests ZAP, Nuclei, or DAST SARIF evidence, maps endpoint findings to code best-effort, marks dynamically confirmed exploitability, and blocks high-confidence outside-in issues without feeding DAST directly into auto-fix
 - Semgrep dataflow trace and SARIF code-flow ingestion without storing raw trace bodies in reports
-- `scan.ps1` now emits `scanner-mesh.json`, `finding-consolidation.json`, `prioritization.json`, `soundness-verdict.json`, `runtime-plan.json`, `runtime-build-run-worker.json`, `runtime-smoke-posture.json`, and `reachability-context.json` by default and accepts optional SARIF imports with `-SarifIn`
+- `scan.ps1` now emits `scanner-mesh.json`, `finding-consolidation.json`, `prioritization.json`, `soundness-verdict.json`, `runtime-plan.json`, `runtime-build-run-worker.json`, `runtime-smoke-posture.json`, `dast-verification.json`, and `reachability-context.json` by default and accepts optional SARIF imports with `-SarifIn`
 
 Useful endpoints:
 
@@ -862,6 +863,8 @@ Useful endpoints:
 - `GET /api/runtime-smoke/status`
 - `GET /api/scans/{scan_id}/runtime/smoke-preview`
 - `POST /api/scans/{scan_id}/runtime/smoke-check`
+- `GET /api/dast/status`
+- `POST /api/scans/{scan_id}/dast/verification`
 - `GET /api/runtime-worker/status`
 - `GET /api/runtime-worker/jobs`
 - `GET /api/runtime-worker/jobs/{job_id}`
@@ -872,7 +875,7 @@ Useful endpoints:
 CLI export, SARIF import, runtime plan, and optional coverage evidence:
 
 ```powershell
-.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --sarif-in codeql.sarif --coverage-in coverage.xml --scanner-mesh-out scanner-mesh.json --consolidated-findings-out finding-consolidation.json --prioritization-out prioritization.json --soundness-out soundness-verdict.json --runtime-plan-out runtime-plan.json --runtime-build-run-preview-out runtime-build-run-worker.json --runtime-smoke-preview-out runtime-smoke-posture.json --reachability-context-out reachability-context.json
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --sarif-in codeql.sarif --coverage-in coverage.xml --scanner-mesh-out scanner-mesh.json --consolidated-findings-out finding-consolidation.json --prioritization-out prioritization.json --soundness-out soundness-verdict.json --runtime-plan-out runtime-plan.json --runtime-build-run-preview-out runtime-build-run-worker.json --runtime-smoke-preview-out runtime-smoke-posture.json --dast-out dast-verification.json --reachability-context-out reachability-context.json
 ```
 
 PowerShell wrapper:
@@ -1154,13 +1157,56 @@ Explicit local probe:
 
 Remote probes are blocked unless `--runtime-smoke-allow-remote-base-url` is set. Phase 3C uses safe HTTP GET probes and compares supplied observed ports to the expected/allowed policy; it does not run blind port scans.
 
+## Phase 4: DAST Verification Gate
+
+Phase 4 consumes outside-in security evidence from the Phase 3 running app. It supports ZAP JSON, Nuclei JSONL/JSON, and DAST SARIF ingestion, resolves `method + URL + parameter` evidence back to source locations when it can, and feeds dynamically confirmed exploitability into consolidation, prioritization, and the soundness gate. DAST evidence gates and informs; it is not used as a direct auto-fix driver.
+
+Implemented:
+
+- DAST provider status for ZAP, Nuclei, and SARIF ingest
+- ZAP and Nuclei parsers with preserved dynamic proof
+- Conservative endpoint-to-code mapping for FastAPI/Flask-style decorators, Express routes, Spring annotations, Rails routes, and route-literal fallback
+- Endpoint-level findings when mapping is not safe
+- `confirmed_exploitable` priority boost and P0 guard support
+- Soundness gate reason codes with DAST proof attached
+- DAST-only issues excluded from the auto-fix queue; SAST + DAST clusters can still route through the deterministic inside-out path
+- API, CLI, report bundle, `scan.ps1`, disposable scan-worker export allowlist, and VS Code report picker access
+
+Useful endpoints:
+
+- `GET /api/dast/status`
+- `POST /api/scans/{scan_id}/dast/verification`
+
+CLI ingest:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli `
+  --path "G:\Path\To\Repo" `
+  --dast-in zap.json `
+  --dast-in nuclei.jsonl `
+  --dast-out dast-verification.json `
+  --fail-on-dast-gate
+```
+
+Run mode is guarded and intended for Phase 3 sandbox loopback targets:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli `
+  --path "G:\Path\To\Repo" `
+  --dast-base-url http://127.0.0.1:8000 `
+  --dast-run-tools `
+  --dast-out dast-verification.json
+```
+
+Remote targets are blocked unless `--dast-allow-remote-base-url` is set. Normal scan/report paths are side-effect free and only ingest supplied DAST evidence.
+
 PowerShell wrapper:
 
 ```powershell
 .\scan.ps1 -Path "G:\Path\To\Repo"
 ```
 
-`scan.ps1` now emits `runtime-smoke-posture.json`, `fix-bundle.json`, `fix-apply-dry-run.json`, `verified-autofix-dry-run.json`, and `inside-out-autofix-loop-dry-run.json` by default. Inside-out loop runs are saved under the Secure Review data directory unless `--inside-out-autofix-loop-no-persist` is used. Treat dry-run reports as review artifacts; real verified autofix and inside-out loop runs should be reserved for trusted repositories or disposable workers because they run the repository's own test commands.
+`scan.ps1` now emits `runtime-smoke-posture.json`, `dast-verification.json`, `fix-bundle.json`, `fix-apply-dry-run.json`, `verified-autofix-dry-run.json`, and `inside-out-autofix-loop-dry-run.json` by default. Inside-out loop runs are saved under the Secure Review data directory unless `--inside-out-autofix-loop-no-persist` is used. Treat dry-run reports as review artifacts; real verified autofix and inside-out loop runs should be reserved for trusted repositories or disposable workers because they run the repository's own test commands.
 
 
 ## Roadmap Point 8: IDE/CLI Parity
@@ -1853,7 +1899,7 @@ Dashboard scans now write a human-shareable report bundle automatically after ea
 reports\<repo-name>\<scan-id>\
 ```
 
-Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `soundness-verdict.json`, `runtime-plan.json`, `runtime-build-run-worker.json`, `runtime-smoke-posture.json`, `finding-consolidation.json`, `prioritization.json`, `reachability-context.json`, `inline-suppressions.json`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `messaging-gateway.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, safe fix dry-run artifacts, verified autofix dry-run evidence, and inside-out autofix loop dry-run evidence.
+Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `soundness-verdict.json`, `runtime-plan.json`, `runtime-build-run-worker.json`, `runtime-smoke-posture.json`, `dast-verification.json`, `finding-consolidation.json`, `prioritization.json`, `reachability-context.json`, `inline-suppressions.json`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `messaging-gateway.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, safe fix dry-run artifacts, verified autofix dry-run evidence, and inside-out autofix loop dry-run evidence.
 
 The dashboard shows the saved bundle path after the scan and includes a `Report Bundle` action that opens the manifest. Set `REPORT_BUNDLE_DIR` in `.env` to place bundles somewhere else, for example:
 

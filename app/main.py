@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from .models import BenchmarkLessonRequest, BenchmarkTransitionRequest, ChatNotificationRequest, CodeHostReviewRequest, DecisionRequest, DisposableVmScanRequest, FixApplyRequest, GatewaySendRequest, GitHubPrReviewRequest, HermesReviewRequest, HermesRunRequest, InsideOutAutofixLoopRequest, IssuePlanRequest, LLMRequest, MemoryRollbackRequest, QuarantineEntryRequest, QuarantineLookupRequest, RagMemoryReindexRequest, ReportLakeReindexRequest, TeachingLoopSessionRequest, TeamCampaignRequest, VerifiedAutofixRequest
+from .models import BenchmarkLessonRequest, BenchmarkTransitionRequest, ChatNotificationRequest, CodeHostReviewRequest, DecisionRequest, DisposableVmScanRequest, FixApplyRequest, GatewaySendRequest, GitHubPrReviewRequest, HermesReviewRequest, HermesRunRequest, InsideOutAutofixLoopRequest, IssuePlanRequest, LLMRequest, MemoryRollbackRequest, QuarantineEntryRequest, QuarantineLookupRequest, RagMemoryReindexRequest, ReportLakeReindexRequest, RuntimeBuildRunRequest, TeachingLoopSessionRequest, TeamCampaignRequest, VerifiedAutofixRequest
 from .advanced_ai import advanced_ai_status, build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, gpu_profile, local_runtime_status, phase_g_report, run_multi_agent_review, semantic_search
 from .autofix_loop import list_inside_out_autofix_loop_runs, load_inside_out_autofix_loop_run, run_inside_out_autofix_loop
 from .benchmark_gate import benchmark_corpus_report, benchmark_gate_report_for_recommendations, benchmark_gate_status, list_benchmark_lessons, transition_benchmark_lesson, upsert_benchmark_lesson
@@ -42,6 +42,7 @@ from .report_lake import list_sanitized_scans, load_sanitized_scan, reindex_repo
 from .reporting import github_pr_comment, html_report, markdown_report
 from .report_bundle import build_report_bundle, report_bundle_metadata
 from .runtime_plan import build_runtime_plan
+from .runtime_worker import list_runtime_build_run_jobs, load_runtime_build_run_job, prepare_runtime_build_run_job, runtime_build_run_preview, runtime_worker_status
 from .sarif import build_sarif
 from .sbom import build_cyclonedx, build_spdx, compare_sboms, sbom_policy_report, spdx_compliance_report
 from .scanner import ROOT, run_scan
@@ -160,6 +161,27 @@ def vm_worker_prepare_job(request: DisposableVmScanRequest, user: AuthUser = Dep
         raise HTTPException(status_code=400, detail=str(exc))
     audit(user.username, 'vm_worker.job_prepared', job['job_id'], {'repo': job['repository']['path'], 'provider': job['provider'], 'network_policy': job['network_policy']})
     return job
+
+
+@app.get('/api/runtime-worker/status')
+def runtime_worker_status_endpoint(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    status = runtime_worker_status()
+    audit(user.username, 'runtime_worker.status_reported', 'runtime-worker', {'container': str(status['providers']['container']['available'])})
+    return status
+
+
+@app.get('/api/runtime-worker/jobs')
+def runtime_worker_jobs(limit: int = 50, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    jobs = list_runtime_build_run_jobs(limit=limit)
+    return {'jobs': jobs, 'count': len(jobs)}
+
+
+@app.get('/api/runtime-worker/jobs/{job_id}')
+def runtime_worker_job(job_id: str, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    try:
+        return load_runtime_build_run_job(job_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='runtime build/run worker job not found')
 
 
 @app.get('/api/report-lake/status')
@@ -406,6 +428,41 @@ def scan_runtime_plan(scan_id: str, user: AuthUser = Depends(require_permission(
         'confidence': report['summary']['confidence'],
     })
     return report
+
+
+@app.get('/api/scans/{scan_id}/runtime/build-run-preview')
+def scan_runtime_build_run_preview(scan_id: str, provider: str = 'container', network_policy: str = 'offline', profile_id: str | None = None, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    request = RuntimeBuildRunRequest(provider=provider, network_policy=network_policy, profile_id=profile_id)
+    report = runtime_build_run_preview(scan, request)
+    audit(user.username, 'runtime_worker.preview_reported', scan_id, {
+        'status': report['status'],
+        'provider': report['provider'],
+        'network_policy': report['network_policy'],
+    })
+    return report
+
+
+@app.post('/api/scans/{scan_id}/runtime/build-run-jobs')
+def scan_runtime_build_run_job(scan_id: str, request: RuntimeBuildRunRequest, user: AuthUser = Depends(require_permission('scan:run'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    try:
+        job = prepare_runtime_build_run_job(scan, request, actor=user.username)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit(user.username, 'runtime_worker.job_prepared', job['job_id'], {
+        'scan_id': scan_id,
+        'provider': job['provider'],
+        'network_policy': job['network_policy'],
+        'runtime': job.get('selected_profile', {}).get('runtime', ''),
+    })
+    return job
 
 
 @app.get('/api/scans/{scan_id}/reachability-context')

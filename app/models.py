@@ -445,6 +445,19 @@ class DisposableVmScanRequest(BaseModel):
     job_name: str | None = None
 
 
+class RuntimeBuildRunRequest(BaseModel):
+    profile_id: str | None = None
+    provider: Literal['container', 'windows-sandbox', 'manual'] = 'container'
+    network_policy: Literal['offline', 'scanner-only', 'full'] = 'offline'
+    container_image: str | None = None
+    run_tests: bool = False
+    timeout_seconds: int = 900
+    start_timeout_seconds: int = 60
+    approved_quarantine: bool = False
+    run_id: str | None = None
+    job_name: str | None = None
+
+
 class ReportLakeReindexRequest(BaseModel):
     limit: int = 100
     include_quarantined: bool = True

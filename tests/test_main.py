@@ -81,6 +81,9 @@ def test_sarif_and_reports(client, scanned):
     runtime_plan = client.get(f"/api/scans/{sid}/runtime-plan")
     assert runtime_plan.status_code == 200
     assert runtime_plan.json()["schema_version"] == "runtime-build-plan-v1"
+    runtime_preview = client.get(f"/api/scans/{sid}/runtime/build-run-preview")
+    assert runtime_preview.status_code == 200
+    assert runtime_preview.json()["schema_version"] == "runtime-build-run-worker-v1"
     reachability = client.get(f"/api/scans/{sid}/reachability-context")
     assert reachability.status_code == 200
     assert reachability.json()["schema_version"] == "reachability-context-v1"
@@ -120,6 +123,38 @@ def test_fix_proposal(client, scanned):
     loop = client.post(f"/api/scans/{sid}/fixes/inside-out-loop", json={"dry_run": True, "persist": False})
     assert loop.status_code == 200
     assert loop.json()["schema_version"] == "inside-out-autofix-loop-v1"
+
+
+def test_runtime_worker_prepare_job_endpoint(client, tmp_path):
+    repo = tmp_path / "next-app"
+    repo.mkdir()
+    (repo / "package.json").write_text(
+        '{"scripts":{"build":"next build","start":"next start"},"dependencies":{"next":"latest","react":"latest"}}',
+        encoding="utf-8",
+    )
+    scanned = client.post("/api/scans", data={"repo_path": str(repo), "project_name": "next-app"}).json()
+    sid = scanned["scan_id"]
+
+    status = client.get("/api/runtime-worker/status")
+    assert status.status_code == 200
+    assert "container" in status.json()["providers"]
+
+    job = client.post(
+        f"/api/scans/{sid}/runtime/build-run-jobs",
+        json={"job_name": "api-runtime-job", "provider": "container", "network_policy": "offline"},
+    )
+    assert job.status_code == 200, job.text
+    body = job.json()
+    assert body["schema_version"] == "runtime-build-run-worker-v1"
+    assert body["job_id"] == "api-runtime-job"
+    assert body["selected_profile"]["runtime"] == "node"
+
+    listed = client.get("/api/runtime-worker/jobs")
+    assert listed.status_code == 200
+    assert listed.json()["count"] >= 1
+    loaded = client.get("/api/runtime-worker/jobs/api-runtime-job")
+    assert loaded.status_code == 200
+    assert loaded.json()["job_id"] == "api-runtime-job"
 
 
 def test_compliance(client, scanned):

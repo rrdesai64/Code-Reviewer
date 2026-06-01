@@ -44,6 +44,7 @@ def make_scan(make_finding):
 @pytest.fixture
 def isolate_storage(tmp_path, monkeypatch):
     from app import storage
+    monkeypatch.setenv("SECURE_REVIEW_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setattr(storage, "DATA_DIR", tmp_path)
     monkeypatch.setattr(storage, "SCANS_DIR", tmp_path / "scans")
     monkeypatch.setattr(storage, "BASELINE_PATH", tmp_path / "baseline.json")

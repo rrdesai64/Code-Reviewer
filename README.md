@@ -850,7 +850,7 @@ Implemented:
 - Phase 3C runtime smoke/posture checks: app-start reachability, health endpoints, security headers, debug exposure, unexpected routes, and observed-port policy are previewed in normal scans and probed only from explicit base URLs or isolated runtime workers
 - Phase 4 DAST verification gate: ingests ZAP, Nuclei, or DAST SARIF evidence, maps endpoint findings to code best-effort, marks dynamically confirmed exploitability, and blocks high-confidence outside-in issues without feeding DAST directly into auto-fix
 - Semgrep dataflow trace and SARIF code-flow ingestion without storing raw trace bodies in reports
-- `scan.ps1` now emits `scanner-mesh.json`, `finding-consolidation.json`, `prioritization.json`, `soundness-verdict.json`, `runtime-plan.json`, `runtime-build-run-worker.json`, `runtime-smoke-posture.json`, `dast-verification.json`, and `reachability-context.json` by default and accepts optional SARIF imports with `-SarifIn`
+- `scan.ps1` now emits `scanner-mesh.json`, `finding-consolidation.json`, `prioritization.json`, `soundness-verdict.json`, `unified-soundness-verdict.json`, `runtime-plan.json`, `runtime-build-run-worker.json`, `runtime-smoke-posture.json`, `dast-verification.json`, and `reachability-context.json` by default and accepts optional SARIF imports with `-SarifIn`
 
 Useful endpoints:
 
@@ -875,7 +875,7 @@ Useful endpoints:
 CLI export, SARIF import, runtime plan, and optional coverage evidence:
 
 ```powershell
-.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --sarif-in codeql.sarif --coverage-in coverage.xml --scanner-mesh-out scanner-mesh.json --consolidated-findings-out finding-consolidation.json --prioritization-out prioritization.json --soundness-out soundness-verdict.json --runtime-plan-out runtime-plan.json --runtime-build-run-preview-out runtime-build-run-worker.json --runtime-smoke-preview-out runtime-smoke-posture.json --dast-out dast-verification.json --reachability-context-out reachability-context.json
+.\.venv\Scripts\python.exe -m app.cli --path "G:\Path\To\Repo" --sarif-in codeql.sarif --coverage-in coverage.xml --scanner-mesh-out scanner-mesh.json --consolidated-findings-out finding-consolidation.json --prioritization-out prioritization.json --soundness-out soundness-verdict.json --unified-soundness-out unified-soundness-verdict.json --runtime-plan-out runtime-plan.json --runtime-build-run-preview-out runtime-build-run-worker.json --runtime-smoke-preview-out runtime-smoke-posture.json --dast-out dast-verification.json --reachability-context-out reachability-context.json
 ```
 
 PowerShell wrapper:
@@ -1206,7 +1206,41 @@ PowerShell wrapper:
 .\scan.ps1 -Path "G:\Path\To\Repo"
 ```
 
-`scan.ps1` now emits `runtime-smoke-posture.json`, `dast-verification.json`, `fix-bundle.json`, `fix-apply-dry-run.json`, `verified-autofix-dry-run.json`, and `inside-out-autofix-loop-dry-run.json` by default. Inside-out loop runs are saved under the Secure Review data directory unless `--inside-out-autofix-loop-no-persist` is used. Treat dry-run reports as review artifacts; real verified autofix and inside-out loop runs should be reserved for trusted repositories or disposable workers because they run the repository's own test commands.
+`scan.ps1` now emits `unified-soundness-verdict.json`, `runtime-smoke-posture.json`, `dast-verification.json`, `fix-bundle.json`, `fix-apply-dry-run.json`, `verified-autofix-dry-run.json`, and `inside-out-autofix-loop-dry-run.json` by default. Inside-out loop runs are saved under the Secure Review data directory unless `--inside-out-autofix-loop-no-persist` is used. Treat dry-run reports as review artifacts; real verified autofix and inside-out loop runs should be reserved for trusted repositories or disposable workers because they run the repository's own test commands.
+
+
+## Phase 5: Unified Soundness And Feedback Tuning
+
+Phase 5 gives the orchestrator one verdict for a generated app: `sound` or `unsound`. It correlates inside-out SAST/soundness issues with outside-in DAST proof, ranks issues with a single orchestrator score, and uses verified loop outcomes as bounded tuning evidence. A SAST + DAST cluster is treated as the strongest signal. DAST-only issues can block, but they still do not drive direct auto-fix.
+
+Implemented:
+
+- Unified soundness verdict contract: `unified-soundness-verdict-v1`
+- Ranked issues with confidence, signal strength, inside-out/outside-in source split, dynamic proof attachment, fix-queue eligibility, and bounded tuning deltas
+- Feedback-driven tuning profile from persisted inside-out loop outcomes: resolved issues can increase confidence; recurred/regressed issues can lower confidence
+- Provider registry for per-runtime outside-in expansion; web is ready, mobile/desktop/enterprise providers stay deferred until their report paths are runnable inside the sandbox loop
+- API, CLI, report bundle, `scan.ps1`, disposable scan-worker export allowlist, and VS Code report picker access
+
+Useful endpoints:
+
+- `GET /api/scans/{scan_id}/unified-soundness`
+- `POST /api/scans/{scan_id}/unified-soundness`
+- `GET /api/soundness/tuning/status`
+- `GET /api/soundness/tuning`
+- `POST /api/soundness/tuning/rebuild`
+- `GET /api/outside-in/providers`
+
+CLI:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.cli `
+  --path "G:\Path\To\Repo" `
+  --dast-in zap.json `
+  --unified-soundness-out unified-soundness-verdict.json `
+  --fail-on-unsound
+```
+
+Tuning remains safe by design: it is derived from verified loop outcomes, does not include raw code, and cannot mutate scanner rules, suppressions, or source files.
 
 
 ## Roadmap Point 8: IDE/CLI Parity
@@ -1217,7 +1251,7 @@ Implemented:
 
 - VS Code command palette and activity-bar commands for workspace scans, health checks, refresh, baseline save, and web app launch
 - Finding tree with source navigation, RAG context, fix proposals, and finding decision updates
-- Report picker for soundness verdict, scanner mesh, finding prioritization, dependency review, SonarQube quality gate, scanner depth, quarantine policy, sanitized report lake records, RAG memory records, Hermes orchestration, messaging gateway, enterprise governance evidence, secret policy, push protection, CycloneDX, SPDX, SPDX compliance, SBOM policy, SBOM comparison, GitHub PR review, PR comment, remediation plan, memory context, recursive scanner learning, advanced AI report, compliance, SARIF, Markdown, and HTML
+- Report picker for soundness verdict, unified soundness verdict, scanner mesh, finding prioritization, dependency review, SonarQube quality gate, scanner depth, quarantine policy, sanitized report lake records, RAG memory records, Hermes orchestration, messaging gateway, enterprise governance evidence, secret policy, push protection, CycloneDX, SPDX, SPDX compliance, SBOM policy, SBOM comparison, GitHub PR review, PR comment, remediation plan, memory context, recursive scanner learning, advanced AI report, compliance, SARIF, Markdown, and HTML
 - Safe fix workflow parity through IDE-accessible fix proposals, fix bundles, and dry-run fix apply reports
 - Evidence bundle export to `.secure-review-artifacts/{scan_id}` using the same core artifacts emitted by `scan.ps1` and `app.cli`
 - Extension settings for backend URL, optional bearer token, extra request headers, default fix provider, and fix bundle limit
@@ -1899,7 +1933,7 @@ Dashboard scans now write a human-shareable report bundle automatically after ea
 reports\<repo-name>\<scan-id>\
 ```
 
-Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `soundness-verdict.json`, `runtime-plan.json`, `runtime-build-run-worker.json`, `runtime-smoke-posture.json`, `dast-verification.json`, `finding-consolidation.json`, `prioritization.json`, `reachability-context.json`, `inline-suppressions.json`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `messaging-gateway.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, safe fix dry-run artifacts, verified autofix dry-run evidence, and inside-out autofix loop dry-run evidence.
+Each bundle includes `manifest.json`, `scan.json`, `secure-review.md`, `secure-review.html`, `secure-review.sarif`, `soundness-verdict.json`, `unified-soundness-verdict.json`, `runtime-plan.json`, `runtime-build-run-worker.json`, `runtime-smoke-posture.json`, `dast-verification.json`, `finding-consolidation.json`, `prioritization.json`, `reachability-context.json`, `inline-suppressions.json`, `dependency-review.json`, `ai-review.json`, `recursive-learning.json`, `benchmark-gate.json`, `messaging-gateway.json`, `governance-evidence.json`, `quarantine-policy.json`, `sanitized-report.json`, `rag-memory.json`, `hermes-orchestration.json`, SBOM/SPDX/compliance artifacts, scanner depth, secret policy, remediation, issue planning, chat/code-host previews, safe fix dry-run artifacts, verified autofix dry-run evidence, and inside-out autofix loop dry-run evidence.
 
 The dashboard shows the saved bundle path after the scan and includes a `Report Bundle` action that opens the manifest. Set `REPORT_BUNDLE_DIR` in `.env` to place bundles somewhere else, for example:
 

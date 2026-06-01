@@ -25,7 +25,7 @@ def test_cli_fail_on_high_returns_2_and_writes_all_outputs(
     # Curly quotes -> ENC-009 (HIGH) from the native catalog scanner.
     (repo / "mod.py").write_bytes(b'x = \xe2\x80\x9chi\xe2\x80\x9d\n')
     outs = {name: tmp_path / f"{name}" for name in
-            ("out.json", "out.sarif", "report.md", "pr.md", "compliance.json", "fixes.json", "prioritization.json", "soundness.json", "runtime-plan.json", "runtime-worker.json", "runtime-smoke.json", "dast.json", "inside-loop.json")}
+            ("out.json", "out.sarif", "report.md", "pr.md", "compliance.json", "fixes.json", "prioritization.json", "soundness.json", "unified-soundness.json", "runtime-plan.json", "runtime-worker.json", "runtime-smoke.json", "dast.json", "inside-loop.json")}
     code = cli_main([
         "--path", str(repo),
         "--json-out", str(outs["out.json"]),
@@ -36,6 +36,7 @@ def test_cli_fail_on_high_returns_2_and_writes_all_outputs(
         "--fix-proposals-out", str(outs["fixes.json"]),
         "--prioritization-out", str(outs["prioritization.json"]),
         "--soundness-out", str(outs["soundness.json"]),
+        "--unified-soundness-out", str(outs["unified-soundness.json"]),
         "--runtime-plan-out", str(outs["runtime-plan.json"]),
         "--runtime-build-run-preview-out", str(outs["runtime-worker.json"]),
         "--runtime-smoke-preview-out", str(outs["runtime-smoke.json"]),
@@ -52,6 +53,7 @@ def test_cli_fail_on_high_returns_2_and_writes_all_outputs(
     assert isinstance(json.loads(outs["fixes.json"].read_text()), list)
     assert json.loads(outs["prioritization.json"].read_text())["schema_version"] == "finding-prioritization-v1"
     assert json.loads(outs["soundness.json"].read_text())["schema_version"] == "soundness-verdict-v1"
+    assert json.loads(outs["unified-soundness.json"].read_text())["schema_version"] == "unified-soundness-verdict-v1"
     assert json.loads(outs["runtime-plan.json"].read_text())["schema_version"] == "runtime-build-plan-v1"
     assert json.loads(outs["runtime-worker.json"].read_text())["schema_version"] == "runtime-build-run-worker-v1"
     assert json.loads(outs["runtime-smoke.json"].read_text())["schema_version"] == "runtime-smoke-posture-v1"

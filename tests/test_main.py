@@ -33,6 +33,7 @@ def test_health(client):
     body = client.get("/api/health").json()
     assert body["ok"] is True
     assert "auth" in body and "llm_providers" in body
+    assert "unified-soundness-verdict" in body["features"]
 
 
 def test_index_served(client):
@@ -78,6 +79,10 @@ def test_sarif_and_reports(client, scanned):
     soundness = client.get(f"/api/scans/{sid}/soundness")
     assert soundness.status_code == 200
     assert soundness.json()["schema_version"] == "soundness-verdict-v1"
+    unified = client.get(f"/api/scans/{sid}/unified-soundness")
+    assert unified.status_code == 200
+    assert unified.json()["schema_version"] == "unified-soundness-verdict-v1"
+    assert unified.json()["verdict"]["status"] in {"sound", "unsound"}
     runtime_plan = client.get(f"/api/scans/{sid}/runtime-plan")
     assert runtime_plan.status_code == 200
     assert runtime_plan.json()["schema_version"] == "runtime-build-plan-v1"
@@ -90,6 +95,12 @@ def test_sarif_and_reports(client, scanned):
     dast_status = client.get("/api/dast/status")
     assert dast_status.status_code == 200
     assert dast_status.json()["schema_version"] == "dast-verification-v1"
+    tuning_status = client.get("/api/soundness/tuning/status")
+    assert tuning_status.status_code == 200
+    assert tuning_status.json()["schema_version"] == "soundness-feedback-tuning-v1"
+    providers = client.get("/api/outside-in/providers")
+    assert providers.status_code == 200
+    assert providers.json()["schema_version"] == "outside-in-provider-registry-v1"
     reachability = client.get(f"/api/scans/{sid}/reachability-context")
     assert reachability.status_code == 200
     assert reachability.json()["schema_version"] == "reachability-context-v1"
@@ -168,6 +179,9 @@ def test_runtime_worker_prepare_job_endpoint(client, tmp_path):
     dast = client.post(f"/api/scans/{sid}/dast/verification", json={"report_paths": []})
     assert dast.status_code == 200
     assert dast.json()["schema_version"] == "dast-verification-v1"
+    unified = client.post(f"/api/scans/{sid}/unified-soundness", json={"dast_report_paths": []})
+    assert unified.status_code == 200
+    assert unified.json()["schema_version"] == "unified-soundness-verdict-v1"
 
     listed = client.get("/api/runtime-worker/jobs")
     assert listed.status_code == 200

@@ -5,7 +5,7 @@ import json
 import sys
 from pathlib import Path
 
-from .models import DastScanRequest, FixApplyRequest, InsideOutAutofixLoopRequest, RuntimeBuildRunRequest, RuntimeSmokeCheckRequest, VerifiedAutofixRequest
+from .models import DastScanRequest, FixApplyRequest, InsideOutAutofixLoopRequest, RuntimeBuildRunRequest, RuntimeSmokeCheckRequest, UnifiedSoundnessRequest, VerifiedAutofixRequest
 
 from .enterprise import audit, compliance_report
 from .autofix_loop import run_inside_out_autofix_loop
@@ -45,6 +45,7 @@ from .scanner_depth import scanner_depth_report
 from .sonarqube import sonarqube_quality_report
 from .secrets import secret_policy_report
 from .soundness import soundness_verdict
+from .unified_soundness import unified_soundness_verdict
 from .storage import load_baseline, load_scan, save_baseline, save_scan
 from .suppressions import inline_suppression_report, record_suppression_governance
 from .team_learning import team_learning_dashboard
@@ -64,6 +65,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--consolidated-findings-out')
     parser.add_argument('--prioritization-out')
     parser.add_argument('--soundness-out')
+    parser.add_argument('--unified-soundness-out')
+    parser.add_argument('--unified-soundness-persist-tuning', action='store_true')
     parser.add_argument('--runtime-plan-out')
     parser.add_argument('--runtime-build-run-preview-out')
     parser.add_argument('--runtime-build-run-job-out')
@@ -206,6 +209,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--fail-on-secrets', action='store_true', help='exit with code 5 when push protection blocks open secret findings')
     parser.add_argument('--fail-on-soundness-block', action='store_true', help='exit with code 15 when the machine soundness gate blocks')
     parser.add_argument('--fail-on-dast-gate', action='store_true', help='exit with code 18 when DAST verification blocks')
+    parser.add_argument('--fail-on-unsound', action='store_true', help='exit with code 19 when the unified Phase 5 verdict is unsound')
     args = parser.parse_args(argv)
 
     target = Path(args.path)
@@ -300,6 +304,19 @@ def main(argv: list[str] | None = None) -> int:
         ))
         if args.dast_out:
             Path(args.dast_out).write_text(json.dumps(dast_report, indent=2), encoding='utf-8')
+    unified_dast_paths = ((dast_report or {}).get('inputs') or {}).get('report_paths') or args.dast_in or []
+    unified = unified_soundness_verdict(scan, UnifiedSoundnessRequest(
+        dast_report_paths=unified_dast_paths,
+        dast_base_url=args.dast_base_url,
+        dast_tool=args.dast_tool,
+        dast_run_tools=False,
+        dast_allow_remote_base_url=args.dast_allow_remote_base_url,
+        dast_timeout_seconds=args.dast_timeout,
+        dast_require_sandbox_running=not args.dast_no_sandbox_required,
+        persist_tuning=args.unified_soundness_persist_tuning,
+    ))
+    if args.unified_soundness_out:
+        Path(args.unified_soundness_out).write_text(json.dumps(unified, indent=2), encoding='utf-8')
     if args.reachability_context_out:
         Path(args.reachability_context_out).write_text(json.dumps(reachability_context_report(scan), indent=2), encoding='utf-8')
     if args.dependency_review_out:
@@ -541,6 +558,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f'Consolidated priorities: items={scan.summary.consolidated_findings}, cross-tool={scan.summary.cross_tool_clusters}, top_score={scan.summary.top_consolidated_priority_score}, priorities={scan.summary.consolidated_priorities}')
     print(f'Finding priorities: top_score={scan.summary.top_finding_priority_score}, active={scan.summary.active_prioritized_findings}, priorities={scan.summary.finding_priority_counts}')
     print(f"Soundness gate: {soundness['verdict']['status']} blocking={soundness['verdict']['blocking_issue_count']} confidence={soundness['verdict']['confidence']}")
+    print(f"Unified soundness: {unified['verdict']['status']} blocking={unified['verdict']['blocking_issue_count']} confidence={unified['verdict']['confidence']}")
     print(f'Reachability context: reachability={scan.summary.reachability_counts}, exploitability={scan.summary.exploitability_counts}, changed_files={scan.summary.changed_file_findings}, request_handlers={scan.summary.request_handler_findings}')
     print(f"Tools: {', '.join(f'{k}={v}' for k, v in scan.summary.tools.items())}")
     if quarantine.get('matched'):
@@ -566,6 +584,8 @@ def main(argv: list[str] | None = None) -> int:
         return 15
     if args.fail_on_dast_gate and dast_report and dast_report['gate']['status'] == 'block':
         return 18
+    if args.fail_on_unsound and unified['verdict']['status'] == 'unsound':
+        return 19
     if args.fail_on_issue_plan_publish_failure and issue_plan and issue_plan['status'] in {'failed', 'partial'}:
         return 10
     if args.fail_on_chat_publish_failure and chat_notification and chat_notification['status'] in {'failed', 'partial'}:

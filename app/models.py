@@ -496,6 +496,25 @@ class DastScanRequest(BaseModel):
     require_sandbox_running: bool = True
 
 
+class UnifiedSoundnessRequest(BaseModel):
+    limit: int = 100
+    dast_report_paths: list[str] = Field(default_factory=list)
+    dast_base_url: str | None = None
+    dast_tool: Literal['auto', 'zap', 'nuclei'] = 'auto'
+    dast_run_tools: bool = False
+    dast_allow_remote_base_url: bool = False
+    dast_timeout_seconds: int = 300
+    dast_require_sandbox_running: bool = True
+    include_tuning: bool = True
+    persist_tuning: bool = False
+
+
+class SoundnessTuningRequest(BaseModel):
+    scan_id: str | None = None
+    limit: int = 200
+    persist: bool = False
+
+
 class ReportLakeReindexRequest(BaseModel):
     limit: int = 100
     include_quarantined: bool = True

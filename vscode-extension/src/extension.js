@@ -409,6 +409,7 @@ function reportDefinitions(scan) {
   return [
     jsonReport('scan-json', 'Scan JSON', `/api/scans/${scanId}`, 'scan.json', 'Raw normalized scan result.'),
     jsonReport('soundness', 'Soundness Verdict', `/api/scans/${scanId}/soundness`, 'soundness-verdict.json', 'Machine-consumable gate verdict and agent remediation contract.'),
+    jsonReport('unified-soundness', 'Unified Soundness Verdict', `/api/scans/${scanId}/unified-soundness`, 'unified-soundness-verdict.json', 'Phase 5 sound or unsound verdict with inside-out, outside-in, and feedback tuning correlation.'),
     jsonReport('runtime-plan', 'Runtime Build Plan', `/api/scans/${scanId}/runtime-plan`, 'runtime-plan.json', 'Phase 3A planning-only runtime profile, build command, start command, and health candidates.'),
     jsonReport('runtime-build-run-worker', 'Runtime Build/Run Worker', `/api/scans/${scanId}/runtime/build-run-preview`, 'runtime-build-run-worker.json', 'Phase 3B sandbox/container worker job preview.'),
     jsonReport('runtime-smoke-posture', 'Runtime Smoke/Posture', `/api/scans/${scanId}/runtime/smoke-preview`, 'runtime-smoke-posture.json', 'Phase 3C app-start, health, security-header, debug, route, and port posture checks.'),

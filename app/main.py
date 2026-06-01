@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from .models import BenchmarkLessonRequest, BenchmarkTransitionRequest, ChatNotificationRequest, CodeHostReviewRequest, DastScanRequest, DecisionRequest, DisposableVmScanRequest, FixApplyRequest, GatewaySendRequest, GitHubPrReviewRequest, HermesReviewRequest, HermesRunRequest, InsideOutAutofixLoopRequest, IssuePlanRequest, LLMRequest, MemoryRollbackRequest, QuarantineEntryRequest, QuarantineLookupRequest, RagMemoryReindexRequest, ReportLakeReindexRequest, RuntimeBuildRunRequest, RuntimeSmokeCheckRequest, TeachingLoopSessionRequest, TeamCampaignRequest, VerifiedAutofixRequest
+from .models import BenchmarkLessonRequest, BenchmarkTransitionRequest, ChatNotificationRequest, CodeHostReviewRequest, DastScanRequest, DecisionRequest, DisposableVmScanRequest, FixApplyRequest, GatewaySendRequest, GitHubPrReviewRequest, HermesReviewRequest, HermesRunRequest, InsideOutAutofixLoopRequest, IssuePlanRequest, LLMRequest, MemoryRollbackRequest, QuarantineEntryRequest, QuarantineLookupRequest, RagMemoryReindexRequest, ReportLakeReindexRequest, RuntimeBuildRunRequest, RuntimeSmokeCheckRequest, SoundnessTuningRequest, TeachingLoopSessionRequest, TeamCampaignRequest, UnifiedSoundnessRequest, VerifiedAutofixRequest
 from .advanced_ai import advanced_ai_status, build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, gpu_profile, local_runtime_status, phase_g_report, run_multi_agent_review, semantic_search
 from .autofix_loop import list_inside_out_autofix_loop_runs, load_inside_out_autofix_loop_run, run_inside_out_autofix_loop
 from .benchmark_gate import benchmark_corpus_report, benchmark_gate_report_for_recommendations, benchmark_gate_status, list_benchmark_lessons, transition_benchmark_lesson, upsert_benchmark_lesson
@@ -51,10 +51,12 @@ from .scanner import ROOT, run_scan
 from .scanner_depth import scanner_depth_report
 from .secrets import secret_policy_report
 from .soundness import soundness_verdict
+from .soundness_tuning import build_soundness_tuning_profile, soundness_tuning_status
 from .paths import data_dir
 from .quarantine import blocks_host_scan, quarantine_policy, quarantine_policy_for_scan, quarantine_registry_report, upsert_quarantine_entry
 from .reachability import reachability_context_report
 from .sonarqube import sonarqube_quality_report
+from .unified_soundness import outside_in_provider_registry, unified_soundness_verdict
 from .storage import apply_decisions, load_baseline, load_scan, save_baseline, save_decision, save_scan, list_scans
 from .suppressions import inline_suppression_report, record_suppression_governance
 from .team_learning import create_campaign, load_campaigns, scan_learning_brief_by_id, team_learning_dashboard
@@ -79,7 +81,7 @@ def index(user: AuthUser = Depends(require_permission('scan:read'))) -> str:
 
 @app.get('/api/health')
 def health() -> dict:
-    return {'ok': True, 'phase': 'phase-s', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'sonarqube-issue-ingestion', 'sonarqube-quality-gate', 'pip-audit', 'risk-scoring', 'source-reachability-context', 'exploitability-context-scoring', 'changed-file-risk-context', 'request-handler-risk-context', 'cross-tool-finding-consolidation', 'consolidated-priority-score', 'finding-prioritization', 'dataflow-priority', 'coverage-execution-evidence', 'dast-confirmed-exploitability', 'machine-soundness-contract', 'soundness-verdict', 'soundness-gate', 'diff-scoped-pr-review', 'inline-suppressions-with-reason', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'runtime-build-plan', 'runtime-build-run-worker', 'runtime-smoke-posture', 'dast-verification-gate', 'outside-in-phase-3a', 'outside-in-phase-3b', 'outside-in-phase-3c', 'outside-in-phase-4', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'local-gitleaks-tool', 'local-trufflehog-tool', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'pr-automation-harness', 'pr-state-schema', 'pr-webhook-ingress', 'pr-code-host-normalization', 'pr-state-persistence', 'pr-ticket-hydration', 'pr-intent-hydration', 'pr-impact-radius', 'pr-impact-risk-routing', 'pr-invariant-policy-agent', 'pr-policy-gates', 'pr-feedback-composer', 'pr-review-draft', 'pr-inline-publisher', 'pr-suggestion-publisher', 'pr-publisher-governance', 'pr-governance-evidence', 'pr-action-audit-lineage', 'pr-compliance-export', 'pr-diff-digest', 'pr-intent-ticket-extraction', 'scanner-mesh', 'scanner-depth', 'expanded-semgrep-rules', 'semgrep-multi-config', 'codeql-query-depth', 'codeql-no-build-defaults', 'codeql-go-local-toolchain', 'sonarcloud-organization-config', 'dashboard-scan-state', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'go-module-dependency-review', 'govulncheck-adapter', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run', 'verified-autofix', 'verified-autofix-branch-worktree', 'verified-autofix-test-gate', 'verified-autofix-pr-gate', 'ide-cli-parity', 'vscode-extension-parity', 'ide-evidence-export', 'issue-planning', 'jira-planning', 'linear-planning', 'issue-plan-dry-run', 'slack-teams-agent', 'chat-notifications', 'slack-agent', 'teams-agent', 'chat-bot-commands', 'secure-review-messaging-gateway', 'gateway-slack', 'gateway-teams', 'gateway-email', 'gateway-telegram', 'gateway-discord', 'gateway-google-chat', 'gateway-whatsapp', 'gateway-signal', 'gateway-home-assistant', 'gateway-twitch', 'gateway-macos', 'gateway-ios', 'gateway-android', 'gateway-ubuntu', 'gateway-dry-run', 'gateway-inbound-allowlists', 'gitlab-review', 'azure-devops-review', 'bitbucket-review', 'multi-code-host-review', 'team-learning-dashboard', 'security-campaigns', 'learning-recommendations', 'risk-trend-dashboard', 'recursive-learning', 'scanner-improvement-recommendations', 'human-approved-tuning-workflow', 'benchmark-promotion-gates', 'benchmark-gate', 'language-benchmark-corpus', 'rule-regression-tests', 'false-positive-tests', 'fix-validation-tests', 'benchmark-lesson-promotion', 'approved-benchmarked-learning-only', 'quarantine-registry', 'host-scan-blocking', 'quarantined-learning-exclusion', 'disposable-vm-worker', 'windows-sandbox-job-export', 'vm-artifact-whitelist', 'sanitized-report-lake', 'report-lake-reindex', 'learning-eligibility-labels', 'rag-memory-schema', 'rag-memory-index', 'rag-memory-query', 'rag-memory-versioning', 'rag-memory-rollback', 'hermes-orchestrator', 'hermes-agent-registry', 'hermes-policy-gates', 'hermes-durable-runs', 'hermes-python-agent', 'python-specialist-review', 'python-dependency-agent', 'python-scanner-coverage-agent', 'enterprise-governance', 'governance-agent-audit-trail', 'governance-approval-lineage', 'governance-memory-version-lineage', 'governance-compliance-evidence-export', 'finding-ai-review', 'dynamic-prompt-templates', 'ai-vulnerability-explanations', 'ai-remediation-suggestions'], 'llm_providers': provider_status(), 'auth': auth_status()}
+    return {'ok': True, 'phase': 'phase-s', 'features': ['semgrep', 'bandit', 'python-ast', 'codeql-adapter', 'sonarqube-adapter', 'sonarqube-issue-ingestion', 'sonarqube-quality-gate', 'pip-audit', 'risk-scoring', 'source-reachability-context', 'exploitability-context-scoring', 'changed-file-risk-context', 'request-handler-risk-context', 'cross-tool-finding-consolidation', 'consolidated-priority-score', 'finding-prioritization', 'dataflow-priority', 'coverage-execution-evidence', 'dast-confirmed-exploitability', 'machine-soundness-contract', 'soundness-verdict', 'soundness-gate', 'unified-soundness-verdict', 'feedback-driven-soundness-tuning', 'outside-in-provider-registry', 'diff-scoped-pr-review', 'inline-suppressions-with-reason', 'sarif', 'baseline', 'pr-comments', 'rag', 'rag-expansion', 'memory', 'memory-trends', 'secure-refactoring', 'secure-refactoring-expansion', 'local-llm', 'cloud-llm', 'enterprise', 'sso-oidc', 'sso-saml', 'cyclonedx-sbom', 'spdx-sbom', 'sbom-policy', 'sbom-compare', 'spdx-compliance', 'advanced-ai', 'embeddings', 'semantic-rag', 'multi-agent-orchestration', 'fine-tune-experiments', 'local-runtime-discovery', 'runtime-build-plan', 'runtime-build-run-worker', 'runtime-smoke-posture', 'dast-verification-gate', 'outside-in-phase-3a', 'outside-in-phase-3b', 'outside-in-phase-3c', 'outside-in-phase-4', 'outside-in-phase-5', 'gpu-optimization', 'secret-scanning', 'push-protection', 'gitleaks-adapter', 'trufflehog-adapter', 'local-gitleaks-tool', 'local-trufflehog-tool', 'github-pr-review', 'github-inline-comments', 'github-status-checks', 'github-webhooks', 'github-bot-commands', 'pr-automation-harness', 'pr-state-schema', 'pr-webhook-ingress', 'pr-code-host-normalization', 'pr-state-persistence', 'pr-ticket-hydration', 'pr-intent-hydration', 'pr-impact-radius', 'pr-impact-risk-routing', 'pr-invariant-policy-agent', 'pr-policy-gates', 'pr-feedback-composer', 'pr-review-draft', 'pr-inline-publisher', 'pr-suggestion-publisher', 'pr-publisher-governance', 'pr-governance-evidence', 'pr-action-audit-lineage', 'pr-compliance-export', 'pr-diff-digest', 'pr-intent-ticket-extraction', 'scanner-mesh', 'scanner-depth', 'expanded-semgrep-rules', 'semgrep-multi-config', 'codeql-query-depth', 'codeql-no-build-defaults', 'codeql-go-local-toolchain', 'sonarcloud-organization-config', 'dashboard-scan-state', 'unified-ingestion', 'sarif-ingestion', 'snyk-ready-ingestion', 'finding-enrichment', 'dependency-review', 'dependency-reachability', 'dependency-risk-scoring', 'go-module-dependency-review', 'govulncheck-adapter', 'secure-fix-bundles', 'controlled-fix-apply', 'fix-apply-dry-run', 'verified-autofix', 'verified-autofix-branch-worktree', 'verified-autofix-test-gate', 'verified-autofix-pr-gate', 'ide-cli-parity', 'vscode-extension-parity', 'ide-evidence-export', 'issue-planning', 'jira-planning', 'linear-planning', 'issue-plan-dry-run', 'slack-teams-agent', 'chat-notifications', 'slack-agent', 'teams-agent', 'chat-bot-commands', 'secure-review-messaging-gateway', 'gateway-slack', 'gateway-teams', 'gateway-email', 'gateway-telegram', 'gateway-discord', 'gateway-google-chat', 'gateway-whatsapp', 'gateway-signal', 'gateway-home-assistant', 'gateway-twitch', 'gateway-macos', 'gateway-ios', 'gateway-android', 'gateway-ubuntu', 'gateway-dry-run', 'gateway-inbound-allowlists', 'gitlab-review', 'azure-devops-review', 'bitbucket-review', 'multi-code-host-review', 'team-learning-dashboard', 'security-campaigns', 'learning-recommendations', 'risk-trend-dashboard', 'recursive-learning', 'scanner-improvement-recommendations', 'human-approved-tuning-workflow', 'benchmark-promotion-gates', 'benchmark-gate', 'language-benchmark-corpus', 'rule-regression-tests', 'false-positive-tests', 'fix-validation-tests', 'benchmark-lesson-promotion', 'approved-benchmarked-learning-only', 'quarantine-registry', 'host-scan-blocking', 'quarantined-learning-exclusion', 'disposable-vm-worker', 'windows-sandbox-job-export', 'vm-artifact-whitelist', 'sanitized-report-lake', 'report-lake-reindex', 'learning-eligibility-labels', 'rag-memory-schema', 'rag-memory-index', 'rag-memory-query', 'rag-memory-versioning', 'rag-memory-rollback', 'hermes-orchestrator', 'hermes-agent-registry', 'hermes-policy-gates', 'hermes-durable-runs', 'hermes-python-agent', 'python-specialist-review', 'python-dependency-agent', 'python-scanner-coverage-agent', 'enterprise-governance', 'governance-agent-audit-trail', 'governance-approval-lineage', 'governance-memory-version-lineage', 'governance-compliance-evidence-export', 'finding-ai-review', 'dynamic-prompt-templates', 'ai-vulnerability-explanations', 'ai-remediation-suggestions'], 'llm_providers': provider_status(), 'auth': auth_status()}
 
 
 @app.get('/api/catalog/coverage-map')
@@ -184,6 +186,40 @@ def dast_status_endpoint(user: AuthUser = Depends(require_permission('enterprise
     status = dast_status()
     audit(user.username, 'dast.status_reported', 'dast', {'zap': str(status['providers']['zap']['available']), 'nuclei': str(status['providers']['nuclei']['available'])})
     return status
+
+
+@app.get('/api/outside-in/providers')
+def outside_in_providers_endpoint(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = outside_in_provider_registry()
+    audit(user.username, 'outside_in.provider_registry_reported', 'outside-in', {key: str(value) for key, value in report['summary'].items()})
+    return report
+
+
+@app.get('/api/soundness/tuning/status')
+def soundness_tuning_status_endpoint(user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = soundness_tuning_status()
+    audit(user.username, 'soundness_tuning.status_reported', 'soundness-tuning', {'profile_exists': str(report['profile_exists'])})
+    return report
+
+
+@app.get('/api/soundness/tuning')
+def soundness_tuning_profile(scan_id: str | None = None, limit: int = 200, user: AuthUser = Depends(require_permission('enterprise:read'))) -> dict:
+    report = build_soundness_tuning_profile(scan_id=scan_id, limit=limit, persist=False, actor=user.username)
+    audit(user.username, 'soundness_tuning.profile_reported', scan_id or 'all', {'observations': str(report['summary']['observation_count'])})
+    return report
+
+
+@app.post('/api/soundness/tuning/rebuild')
+def soundness_tuning_rebuild(request: SoundnessTuningRequest | None = Body(None), user: AuthUser = Depends(require_permission('enterprise:write'))) -> dict:
+    request = request or SoundnessTuningRequest(persist=True)
+    report = build_soundness_tuning_profile(
+        scan_id=request.scan_id,
+        limit=request.limit,
+        persist=request.persist,
+        actor=user.username,
+    )
+    audit(user.username, 'soundness_tuning.profile_rebuilt', request.scan_id or 'all', {'persist': str(request.persist), 'weights': str(report['summary']['rule_weight_count'])})
+    return report
 
 
 @app.get('/api/runtime-worker/jobs')
@@ -428,6 +464,37 @@ def scan_soundness(scan_id: str, limit: int = 100, user: AuthUser = Depends(requ
         raise HTTPException(status_code=404, detail='scan not found')
     report = soundness_verdict(scan, limit=limit)
     audit(user.username, 'soundness.verdict_reported', scan_id, {'status': report['verdict']['status'], 'blocking': str(report['verdict']['blocking_issue_count'])})
+    return report
+
+
+@app.get('/api/scans/{scan_id}/unified-soundness')
+def scan_unified_soundness(scan_id: str, limit: int = 100, user: AuthUser = Depends(require_permission('scan:read'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    report = unified_soundness_verdict(scan, UnifiedSoundnessRequest(limit=limit))
+    audit(user.username, 'soundness.unified_verdict_reported', scan_id, {
+        'status': report['verdict']['status'],
+        'confidence': report['verdict']['confidence'],
+        'blocking': str(report['verdict']['blocking_issue_count']),
+    })
+    return report
+
+
+@app.post('/api/scans/{scan_id}/unified-soundness')
+def scan_unified_soundness_with_request(scan_id: str, request: UnifiedSoundnessRequest, user: AuthUser = Depends(require_permission('scan:run'))) -> dict:
+    try:
+        scan = apply_decisions(load_scan(scan_id))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='scan not found')
+    report = unified_soundness_verdict(scan, request)
+    audit(user.username, 'soundness.unified_verdict_reported', scan_id, {
+        'status': report['verdict']['status'],
+        'confidence': report['verdict']['confidence'],
+        'blocking': str(report['verdict']['blocking_issue_count']),
+        'dast_inputs': str(len(request.dast_report_paths)),
+    })
     return report
 
 

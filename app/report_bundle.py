@@ -25,7 +25,7 @@ from .hermes import hermes_report_for_scan
 from .ingestion import scanner_mesh_report
 from .issue_planning import build_issue_plan
 from .messaging_gateway import build_scan_gateway_report
-from .models import DastScanRequest, FixApplyRequest, InsideOutAutofixLoopRequest, RuntimeBuildRunRequest, ScanResult, VerifiedAutofixRequest
+from .models import DastScanRequest, FixApplyRequest, InsideOutAutofixLoopRequest, RuntimeBuildRunRequest, ScanResult, UnifiedSoundnessRequest, VerifiedAutofixRequest
 from .priority import prioritization_report
 from .quarantine import quarantine_policy_for_scan
 from .reachability import reachability_context_report
@@ -48,6 +48,7 @@ from .storage import load_baseline, load_scan
 from .suppressions import inline_suppression_report
 from .team_learning import team_learning_dashboard
 from .teaching_loop import teaching_loop_report_for_scan
+from .unified_soundness import unified_soundness_verdict
 from .verified_autofix import run_verified_autofix
 
 DEFAULT_AI_REVIEW_LIMIT = 25
@@ -73,6 +74,7 @@ def build_report_bundle(scan: ScanResult, base_dir: Path | None = None, ai_revie
     write_json_artifact('secure-review.sarif', lambda: build_sarif(scan), 'application/sarif+json')
     write_text_artifact('pr-comment.md', lambda: github_pr_comment(scan), 'text/markdown')
     write_json_artifact('soundness-verdict.json', lambda: soundness_verdict(scan))
+    write_json_artifact('unified-soundness-verdict.json', lambda: unified_soundness_verdict(scan, UnifiedSoundnessRequest()))
     write_json_artifact('runtime-plan.json', lambda: build_runtime_plan(scan))
     write_json_artifact('runtime-build-run-worker.json', lambda: runtime_build_run_preview(scan, RuntimeBuildRunRequest()))
     write_json_artifact('runtime-smoke-posture.json', lambda: runtime_smoke_preview(scan))

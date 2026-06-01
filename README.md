@@ -844,7 +844,7 @@ Implemented:
 - Source reachability context report that records request-handler, untrusted-input, changed-file, recent-change, generated-file, and non-production context without storing raw code
 - Finding prioritization that ranks raw findings with dataflow evidence, cross-tool corroboration, path class, PR/change context, and optional test coverage evidence while keeping existing `RiskScore` fields backward compatible
 - Machine soundness verdict contract for autonomous orchestrators: deterministic JSON, `pass` or `block` gate status, stable line-insensitive issue IDs, ranked deduped issues, replay digest, agent-loop readiness, precision-gated fix queue eligibility, and safe-autofix candidate flags
-- Phase 2A inside-out autofix loop protocol: consumes the soundness fix queue, runs verified autofix, reruns the soundness gate after tests pass, detects unresolved issues/new blockers, and stops on no-progress oscillation
+- Phase 2A/2B inside-out autofix loop protocol: consumes the soundness fix queue, runs verified autofix, reruns the soundness gate after tests pass, detects unresolved issues/new blockers, stops on no-progress oscillation, persists loop runs, and emits governance evidence
 - Semgrep dataflow trace and SARIF code-flow ingestion without storing raw trace bodies in reports
 - `scan.ps1` now emits `scanner-mesh.json`, `finding-consolidation.json`, `prioritization.json`, `soundness-verdict.json`, and `reachability-context.json` by default and accepts optional SARIF imports with `-SarifIn`
 
@@ -977,6 +977,8 @@ Useful endpoints:
 - `POST /api/scans/{scan_id}/fixes/apply`
 - `POST /api/scans/{scan_id}/fixes/verified-autofix`
 - `POST /api/scans/{scan_id}/fixes/inside-out-loop`
+- `GET /api/scans/{scan_id}/fixes/inside-out-loop/runs`
+- `GET /api/fixes/inside-out-loop/runs/{loop_id}`
 
 CLI dry-run bundle and apply preview:
 
@@ -1037,7 +1039,7 @@ PowerShell wrapper:
 .\scan.ps1 -Path "G:\Path\To\Repo"
 ```
 
-`scan.ps1` now emits `fix-bundle.json`, `fix-apply-dry-run.json`, `verified-autofix-dry-run.json`, and `inside-out-autofix-loop-dry-run.json` by default. Treat dry-run reports as review artifacts; real verified autofix and inside-out loop runs should be reserved for trusted repositories or disposable workers because they run the repository's own test commands.
+`scan.ps1` now emits `fix-bundle.json`, `fix-apply-dry-run.json`, `verified-autofix-dry-run.json`, and `inside-out-autofix-loop-dry-run.json` by default. Inside-out loop runs are saved under the Secure Review data directory unless `--inside-out-autofix-loop-no-persist` is used. Treat dry-run reports as review artifacts; real verified autofix and inside-out loop runs should be reserved for trusted repositories or disposable workers because they run the repository's own test commands.
 
 
 ## Roadmap Point 8: IDE/CLI Parity

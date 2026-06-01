@@ -25,6 +25,7 @@ def compliance_api_schema() -> dict[str, Any]:
             'agent-actions',
             'approval-lineage',
             'memory-version-lineage',
+            'inside-out-autofix-loop-lineage',
             'quarantine-alerts',
             'scan-inventory',
             'compliance-evidence-bundles',
@@ -74,6 +75,7 @@ def compliance_api_schema() -> dict[str, Any]:
 
 def compliance_api_status() -> dict[str, Any]:
     from .benchmark_gate import benchmark_gate_status
+    from .autofix_loop import list_inside_out_autofix_loop_runs
     from .governance import governance_events
     from .quarantine import quarantine_registry_report
     from .rag_memory import rag_memory_status
@@ -96,6 +98,7 @@ def compliance_api_status() -> dict[str, Any]:
             'rag_memory_records': memory.get('scan_memory_record_count', 0),
             'benchmark_lessons': benchmark.get('lesson_count', 0),
             'active_learning_influences': benchmark.get('active_influence_count', 0),
+            'inside_out_autofix_loop_runs': len(list_inside_out_autofix_loop_runs(limit=1000)),
             'quarantine_entries': quarantine.get('total_entries', 0),
         },
         'schema': compliance_api_schema(),

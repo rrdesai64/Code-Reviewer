@@ -12,7 +12,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from .models import BenchmarkLessonRequest, BenchmarkTransitionRequest, ChatNotificationRequest, CodeHostReviewRequest, DecisionRequest, DisposableVmScanRequest, FixApplyRequest, GatewaySendRequest, GitHubPrReviewRequest, HermesReviewRequest, HermesRunRequest, InsideOutAutofixLoopRequest, IssuePlanRequest, LLMRequest, MemoryRollbackRequest, QuarantineEntryRequest, QuarantineLookupRequest, RagMemoryReindexRequest, ReportLakeReindexRequest, TeachingLoopSessionRequest, TeamCampaignRequest, VerifiedAutofixRequest
 from .advanced_ai import advanced_ai_status, build_embedding_index, fine_tune_dataset_jsonl, fine_tune_experiment_plan, gpu_profile, local_runtime_status, phase_g_report, run_multi_agent_review, semantic_search
-from .autofix_loop import run_inside_out_autofix_loop
+from .autofix_loop import list_inside_out_autofix_loop_runs, load_inside_out_autofix_loop_run, run_inside_out_autofix_loop
 from .benchmark_gate import benchmark_corpus_report, benchmark_gate_report_for_recommendations, benchmark_gate_status, list_benchmark_lessons, transition_benchmark_lesson, upsert_benchmark_lesson
 from .catalog_coverage import catalog_coverage_map
 from .chat_agents import ChatAgentError, build_chat_notification, chat_agent_status, handle_slack_command, handle_teams_command, verify_slack_signature, verify_teams_command_secret
@@ -1652,6 +1652,23 @@ def scan_inside_out_autofix_loop(scan_id: str, request: InsideOutAutofixLoopRequ
         'selected_issues': str(report['summary']['selected_issue_count']),
         'iterations': str(report['summary']['iterations_attempted']),
     })
+    return report
+
+
+@app.get('/api/scans/{scan_id}/fixes/inside-out-loop/runs')
+def scan_inside_out_autofix_loop_runs(scan_id: str, limit: int = 50, user: AuthUser = Depends(require_permission('fix:propose'))) -> dict:
+    runs = list_inside_out_autofix_loop_runs(scan_id=scan_id, limit=limit)
+    audit(user.username, 'fix.inside_out_autofix_loop_runs_listed', scan_id, {'count': str(len(runs))})
+    return {'schema_version': 'inside-out-autofix-loop-runs-v1', 'scan_id': scan_id, 'count': len(runs), 'runs': runs}
+
+
+@app.get('/api/fixes/inside-out-loop/runs/{loop_id}')
+def inside_out_autofix_loop_run(loop_id: str, user: AuthUser = Depends(require_permission('fix:propose'))) -> dict:
+    try:
+        report = load_inside_out_autofix_loop_run(loop_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail='inside-out autofix loop run not found')
+    audit(user.username, 'fix.inside_out_autofix_loop_run_loaded', loop_id, {'scan_id': str(report.get('scan_id') or ''), 'status': str(report.get('status') or '')})
     return report
 
 

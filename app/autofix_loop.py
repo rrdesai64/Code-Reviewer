@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from .governance import record_governance_event
 from .models import InsideOutAutofixLoopRequest, ScanResult, VerifiedAutofixRequest
+from .paths import data_dir
 from .scanner import run_scan
 from .soundness import soundness_verdict
 from .verified_autofix import run_verified_autofix
@@ -14,6 +18,7 @@ from .verified_autofix import run_verified_autofix
 REPORT_SCHEMA = 'inside-out-autofix-loop-v1'
 PHASE2A_MAX_ITERATIONS = 1
 PASSED_AUTOFIX_STATUSES = {'verified', 'pr_opened'}
+LOOP_RUNS_DIRNAME = 'inside-out-autofix-loops'
 
 ScannerFn = Callable[[Path, str | None], ScanResult]
 
@@ -34,12 +39,12 @@ def run_inside_out_autofix_loop(
         report['status'] = 'already_sound'
         report['gate'] = 'passed'
         report['termination'] = 'initial_soundness_gate_passed'
-        return report
+        return finalize_loop_report(report, request)
     if not selected_finding_ids:
         report['status'] = 'no_eligible_fixes'
         report['gate'] = 'blocked'
         report['termination'] = 'no_soundness_queue_items_selected'
-        return report
+        return finalize_loop_report(report, request)
 
     verified_request = verified_request_from_loop(request, selected_finding_ids)
     autofix_report = run_verified_autofix(scan, verified_request, actor=actor)
@@ -52,20 +57,20 @@ def run_inside_out_autofix_loop(
         report['status'] = 'dry_run'
         report['gate'] = 'not_run'
         report['termination'] = 'dry_run_no_files_changed'
-        return report
+        return finalize_loop_report(report, request)
 
     if autofix_report['status'] not in PASSED_AUTOFIX_STATUSES:
         report['status'] = autofix_report['status']
         report['gate'] = autofix_report.get('gate') or 'failed'
         report['termination'] = 'verified_autofix_did_not_reach_green_test_gate'
-        return report
+        return finalize_loop_report(report, request)
 
     if not request.rescan_after_apply:
         report['status'] = 'verified_without_rescan'
         report['gate'] = 'blocked'
         report['termination'] = 'rescan_gate_disabled'
         report['blocked_reasons'].append('rescan_after_apply=true is required for Phase 2A closure')
-        return report
+        return finalize_loop_report(report, request)
 
     worktree_target = rescan_path_from_autofix(scan, autofix_report)
     if not worktree_target:
@@ -73,7 +78,7 @@ def run_inside_out_autofix_loop(
         report['gate'] = 'failed'
         report['termination'] = 'could_not_resolve_worktree_rescan_path'
         report['blocked_reasons'].append('verified autofix did not report a usable worktree path')
-        return report
+        return finalize_loop_report(report, request)
 
     try:
         rescan = scanner_fn(worktree_target, scan.project_name)
@@ -82,7 +87,7 @@ def run_inside_out_autofix_loop(
         report['gate'] = 'failed'
         report['termination'] = 'rescan_exception'
         report['blocked_reasons'].append(str(exc)[:1000])
-        return report
+        return finalize_loop_report(report, request)
 
     rescan_verdict = soundness_verdict(rescan)
     verification = verify_loop_resolution(initial_verdict, rescan_verdict, selected)
@@ -109,11 +114,70 @@ def run_inside_out_autofix_loop(
         report['status'] = 'resolved'
         report['gate'] = 'passed'
         report['termination'] = 'selected_issues_resolved_without_new_blockers'
-    return report
+    return finalize_loop_report(report, request)
 
 
 def rescan_target(target: Path, project_name: str | None) -> ScanResult:
     return run_scan(target, project_name=project_name)
+
+
+def finalize_loop_report(report: dict[str, Any], request: InsideOutAutofixLoopRequest) -> dict[str, Any]:
+    if not request.persist:
+        return report
+    events = record_loop_governance_events(report)
+    report['governance'] = {
+        'event_ids': [event['event_id'] for event in events],
+        'event_count': len(events),
+        'category': 'agent-action',
+    }
+    path = save_inside_out_autofix_loop_run(report)
+    report['storage'] = {
+        'persisted': True,
+        'record_path': str(path),
+        'record_path_hash': stable_id(str(path)),
+    }
+    path.write_text(json.dumps(report, indent=2), encoding='utf-8')
+    return report
+
+
+def save_inside_out_autofix_loop_run(report: dict[str, Any]) -> Path:
+    path = loop_run_path(str(report['scan_id']), str(report['loop_id']))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=2), encoding='utf-8')
+    return path
+
+
+def list_inside_out_autofix_loop_runs(scan_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    root = loop_runs_dir()
+    if not root.exists():
+        return []
+    if scan_id:
+        paths = list((root / safe_id(scan_id)).glob('*.json'))
+    else:
+        paths = list(root.glob('*/*.json'))
+    runs: list[dict[str, Any]] = []
+    for path in paths:
+        try:
+            runs.append(loop_run_card(json.loads(path.read_text(encoding='utf-8'))))
+        except Exception:
+            continue
+    runs.sort(key=lambda item: item.get('generated_at') or '', reverse=True)
+    return runs[:max(0, min(limit, 1000))]
+
+
+def load_inside_out_autofix_loop_run(loop_id: str) -> dict[str, Any]:
+    requested = safe_id(loop_id)
+    for path in loop_runs_dir().glob(f'*/{requested}.json'):
+        return json.loads(path.read_text(encoding='utf-8'))
+    raise FileNotFoundError(loop_id)
+
+
+def loop_runs_dir() -> Path:
+    return data_dir() / LOOP_RUNS_DIRNAME
+
+
+def loop_run_path(scan_id: str, loop_id: str) -> Path:
+    return loop_runs_dir() / safe_id(scan_id) / f'{safe_id(loop_id)}.json'
 
 
 def base_report(
@@ -126,6 +190,7 @@ def base_report(
 ) -> dict[str, Any]:
     return {
         'schema_version': REPORT_SCHEMA,
+        'loop_id': new_loop_id(),
         'generated_at': datetime.now(timezone.utc).isoformat(),
         'scan_id': scan.scan_id,
         'project_name': scan.project_name,
@@ -145,6 +210,7 @@ def base_report(
             'requires_rescan_after_apply': True,
             'requires_no_new_blockers': True,
             'anti_oscillation_enabled': True,
+            'persist_requested': request.persist,
             'raw_code_included': False,
         },
         'summary': {
@@ -166,6 +232,8 @@ def base_report(
         'rescan': None,
         'verification': None,
         'anti_oscillation': None,
+        'storage': {'persisted': False, 'record_path': '', 'record_path_hash': ''},
+        'governance': {'event_ids': [], 'event_count': 0},
     }
 
 
@@ -330,6 +398,190 @@ def issue_key(issue: dict[str, Any]) -> str:
 def issue_set_digest(verdict: dict[str, Any]) -> str:
     payload = json.dumps(sorted(issue_key(issue) for issue in verdict.get('issues', [])), separators=(',', ':'))
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()
+
+
+def record_loop_governance_events(report: dict[str, Any]) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    loop_id = str(report.get('loop_id') or '')
+    scan_id = str(report.get('scan_id') or '')
+    actor = str(report.get('actor') or 'system')
+    selected_issue_ids = [item.get('issue_id') for item in report.get('selected_issues', [])]
+    selected_finding_ids = report.get('selected_finding_ids', [])
+    common = {
+        'actor': actor,
+        'category': 'agent-action',
+        'resource': loop_id,
+        'scan_id': scan_id,
+    }
+    events.append(record_governance_event(
+        **common,
+        action='inside_out_loop.requested',
+        reason='Inside-out autofix loop was requested from a soundness verdict.',
+        metadata=loop_metadata(report),
+        evidence_refs=loop_evidence_refs(report),
+    ))
+    if selected_issue_ids:
+        events.append(record_governance_event(
+            **common,
+            action='inside_out_loop.issues_selected',
+            reason='Loop selected issues from soundness.agent_fix_queue.',
+            metadata={'selected_issue_count': len(selected_issue_ids), 'selected_finding_count': len(selected_finding_ids)},
+            evidence_refs={'loop_id': loop_id, 'scan_id': scan_id, 'selected_issue_ids': selected_issue_ids, 'selected_finding_ids': selected_finding_ids},
+        ))
+    if report.get('iterations'):
+        iteration = report['iterations'][0]
+        autofix = iteration.get('verified_autofix') or {}
+        events.append(record_governance_event(
+            **common,
+            action='inside_out_loop.verified_autofix_invoked',
+            reason='Loop invoked verified autofix as its controlled edit mechanism.',
+            metadata={
+                'autofix_status': autofix.get('status', ''),
+                'autofix_gate': autofix.get('gate', ''),
+                'dry_run': str(bool(report.get('dry_run'))),
+                'commit_sha': (autofix.get('branch') or {}).get('commit_sha', ''),
+            },
+            evidence_refs=loop_evidence_refs(report),
+        ))
+        test_action = test_governance_action(autofix)
+        if test_action:
+            events.append(record_governance_event(
+                **common,
+                action=test_action,
+                reason='Loop recorded the verified autofix test gate outcome.',
+                metadata=test_metadata(autofix),
+                evidence_refs={'loop_id': loop_id, 'scan_id': scan_id, 'test_commands': test_command_names(autofix)},
+            ))
+    if report.get('rescan'):
+        rescan_status = ((report.get('rescan') or {}).get('verdict') or {}).get('status', '')
+        events.append(record_governance_event(
+            **common,
+            action='inside_out_loop.rescan_passed' if report.get('gate') == 'passed' else 'inside_out_loop.rescan_failed',
+            reason='Loop reran the inside-out soundness gate after the verified autofix test gate.',
+            metadata={
+                'rescan_status': rescan_status,
+                'resolved_issues': str((report.get('summary') or {}).get('resolved_issues', 0)),
+                'unresolved_issues': str((report.get('summary') or {}).get('unresolved_issues', 0)),
+                'new_blockers': str((report.get('summary') or {}).get('new_blockers', 0)),
+            },
+            evidence_refs=loop_evidence_refs(report),
+        ))
+    events.append(record_governance_event(
+        **common,
+        action='inside_out_loop.completed',
+        reason=str(report.get('termination') or 'Inside-out autofix loop completed.'),
+        metadata=loop_metadata(report),
+        evidence_refs=loop_evidence_refs(report),
+    ))
+    return events
+
+
+def loop_run_card(report: dict[str, Any]) -> dict[str, Any]:
+    summary = report.get('summary') or {}
+    storage = report.get('storage') or {}
+    return {
+        'schema_version': report.get('schema_version', REPORT_SCHEMA),
+        'loop_id': report.get('loop_id'),
+        'generated_at': report.get('generated_at'),
+        'scan_id': report.get('scan_id'),
+        'project_name': report.get('project_name'),
+        'actor': report.get('actor'),
+        'status': report.get('status'),
+        'gate': report.get('gate'),
+        'dry_run': bool(report.get('dry_run')),
+        'termination': report.get('termination'),
+        'selected_issue_count': summary.get('selected_issue_count', 0),
+        'selected_finding_count': summary.get('selected_finding_count', 0),
+        'iterations_attempted': summary.get('iterations_attempted', 0),
+        'resolved_issues': summary.get('resolved_issues', 0),
+        'unresolved_issues': summary.get('unresolved_issues', 0),
+        'new_blockers': summary.get('new_blockers', 0),
+        'persisted': bool(storage.get('persisted')),
+        'record_path_hash': storage.get('record_path_hash', ''),
+        'governance_event_count': (report.get('governance') or {}).get('event_count', 0),
+    }
+
+
+def loop_metadata(report: dict[str, Any]) -> dict[str, Any]:
+    summary = report.get('summary') or {}
+    return {
+        'loop_id': report.get('loop_id'),
+        'status': report.get('status'),
+        'gate': report.get('gate'),
+        'termination': report.get('termination'),
+        'dry_run': str(bool(report.get('dry_run'))),
+        'selected_issue_count': str(summary.get('selected_issue_count', 0)),
+        'selected_finding_count': str(summary.get('selected_finding_count', 0)),
+        'iterations_attempted': str(summary.get('iterations_attempted', 0)),
+        'resolved_issues': str(summary.get('resolved_issues', 0)),
+        'unresolved_issues': str(summary.get('unresolved_issues', 0)),
+        'new_blockers': str(summary.get('new_blockers', 0)),
+    }
+
+
+def loop_evidence_refs(report: dict[str, Any]) -> dict[str, Any]:
+    iteration = (report.get('iterations') or [{}])[0]
+    autofix = iteration.get('verified_autofix') or {}
+    return {
+        'loop_id': report.get('loop_id'),
+        'scan_id': report.get('scan_id'),
+        'selected_issue_ids': [item.get('issue_id') for item in report.get('selected_issues', [])],
+        'selected_finding_ids': report.get('selected_finding_ids', []),
+        'initial_soundness': {
+            'status': ((report.get('initial_soundness') or {}).get('verdict') or {}).get('status', ''),
+            'blocking_issue_count': ((report.get('initial_soundness') or {}).get('verdict') or {}).get('blocking_issue_count', 0),
+            'replay_digest': ((report.get('initial_soundness') or {}).get('determinism') or {}).get('replay_digest', ''),
+        },
+        'verified_autofix': {
+            'status': autofix.get('status', ''),
+            'gate': autofix.get('gate', ''),
+            'selected_finding_ids': autofix.get('selected_finding_ids', []),
+            'commit_sha': (autofix.get('branch') or {}).get('commit_sha', ''),
+            'pushed': bool((autofix.get('branch') or {}).get('pushed', False)),
+            'pull_request_created': bool((autofix.get('pull_request') or {}).get('created', False)),
+        },
+        'rescan': {
+            'status': (((report.get('rescan') or {}).get('verdict') or {}).get('status', '')),
+            'replay_digest': (((report.get('rescan') or {}).get('determinism') or {}).get('replay_digest', '')),
+        },
+        'anti_oscillation': report.get('anti_oscillation') or {},
+    }
+
+
+def test_governance_action(autofix: dict[str, Any]) -> str:
+    tests = (autofix.get('verification') or {}).get('tests') or []
+    if not tests:
+        return ''
+    return 'inside_out_loop.tests_passed' if all(item.get('passed') for item in tests) else 'inside_out_loop.tests_failed'
+
+
+def test_metadata(autofix: dict[str, Any]) -> dict[str, str]:
+    tests = (autofix.get('verification') or {}).get('tests') or []
+    return {
+        'test_count': str(len(tests)),
+        'passed': str(all(item.get('passed') for item in tests) if tests else False),
+        'timed_out': str(any(item.get('timed_out') for item in tests)),
+    }
+
+
+def test_command_names(autofix: dict[str, Any]) -> list[str]:
+    return [
+        stable_id(str(item.get('command') or ''))
+        for item in ((autofix.get('verification') or {}).get('tests') or [])
+    ]
+
+
+def new_loop_id() -> str:
+    return f'iol-{uuid.uuid4().hex[:16]}'
+
+
+def safe_id(value: str) -> str:
+    text = re.sub(r'[^A-Za-z0-9_.-]+', '-', str(value or '').strip()).strip('-._')
+    return text[:120] or 'unknown'
+
+
+def stable_id(value: str) -> str:
+    return hashlib.sha256(str(value or '').encode('utf-8')).hexdigest()[:24]
 
 
 def dedupe(values: list[str]) -> list[str]:

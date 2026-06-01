@@ -105,7 +105,7 @@ def build_report_bundle(scan: ScanResult, base_dir: Path | None = None, ai_revie
     write_json_artifact('fix-bundle.json', lambda: build_fix_bundle(scan, limit=DEFAULT_FIX_BUNDLE_LIMIT, provider='offline'))
     write_json_artifact('fix-apply-dry-run.json', lambda: apply_fix_bundle(scan, FixApplyRequest(dry_run=True, approved=True, limit=DEFAULT_FIX_BUNDLE_LIMIT, provider='offline')))
     write_json_artifact('verified-autofix-dry-run.json', lambda: run_verified_autofix(scan, VerifiedAutofixRequest(dry_run=True, approved=True, limit=DEFAULT_FIX_BUNDLE_LIMIT, provider='offline')))
-    write_json_artifact('inside-out-autofix-loop-dry-run.json', lambda: run_inside_out_autofix_loop(scan, InsideOutAutofixLoopRequest(dry_run=True, approved=True, limit=DEFAULT_FIX_BUNDLE_LIMIT, provider='offline')))
+    write_json_artifact('inside-out-autofix-loop-dry-run.json', lambda: run_inside_out_autofix_loop(scan, InsideOutAutofixLoopRequest(dry_run=True, approved=True, limit=DEFAULT_FIX_BUNDLE_LIMIT, provider='offline', persist=False)))
 
     manifest = report_bundle_manifest(scan, bundle_dir, artifacts, errors)
     manifest_path = bundle_dir / 'manifest.json'

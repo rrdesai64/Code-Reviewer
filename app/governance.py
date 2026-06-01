@@ -226,6 +226,7 @@ def record_memory_version_event(memory: dict[str, Any], *, previous_version_id: 
 
 
 def enterprise_governance_report(scan_id: str | None = None, limit: int = 100) -> dict[str, Any]:
+    from .autofix_loop import list_inside_out_autofix_loop_runs
     from .benchmark_gate import list_benchmark_lessons
     from .hermes import list_hermes_runs, load_hermes_run
     from .rag_memory import list_memory_versions
@@ -243,6 +244,7 @@ def enterprise_governance_report(scan_id: str | None = None, limit: int = 100) -
             hermes_runs.append(load_hermes_run(str(card.get('run_id'))))
         except FileNotFoundError:
             continue
+    inside_out_runs = list_inside_out_autofix_loop_runs(scan_id=scan_id, limit=limit)
     agent_actions = [event for event in events if event.get('category') == 'agent-action']
     if not agent_actions:
         agent_actions = [
@@ -266,6 +268,7 @@ def enterprise_governance_report(scan_id: str | None = None, limit: int = 100) -
             'count': len(agent_actions),
             'events': agent_actions[:limit],
             'hermes_runs': [run_card(run) for run in hermes_runs],
+            'inside_out_autofix_loops': inside_out_runs,
         },
         'approvals': {
             'count': len(approvals),
@@ -299,6 +302,7 @@ def compliance_evidence_export(scan_id: str | None = None, limit: int = 250) -> 
         'scope': report['scope'],
         'control_summary': {
             'agent_action_audit': report['agent_actions']['count'] > 0,
+            'inside_out_autofix_loops': len(report['agent_actions'].get('inside_out_autofix_loops', [])),
             'approval_traceability': report['approvals']['count'] >= 0,
             'memory_version_lineage': report['memory_lineage']['version_count'] >= 0,
             'memory_rollback_supported': report['memory_lineage']['rollback_supported'],

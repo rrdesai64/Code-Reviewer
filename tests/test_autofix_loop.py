@@ -4,7 +4,8 @@ import sys
 
 import pytest
 
-from app.autofix_loop import run_inside_out_autofix_loop
+from app.autofix_loop import list_inside_out_autofix_loop_runs, load_inside_out_autofix_loop_run, run_inside_out_autofix_loop
+from app.governance import enterprise_governance_report, governance_events
 from app.models import InsideOutAutofixLoopRequest
 
 
@@ -53,7 +54,7 @@ def test_inside_out_loop_dry_run_uses_soundness_safe_queue_without_rescan(tmp_pa
 
     report = run_inside_out_autofix_loop(
         scan,
-        InsideOutAutofixLoopRequest(dry_run=True, approved=True),
+        InsideOutAutofixLoopRequest(dry_run=True, approved=True, persist=False),
         scanner_fn=scanner_should_not_run,
     )
 
@@ -64,6 +65,39 @@ def test_inside_out_loop_dry_run_uses_soundness_safe_queue_without_rescan(tmp_pa
     assert report["selected_finding_ids"] == ["dep-1"]
     assert report["rescan"] is None
     assert (repo / "requirements.txt").read_text(encoding="utf-8").strip() == "foo==1.0.0"
+
+
+def test_inside_out_loop_persists_run_and_governance_evidence(
+    tmp_path,
+    monkeypatch,
+    make_scan,
+    make_finding,
+    isolate_enterprise,
+):
+    monkeypatch.setenv("SECURE_REVIEW_DATA_DIR", str(tmp_path / "data"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "requirements.txt").write_text("foo==1.0.0\n", encoding="utf-8")
+    scan = make_scan(findings=[vulnerable_dependency_finding(make_finding)], scan_id="loop-persist")
+    scan.target_path = str(repo)
+
+    report = run_inside_out_autofix_loop(
+        scan,
+        InsideOutAutofixLoopRequest(dry_run=True, approved=True, persist=True),
+    )
+
+    assert report["storage"]["persisted"] is True
+    loaded = load_inside_out_autofix_loop_run(report["loop_id"])
+    assert loaded["loop_id"] == report["loop_id"]
+    runs = list_inside_out_autofix_loop_runs(scan_id="loop-persist")
+    assert [item["loop_id"] for item in runs] == [report["loop_id"]]
+    events = governance_events(category="agent-action", scan_id="loop-persist", limit=20)
+    actions = {event["action"] for event in events}
+    assert "inside_out_loop.requested" in actions
+    assert "inside_out_loop.issues_selected" in actions
+    assert "inside_out_loop.completed" in actions
+    evidence = enterprise_governance_report(scan_id="loop-persist")
+    assert evidence["agent_actions"]["inside_out_autofix_loops"][0]["loop_id"] == report["loop_id"]
 
 
 def test_inside_out_loop_real_run_rescans_and_marks_selected_issue_resolved(
@@ -98,6 +132,7 @@ def test_inside_out_loop_real_run_rescans_and_marks_selected_issue_resolved(
             branch_name="secure-review/loop-green",
             test_commands=[f'"{sys.executable}" check_fix.py'],
             allow_auto_detect_tests=False,
+            persist=False,
         ),
         scanner_fn=scanner_after_fix,
     )
@@ -145,6 +180,7 @@ def test_inside_out_loop_reports_unresolved_after_rescan(
             branch_name="secure-review/loop-unresolved",
             test_commands=[f'"{sys.executable}" check_fix.py'],
             allow_auto_detect_tests=False,
+            persist=False,
         ),
         scanner_fn=scanner_still_finds_issue,
     )

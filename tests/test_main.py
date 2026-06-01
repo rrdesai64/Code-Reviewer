@@ -114,7 +114,7 @@ def test_fix_proposal(client, scanned):
     autofix = client.post(f"/api/scans/{sid}/fixes/verified-autofix", json={"dry_run": True})
     assert autofix.status_code == 200
     assert autofix.json()["schema_version"] == "verified-autofix-v1"
-    loop = client.post(f"/api/scans/{sid}/fixes/inside-out-loop", json={"dry_run": True})
+    loop = client.post(f"/api/scans/{sid}/fixes/inside-out-loop", json={"dry_run": True, "persist": False})
     assert loop.status_code == 200
     assert loop.json()["schema_version"] == "inside-out-autofix-loop-v1"
 

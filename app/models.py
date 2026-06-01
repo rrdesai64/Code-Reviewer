@@ -375,6 +375,7 @@ class InsideOutAutofixLoopRequest(BaseModel):
     pr_body: str | None = None
     commit_message: str | None = None
     rescan_after_apply: bool = True
+    persist: bool = True
 
 
 class IssuePlanRequest(BaseModel):

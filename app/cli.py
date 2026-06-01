@@ -147,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--inside-out-autofix-loop-approved', action='store_true', help='confirm approval for non-dry-run inside-out autofix loop')
     parser.add_argument('--inside-out-autofix-loop-max-iterations', type=int, default=1)
     parser.add_argument('--inside-out-autofix-loop-issue-id', action='append', default=[])
+    parser.add_argument('--inside-out-autofix-loop-no-persist', action='store_true', help='write the loop report artifact without saving a durable loop run record')
     parser.add_argument('--verified-autofix-test-command', action='append', default=[], help='test command to run in the autofix worktree; repeat for multiple commands')
     parser.add_argument('--verified-autofix-timeout', type=int, default=900)
     parser.add_argument('--verified-autofix-branch')
@@ -409,6 +410,7 @@ def main(argv: list[str] | None = None) -> int:
             push_branch=args.verified_autofix_push,
             publish_pr=args.verified_autofix_publish_pr,
             pr_title=args.verified_autofix_pr_title,
+            persist=not args.inside_out_autofix_loop_no_persist,
         ), actor='cli')
         if args.verified_autofix_out:
             Path(args.verified_autofix_out).write_text(json.dumps(autofix_report, indent=2), encoding='utf-8')

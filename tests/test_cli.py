@@ -37,6 +37,7 @@ def test_cli_fail_on_high_returns_2_and_writes_all_outputs(
         "--prioritization-out", str(outs["prioritization.json"]),
         "--soundness-out", str(outs["soundness.json"]),
         "--inside-out-autofix-loop-out", str(outs["inside-loop.json"]),
+        "--inside-out-autofix-loop-no-persist",
         "--save-baseline",
         "--fail-on", "high",
     ])

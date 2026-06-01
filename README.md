@@ -843,7 +843,7 @@ Implemented:
 - Cross-tool finding consolidation that clusters scanner findings by normalized path, close line range, compatible CWE/sink, and distinct tool agreement
 - Source reachability context report that records request-handler, untrusted-input, changed-file, recent-change, generated-file, and non-production context without storing raw code
 - Finding prioritization that ranks raw findings with dataflow evidence, cross-tool corroboration, path class, PR/change context, and optional test coverage evidence while keeping existing `RiskScore` fields backward compatible
-- Machine soundness verdict contract for autonomous orchestrators: deterministic JSON, `pass` or `block` gate status, stable line-insensitive issue IDs, ranked deduped issues, and agent-shaped remediation instructions
+- Machine soundness verdict contract for autonomous orchestrators: deterministic JSON, `pass` or `block` gate status, stable line-insensitive issue IDs, ranked deduped issues, replay digest, agent-loop readiness, precision-gated fix queue eligibility, and safe-autofix candidate flags
 - Semgrep dataflow trace and SARIF code-flow ingestion without storing raw trace bodies in reports
 - `scan.ps1` now emits `scanner-mesh.json`, `finding-consolidation.json`, `prioritization.json`, `soundness-verdict.json`, and `reachability-context.json` by default and accepts optional SARIF imports with `-SarifIn`
 

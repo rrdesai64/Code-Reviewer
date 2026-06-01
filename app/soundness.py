@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from collections import Counter
 from pathlib import Path
@@ -11,12 +12,15 @@ from .consolidation import ensure_consolidated_scan
 from .models import ConsolidatedFinding, Finding, FixSuggestion, ScanResult
 from .priority import apply_priority_scoring, priority_sort_key
 from .refactor import estimate_effort, is_mechanically_supported, validation_commands_for
-from .scope import is_blocking_secret, is_production_impacting, normalize_path
+from .scope import is_blocking_secret, is_production_impacting, is_production_scope, normalize_path
 
 SOUNDNESS_SCHEMA_VERSION = 'soundness-verdict-v1'
 BLOCK_PRIORITIES = {'P0', 'P1'}
 AGENT_FIX_PRIORITIES = {'P0', 'P1', 'P2'}
 AGENT_FIX_EXCLUDED_PATH_CLASSES = {'test', 'vendor', 'generated'}
+SAFE_AUTOFIX_REMEDIATION_CLASSES = {'dependency-update', 'mechanical-patch'}
+DEPENDENCY_FIX_SOURCES = {'dependency-manifest', 'pip-audit', 'snyk'}
+SECRET_FIX_SOURCES = {'secret-scan', 'gitleaks', 'trufflehog'}
 ACTIONABLE_DECISION = 'open'
 
 
@@ -26,6 +30,7 @@ def soundness_verdict(scan: ScanResult, limit: int = 100) -> dict[str, Any]:
     limited_issues = issues[:max(0, limit)]
     blocking = [issue for issue in issues if issue['gate']['effect'] == 'block']
     fix_queue = agent_fix_queue(issues)
+    readiness = agent_loop_readiness(issues, fix_queue)
     reason_counts = Counter(reason for issue in blocking for reason in issue['gate']['reason_codes'])
     return {
         'schema_version': SOUNDNESS_SCHEMA_VERSION,
@@ -56,6 +61,9 @@ def soundness_verdict(scan: ScanResult, limit: int = 100) -> dict[str, Any]:
             'block_high_confidence_secrets': True,
             'actionable_decision': ACTIONABLE_DECISION,
             'dast_used_for_autofix': False,
+            'agent_fix_precision_gate': 'at least one strong signal: dataflow, tool agreement, catalog high confidence, dependency advisory, blocking secret, or critical high-confidence scanner evidence',
+            'safe_autofix_remediation_classes': sorted(SAFE_AUTOFIX_REMEDIATION_CLASSES),
+            'verified_autofix_required_controls': ['explicit approval', 'separate worktree branch', 'test gate', 'rescan gate', 'no new blockers'],
             'duplicate_handling': 'agent issue identity is line-insensitive; duplicate clusters collapse into one issue for the fix queue',
         },
         'summary': {
@@ -63,16 +71,24 @@ def soundness_verdict(scan: ScanResult, limit: int = 100) -> dict[str, Any]:
             'consolidated_issue_count': len(issues),
             'returned_issue_count': len(limited_issues),
             'agent_fix_queue_count': len(fix_queue),
+            'safe_autofix_candidate_count': readiness['summary']['safe_autofix_candidate_count'],
             'priority_counts': dict(sorted(Counter(issue['priority']['tier'] for issue in issues if issue['priority']['tier']).items())),
             'suppressed_or_non_open_findings': sum(1 for finding in scan.findings if finding.decision != ACTIONABLE_DECISION),
             'tool_statuses': dict(sorted(scan.summary.tools.items())),
         },
         'issues': limited_issues,
         'agent_fix_queue': fix_queue,
+        'agent_loop_readiness': readiness,
         'determinism': {
             'stable_order': 'priority tier, priority score, severity, path, semantic class, agent issue id',
             'line_insensitive_issue_ids': True,
             'agent_correlation_key_line_insensitive': True,
+            'agent_decisions_recomputed_after_duplicate_merge': True,
+            'replay_digest': stable_payload_digest({
+                'issues': issues,
+                'agent_fix_queue': fix_queue,
+                'verdict_status': 'block' if blocking else 'pass',
+            }),
             'volatile_timestamps_included': False,
             'scan_id_included': False,
         },
@@ -84,6 +100,7 @@ def soundness_issues(scan: ScanResult) -> list[dict[str, Any]]:
     issues = [issue_from_cluster(scan, cluster, by_id) for cluster in scan.consolidated_findings]
     issues = [issue for issue in issues if issue is not None]
     issues = merge_agent_duplicate_issues(issues)
+    refresh_agent_decisions(issues)
     issues.sort(key=issue_sort_key)
     for index, issue in enumerate(issues, 1):
         issue['rank'] = index
@@ -106,8 +123,7 @@ def issue_from_cluster(scan: ScanResult, cluster: ConsolidatedFinding, by_id: di
         'line': int(cluster.line_start or representative.location.line or 1),
         'end_line': int(cluster.line_end or representative.location.end_line or cluster.line_start or representative.location.line or 1),
     }
-    agent_decision = agent_queue_decision(representative, gate)
-    return {
+    issue = {
         'rank': 0,
         'issue_id': issue_id,
         'correlation': {
@@ -118,7 +134,7 @@ def issue_from_cluster(scan: ScanResult, cluster: ConsolidatedFinding, by_id: di
             'duplicate_cluster_count': 1,
         },
         'gate': gate,
-        'agent': agent_decision,
+        'agent': {},
         'priority': priority_payload(representative),
         'vulnerability': vulnerability_payload(cluster, representative, rule),
         'location': location,
@@ -137,6 +153,8 @@ def issue_from_cluster(scan: ScanResult, cluster: ConsolidatedFinding, by_id: di
         },
         'remediation': remediation_payload(scan, representative, fix, rule),
     }
+    issue['agent'] = agent_queue_decision(issue)
+    return issue
 
 
 def merge_agent_duplicate_issues(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -221,6 +239,11 @@ def merge_evidence(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any
     }
 
 
+def refresh_agent_decisions(issues: list[dict[str, Any]]) -> None:
+    for issue in issues:
+        issue['agent'] = agent_queue_decision(issue)
+
+
 def gate_for_issue(finding: Finding) -> dict[str, Any]:
     reasons: list[str] = []
     priority_tier = finding.priority.tier if finding.priority else finding.risk.priority
@@ -236,22 +259,30 @@ def gate_for_issue(finding: Finding) -> dict[str, Any]:
     }
 
 
-def agent_queue_decision(finding: Finding, gate: dict[str, Any]) -> dict[str, Any]:
+def agent_queue_decision(issue: dict[str, Any]) -> dict[str, Any]:
     reasons: list[str] = []
-    priority_tier = finding.priority.tier if finding.priority else finding.risk.priority
-    path_class = finding.priority_context.path_class or finding.scope
-    if finding.decision != ACTIONABLE_DECISION:
-        reasons.append(f'excluded:decision:{finding.decision}')
+    priority_tier = str((issue.get('priority') or {}).get('tier') or '')
+    path_class = issue_path_class(issue)
     if priority_tier not in AGENT_FIX_PRIORITIES:
         reasons.append(f'excluded:priority:{priority_tier}')
     if path_class in AGENT_FIX_EXCLUDED_PATH_CLASSES:
         reasons.append(f'excluded:path-class:{path_class}')
-    if not is_production_impacting(finding):
+    if not issue_production_impacting(issue):
         reasons.append('excluded:not-production-impacting')
+    precision = precision_evidence(issue)
+    if not precision['strong_signals']:
+        reasons.append('excluded:precision:no-strong-signal')
+    if precision['confidence'] == 'low':
+        reasons.append('excluded:confidence:low')
+    eligible = not any(reason.startswith('excluded:') for reason in reasons)
+    safety = remediation_safety(issue, eligible)
     if not reasons:
-        reasons.append('eligible:blocking-gate' if gate.get('effect') == 'block' else 'eligible:ranked-production-risk')
+        reasons.append('eligible:blocking-gate' if issue.get('gate', {}).get('effect') == 'block' else 'eligible:ranked-production-risk')
     return {
-        'fix_queue_eligible': not any(reason.startswith('excluded:') for reason in reasons),
+        'fix_queue_eligible': eligible,
+        'safe_autofix_candidate': eligible and safety['safe_autofix_candidate'],
+        'precision': precision,
+        'safety': safety,
         'reason_codes': sorted(set(reasons)),
     }
 
@@ -265,11 +296,128 @@ def agent_fix_queue(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
             'agent_correlation_key': issue['correlation']['agent_correlation_key'],
             'priority': issue['priority'],
             'gate': issue['gate'],
+            'agent': issue['agent'],
             'location': issue['location'],
+            'precision': issue['agent']['precision'],
+            'safety': issue['agent']['safety'],
             'remediation': issue['remediation'],
         }
         for index, issue in enumerate(sorted(queued, key=issue_sort_key), 1)
     ]
+
+
+def agent_loop_readiness(issues: list[dict[str, Any]], fix_queue: list[dict[str, Any]]) -> dict[str, Any]:
+    safe_candidates = [item for item in fix_queue if item.get('agent', {}).get('safe_autofix_candidate')]
+    ineligible_reasons = Counter(
+        reason
+        for issue in issues
+        if not issue.get('agent', {}).get('fix_queue_eligible')
+        for reason in issue.get('agent', {}).get('reason_codes', [])
+        if reason.startswith('excluded:')
+    )
+    queue_reasons = Counter(
+        reason
+        for issue in issues
+        if issue.get('agent', {}).get('fix_queue_eligible')
+        for reason in issue.get('agent', {}).get('reason_codes', [])
+    )
+    status = 'ready' if fix_queue else 'not_ready'
+    return {
+        'status': status,
+        'agent_handoff_ready': bool(fix_queue),
+        'verified_autofix_ready': bool(safe_candidates),
+        'summary': {
+            'issue_count': len(issues),
+            'fix_queue_count': len(fix_queue),
+            'safe_autofix_candidate_count': len(safe_candidates),
+            'manual_or_guided_fix_count': max(0, len(fix_queue) - len(safe_candidates)),
+            'ineligible_issue_count': max(0, len(issues) - len(fix_queue)),
+        },
+        'queue_reason_counts': dict(sorted(queue_reasons.items())),
+        'ineligible_reason_counts': dict(sorted(ineligible_reasons.items())),
+        'controls': {
+            'raw_code_included': False,
+            'requires_rescan_after_fix': True,
+            'requires_no_new_blockers': True,
+            'verified_autofix_requires_safe_remediation_class': True,
+            'dast_may_gate_but_not_drive_autofix': True,
+        },
+        'next_action': 'route_agent_fix_queue' if fix_queue else 'collect stronger evidence or leave as review-only findings',
+    }
+
+
+def precision_evidence(issue: dict[str, Any]) -> dict[str, Any]:
+    evidence = issue.get('evidence', {})
+    vulnerability = issue.get('vulnerability', {})
+    catalog_payload = vulnerability.get('catalog', {})
+    source_rule = vulnerability.get('source_rule', {})
+    dataflow = evidence.get('dataflow') or {}
+    sources = set(evidence.get('sources') or [])
+    confidence = str(vulnerability.get('confidence') or source_rule.get('confidence') or '').upper()
+    severity = str(vulnerability.get('severity') or '').upper()
+    signals: list[str] = []
+    if dataflow.get('has_dataflow'):
+        signals.append('dataflow')
+    if int(evidence.get('tool_agreement_count') or 0) >= 2:
+        signals.append('tool-agreement')
+    if catalog_payload.get('matched') and confidence == 'HIGH' and severity in {'HIGH', 'CRITICAL'}:
+        signals.append('catalog-high-confidence')
+    if sources.intersection(DEPENDENCY_FIX_SOURCES):
+        signals.append('dependency-advisory')
+    if 'blocking-secret' in issue.get('gate', {}).get('reason_codes', []):
+        signals.append('blocking-secret')
+    if severity == 'CRITICAL' and confidence == 'HIGH':
+        signals.append('critical-high-confidence')
+    if dataflow.get('tool_precision') in {'high', 'very-high'}:
+        signals.append(f"tool-precision:{dataflow.get('tool_precision')}")
+    signals = sorted(set(signals))
+    return {
+        'level': 'strong' if signals else 'weak',
+        'strong_signals': signals,
+        'confidence': confidence.lower() if confidence else 'unknown',
+        'requires_strong_signal_for_agent_fix': True,
+    }
+
+
+def remediation_safety(issue: dict[str, Any], eligible: bool) -> dict[str, Any]:
+    remediation = issue.get('remediation', {})
+    source = str((issue.get('vulnerability') or {}).get('source_rule', {}).get('source') or '')
+    action_kinds = {str(action.get('kind') or '') for action in remediation.get('agent_actions', [])}
+    validation_commands = remediation.get('validation_commands') or []
+    if 'update_dependency' in action_kinds or source in DEPENDENCY_FIX_SOURCES:
+        remediation_class = 'dependency-update'
+    elif remediation.get('mechanical_patch_available'):
+        remediation_class = 'mechanical-patch'
+    else:
+        remediation_class = 'manual-guidance'
+
+    blockers: list[str] = []
+    if not eligible:
+        blockers.append('not-agent-fix-eligible')
+    if remediation_class not in SAFE_AUTOFIX_REMEDIATION_CLASSES:
+        blockers.append(f'unsafe-remediation-class:{remediation_class}')
+    if not validation_commands:
+        blockers.append('missing-validation-command')
+    if source in SECRET_FIX_SOURCES:
+        blockers.append('secret-rotation-required')
+    return {
+        'safe_autofix_candidate': not blockers,
+        'remediation_class': remediation_class,
+        'blockers': sorted(set(blockers)),
+        'requires_verified_autofix_loop': True,
+    }
+
+
+def issue_path_class(issue: dict[str, Any]) -> str:
+    context = (issue.get('evidence') or {}).get('context') or {}
+    path_class = str(context.get('path_class') or '').strip()
+    return path_class or 'unknown'
+
+
+def issue_production_impacting(issue: dict[str, Any]) -> bool:
+    if 'blocking-secret' in issue.get('gate', {}).get('reason_codes', []):
+        return True
+    return is_production_scope(issue_path_class(issue))
 
 
 def priority_payload(finding: Finding) -> dict[str, Any]:
@@ -398,6 +546,11 @@ def status_needs_attention(status: str) -> bool:
 
 def stable_hash(value: str) -> str:
     return hashlib.sha256(str(value or '').encode('utf-8')).hexdigest()
+
+
+def stable_payload_digest(value: Any) -> str:
+    payload = json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True)
+    return stable_hash(payload)
 
 
 def normalize_message(value: str) -> str:

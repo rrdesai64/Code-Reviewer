@@ -43,6 +43,26 @@ def test_soundness_contract_is_deterministic_without_scan_metadata(make_scan, ma
     assert soundness_verdict(first) == soundness_verdict(second)
 
 
+def test_soundness_replay_is_deterministic_when_finding_order_changes(make_scan, make_finding):
+    findings = [
+        make_finding(id="sg", fingerprint="sg", source="semgrep", rule_id="python.sql-injection", severity="HIGH", path="src/db.py", line=40, message="SQL injection", cwe=["CWE-89"]),
+        make_finding(id="ql", fingerprint="ql", source="codeql", rule_id="py/sql-injection", severity="HIGH", path="src/db.py", line=42, message="SQL injection", cwe=["CWE-89"]),
+        make_finding(id="dep", fingerprint="dep", source="pip-audit", rule_id="PYSEC-1", severity="HIGH", path="requirements.txt", line=2, message="vulnerable dependency", cwe=["CWE-937"]),
+    ]
+    reversed_findings = [
+        make_finding(id="dep", fingerprint="dep", source="pip-audit", rule_id="PYSEC-1", severity="HIGH", path="requirements.txt", line=2, message="vulnerable dependency", cwe=["CWE-937"]),
+        make_finding(id="ql", fingerprint="ql", source="codeql", rule_id="py/sql-injection", severity="HIGH", path="src/db.py", line=42, message="SQL injection", cwe=["CWE-89"]),
+        make_finding(id="sg", fingerprint="sg", source="semgrep", rule_id="python.sql-injection", severity="HIGH", path="src/db.py", line=40, message="SQL injection", cwe=["CWE-89"]),
+    ]
+
+    first = soundness_verdict(make_scan(findings=findings))
+    second = soundness_verdict(make_scan(findings=reversed_findings))
+
+    assert first == second
+    assert first["determinism"]["replay_digest"] == second["determinism"]["replay_digest"]
+    assert first["determinism"]["agent_decisions_recomputed_after_duplicate_merge"] is True
+
+
 def test_soundness_issue_id_is_line_insensitive(make_scan, make_finding):
     first = make_finding(id="a", fingerprint="a", severity="HIGH", path="src/app.py", line=10, message="same issue")
     second = make_finding(id="b", fingerprint="b", severity="HIGH", path="src/app.py", line=99, message="same issue")
@@ -103,6 +123,8 @@ def test_soundness_collapses_multi_tool_duplicate_into_one_agent_queue_item(make
     assert report["issues"][0]["evidence"]["actionable_finding_count"] == 4
     assert report["summary"]["agent_fix_queue_count"] == 1
     assert report["agent_fix_queue"][0]["issue_id"] == report["issues"][0]["issue_id"]
+    assert "tool-agreement" in report["agent_fix_queue"][0]["precision"]["strong_signals"]
+    assert report["agent_loop_readiness"]["agent_handoff_ready"] is True
 
 
 def test_soundness_agent_fix_queue_excludes_low_value_test_and_vendor_items(make_scan, make_finding):
@@ -118,6 +140,53 @@ def test_soundness_agent_fix_queue_excludes_low_value_test_and_vendor_items(make
     assert "excluded:path-class:test" in decisions["tests/test_db.py"]["reason_codes"]
     assert decisions["vendor/pkg/db.py"]["fix_queue_eligible"] is False
     assert "excluded:path-class:vendor" in decisions["vendor/pkg/db.py"]["reason_codes"]
+
+
+def test_soundness_agent_fix_queue_requires_strong_precision_signal(make_scan, make_finding):
+    finding = make_finding(id="single", fingerprint="single", severity="MEDIUM", path="src/app.py", message="potential issue")
+
+    report = soundness_verdict(make_scan(findings=[finding]))
+
+    assert report["summary"]["agent_fix_queue_count"] == 0
+    assert report["agent_loop_readiness"]["status"] == "not_ready"
+    assert report["issues"][0]["agent"]["fix_queue_eligible"] is False
+    assert "excluded:precision:no-strong-signal" in report["issues"][0]["agent"]["reason_codes"]
+
+
+def test_soundness_marks_dependency_update_as_safe_autofix_candidate(make_scan, make_finding):
+    finding = make_finding(
+        id="dep",
+        fingerprint="dep",
+        source="pip-audit",
+        rule_id="PYSEC-2026-1",
+        severity="HIGH",
+        path="requirements.txt",
+        line=1,
+        message="vulnerable dependency",
+    )
+
+    report = soundness_verdict(make_scan(findings=[finding]))
+
+    assert report["summary"]["agent_fix_queue_count"] == 1
+    assert report["summary"]["safe_autofix_candidate_count"] == 1
+    assert report["agent_loop_readiness"]["verified_autofix_ready"] is True
+    assert report["agent_fix_queue"][0]["safety"]["safe_autofix_candidate"] is True
+    assert report["agent_fix_queue"][0]["safety"]["remediation_class"] == "dependency-update"
+
+
+def test_soundness_allows_agent_handoff_but_blocks_unsafe_autofix_class(make_scan, make_finding):
+    finding = make_finding(id="sg", fingerprint="sg", source="semgrep", rule_id="python.sql-injection", severity="HIGH", path="src/db.py", line=10, message="SQL injection", cwe=["CWE-89"])
+    finding.dataflow = FindingDataflow(has_dataflow=True, source=Location(path="src/db.py", line=2), sink=Location(path="src/db.py", line=10), tool_precision="high")
+
+    report = soundness_verdict(make_scan(findings=[finding]))
+
+    assert report["summary"]["agent_fix_queue_count"] == 1
+    assert report["summary"]["safe_autofix_candidate_count"] == 0
+    assert report["agent_loop_readiness"]["agent_handoff_ready"] is True
+    assert report["agent_loop_readiness"]["verified_autofix_ready"] is False
+    assert report["agent_fix_queue"][0]["agent"]["fix_queue_eligible"] is True
+    assert report["agent_fix_queue"][0]["agent"]["safe_autofix_candidate"] is False
+    assert "unsafe-remediation-class:manual-guidance" in report["agent_fix_queue"][0]["safety"]["blockers"]
 
 
 def test_soundness_uses_catalog_grounded_fix_guidance(make_scan, make_finding):

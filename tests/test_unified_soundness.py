@@ -1,5 +1,6 @@
 import json
 
+from app.consolidation import consolidate_scan
 from app.models import FindingDataflow, Location, UnifiedSoundnessRequest
 from app.soundness_tuning import build_soundness_tuning_profile_from_runs
 from app.unified_soundness import outside_in_provider_registry, unified_soundness_verdict
@@ -113,6 +114,39 @@ def test_unified_soundness_blocks_dast_only_without_autofix(tmp_path, make_scan)
     assert top["signals"][0] == "outside-in-confirmed"
     assert top["agent"]["fix_queue_eligible"] is False
     assert "excluded:dast-only:no-inside-out-source" in top["agent"]["reason_codes"]
+
+
+def test_unified_soundness_rebuilds_saved_scan_clusters_for_dast_ingest(tmp_path, make_scan, make_finding):
+    repo = tmp_path / "repo"
+    fastapi_app(repo)
+    report_path = tmp_path / "zap.json"
+    zap_report(report_path)
+    syntax = make_finding(
+        id="syntax",
+        fingerprint="syntax",
+        source="python-ast",
+        rule_id="python-ast-syntax-error",
+        severity="LOW",
+        path="app/main.py",
+        line=4,
+        message="Python syntax error prevented full AST analysis.",
+        cwe=["CWE-758"],
+    )
+    scan = consolidate_scan(make_scan(findings=[syntax], scan_id="saved-syntax-dast"))
+    scan.target_path = str(repo)
+
+    report = unified_soundness_verdict(
+        scan,
+        UnifiedSoundnessRequest(dast_report_paths=[str(report_path)]),
+    )
+
+    assert report["verdict"]["status"] == "unsound"
+    assert report["summary"]["outside_in_confirmed_issue_count"] == 1
+    top = report["issues"][0]
+    assert top["priority"]["tier"] == "P0"
+    assert top["gate"]["effect"] == "block"
+    assert top["evidence"]["outside_in_sources"] == ["dast:zap"]
+    assert top["evidence"]["confirmed_exploitable"] is True
 
 
 def test_dast_report_ingest_does_not_require_sandbox_running(tmp_path, make_scan):

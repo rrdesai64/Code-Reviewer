@@ -59,6 +59,8 @@ def ensure_consolidated_scan(scan: ScanResult) -> ScanResult:
     if not scan.consolidated_findings and scan.findings:
         return consolidate_scan(scan)
     if scan.consolidated_findings:
+        if consolidated_finding_ids(scan) != current_finding_ids(scan):
+            return consolidate_scan(scan)
         update_summary(scan)
     return scan
 
@@ -120,6 +122,14 @@ def update_summary(scan: ScanResult) -> None:
     scan.summary.invalid_suppression_annotations = len(scan.invalid_suppressions)
 
 
+def current_finding_ids(scan: ScanResult) -> set[str]:
+    return {finding.id for finding in scan.findings}
+
+
+def consolidated_finding_ids(scan: ScanResult) -> set[str]:
+    return {finding_id for cluster in scan.consolidated_findings for finding_id in cluster.finding_ids}
+
+
 def top_consolidated_findings(scan: ScanResult, limit: int = 10) -> list[ConsolidatedFinding]:
     scan = ensure_consolidated_scan(scan)
     return scan.consolidated_findings[: max(0, limit)]
@@ -145,6 +155,10 @@ class _Cluster:
     def tokens(self) -> set[str]:
         return set().union(*(item['tokens'] for item in self.items))
 
+    @property
+    def has_parser_error(self) -> bool:
+        return any(item['parser_error'] for item in self.items)
+
 
 def finding_sort_key(finding: Finding) -> tuple[str, int, int, str, str]:
     start, end = finding_lines(finding)
@@ -165,12 +179,15 @@ def finding_item(finding: Finding) -> dict[str, Any]:
         'sink': sink,
         'cwe': cwe,
         'tokens': tokens,
+        'parser_error': is_parser_error_finding(finding),
         'semantic_key': semantic_key(cwe, sink, finding),
     }
 
 
 def cluster_accepts(cluster: _Cluster, item: dict[str, Any]) -> bool:
     if cluster.path_key != item['path_key']:
+        return False
+    if cluster.has_parser_error != item['parser_error']:
         return False
     if item['path_key'] in {'', 'unknown'} and any(existing['finding'].source != item['finding'].source for existing in cluster.items):
         return False
@@ -316,6 +333,16 @@ def infer_sink(finding: Finding) -> str:
     if catalog_rule:
         return f'catalog-{catalog_rule.lower()}'
     return ''
+
+
+def is_parser_error_finding(finding: Finding) -> bool:
+    if finding.source.startswith('dast:') or finding.dynamic:
+        return False
+    metadata = finding.scanner_metadata or {}
+    if metadata.get('parser_error') == 'true':
+        return True
+    text = ' '.join([finding.source, finding.rule_id, finding.title, finding.message]).lower()
+    return any(token in text for token in ('syntax error', 'syntax-error', 'parse error', 'parse-error', 'parser error', 'parser-error'))
 
 
 def semantic_tokens(cwes: list[str], sink: str, finding: Finding) -> set[str]:

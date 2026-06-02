@@ -1,4 +1,5 @@
-from app.consolidation import consolidate_scan, consolidated_findings_report
+from app.consolidation import consolidate_scan, consolidated_findings_report, ensure_consolidated_scan
+from app.models import FindingDataflow
 
 
 def test_cross_tool_sql_injection_findings_cluster_by_path_line_cwe_and_sink(make_scan, make_finding):
@@ -30,6 +31,71 @@ def test_consolidation_does_not_merge_different_weaknesses_on_same_line(make_sca
 
     assert len(scan.consolidated_findings) == 2
     assert {cluster.semantic_key for cluster in scan.consolidated_findings} == {"CWE-79", "CWE-89"}
+
+
+def test_consolidation_rebuilds_stale_clusters_when_findings_are_added(make_scan, make_finding):
+    syntax = make_finding(
+        id="syntax",
+        fingerprint="fp-syntax",
+        source="python-ast",
+        rule_id="python-ast-syntax-error",
+        severity="LOW",
+        path="app/main.py",
+        line=4,
+        message="Python syntax error prevented full AST analysis.",
+        cwe=["CWE-758"],
+    )
+    scan = consolidate_scan(make_scan(findings=[syntax]))
+    confirmed = make_finding(
+        id="dast-confirmed",
+        fingerprint="fp-dast-confirmed",
+        source="dast:zap",
+        rule_id="40018",
+        severity="HIGH",
+        path="app/main.py",
+        line=4,
+        message="SQL injection was dynamically confirmed.",
+        cwe=["CWE-89"],
+    )
+    confirmed.dataflow = FindingDataflow(confirmed_exploitable=True)
+    scan.findings.append(confirmed)
+
+    rebuilt = ensure_consolidated_scan(scan)
+
+    assert {finding_id for cluster in rebuilt.consolidated_findings for finding_id in cluster.finding_ids} == {"syntax", "dast-confirmed"}
+    dast_cluster = next(cluster for cluster in rebuilt.consolidated_findings if "dast-confirmed" in cluster.finding_ids)
+    assert dast_cluster.priority == "P0"
+
+
+def test_consolidation_does_not_absorb_confirmed_dast_into_parser_error(make_scan, make_finding):
+    syntax = make_finding(
+        id="syntax",
+        fingerprint="fp-syntax",
+        source="python-ast",
+        rule_id="python-ast-syntax-error",
+        severity="LOW",
+        path="app/main.py",
+        line=4,
+        message="Python syntax error prevented full AST analysis.",
+        cwe=["CWE-758"],
+    )
+    confirmed = make_finding(
+        id="dast-confirmed",
+        fingerprint="fp-dast-confirmed",
+        source="dast:zap",
+        rule_id="40018",
+        severity="HIGH",
+        path="app/main.py",
+        line=4,
+        message="SQL injection was dynamically confirmed.",
+        cwe=["CWE-89"],
+    )
+    confirmed.dataflow = FindingDataflow(confirmed_exploitable=True)
+
+    scan = consolidate_scan(make_scan(findings=[syntax, confirmed]))
+
+    assert len(scan.consolidated_findings) == 2
+    assert {cluster.semantic_key for cluster in scan.consolidated_findings} == {"CWE-758", "CWE-89"}
 
 
 def test_consolidation_does_not_merge_same_weakness_when_line_ranges_are_far_apart(make_scan, make_finding):

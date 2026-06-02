@@ -15,6 +15,8 @@ LINE_WINDOW = 3
 MAX_CLUSTER_LINE_SPAN = 12
 SEVERITY_ORDER = {'CRITICAL': 4, 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1, 'INFO': 0}
 CONFIDENCE_ORDER = {'HIGH': 3, 'MEDIUM': 2, 'LOW': 1}
+PRIORITY_ORDER = {'P0': 4, 'P1': 3, 'P2': 2, 'P3': 1, 'P4': 0}
+PRIORITY_SCORE_FLOORS = {'P0': 100, 'P1': 65, 'P2': 40, 'P3': 15, 'P4': 0}
 
 CWE_SINKS = {
     'CWE-22': 'path-traversal',
@@ -202,7 +204,12 @@ def build_consolidated_finding(cluster: _Cluster) -> ConsolidatedFinding:
     consolidated_confidence = max((confidence(finding) for finding in findings), key=lambda value: CONFIDENCE_ORDER.get(value, 0))
     semantic = semantic_key(cwes, sink, representative)
     factors = score_factors(findings, severity, consolidated_confidence, len(sources), cwes, sink)
-    priority_score = max(max((finding.risk.score for finding in findings), default=0), clamp_score(sum(factor.points for factor in factors)))
+    effective_priority = effective_cluster_priority(findings)
+    priority_score = max(
+        max((finding.risk.score for finding in findings), default=0),
+        clamp_score(sum(factor.points for factor in factors)),
+        PRIORITY_SCORE_FLOORS.get(effective_priority, 0),
+    )
     risk_tier = tier_for_score(priority_score)
     return ConsolidatedFinding(
         cluster_id=cluster_id(cluster.path_key, cluster.line_start, cluster.line_end, semantic),
@@ -216,7 +223,7 @@ def build_consolidated_finding(cluster: _Cluster) -> ConsolidatedFinding:
         severity=severity,
         confidence=consolidated_confidence,
         priority_score=priority_score,
-        priority=priority_for_score(priority_score),
+        priority=effective_priority if priority_rank(effective_priority) > priority_rank(priority_for_score(priority_score)) else priority_for_score(priority_score),
         risk_tier=risk_tier,
         recommended_action=action_for_tier(risk_tier) if any(is_production_impacting(finding) for finding in findings) else 'Track as hygiene unless review confirms production exposure or a real secret.',
         agreement_count=len(sources),
@@ -251,9 +258,28 @@ def score_factors(findings: list[Finding], severity: str, consolidated_confidenc
         factors.append(RiskFactor(name='reachability', label='Request handler context', points=8, detail='At least one evidence finding is in or near request handling code.'))
     if any((finding.scanner_metadata or {}).get('changed_file_context') == 'true' for finding in findings):
         factors.append(RiskFactor(name='change-context', label='Changed file context', points=4, detail='At least one evidence finding is new or in a changed file.'))
+    if any(finding.dataflow.confirmed_exploitable for finding in findings):
+        factors.append(RiskFactor(name='confirmed-exploitable', label='Confirmed dynamic exploitability', points=100, detail='At least one evidence finding was dynamically confirmed exploitable.'))
     if not any(is_production_impacting(finding) for finding in findings):
         factors.append(RiskFactor(name='scope', label='Non-production scope', points=-45, detail='All evidence in this cluster is non-production hygiene.'))
     return factors
+
+
+def effective_cluster_priority(findings: list[Finding]) -> str:
+    priorities = [member_priority(finding) for finding in findings]
+    if any(finding.dataflow.confirmed_exploitable for finding in findings):
+        priorities.append('P0')
+    return max(priorities or ['P4'], key=priority_rank)
+
+
+def member_priority(finding: Finding) -> str:
+    if finding.priority and finding.priority.tier:
+        return finding.priority.tier
+    return finding.risk.priority or 'P4'
+
+
+def priority_rank(priority: str) -> int:
+    return PRIORITY_ORDER.get(str(priority or 'P4'), 0)
 
 
 def evidence_for(item: dict[str, Any], sink: str) -> ConsolidatedFindingEvidence:

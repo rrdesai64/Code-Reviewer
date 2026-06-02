@@ -91,6 +91,8 @@ def test_unified_soundness_promotes_sast_dast_cluster_to_strongest_signal(tmp_pa
     assert top["evidence"]["inside_out_sources"] == ["semgrep"]
     assert top["evidence"]["outside_in_sources"] == ["dast:zap"]
     assert top["agent"]["fix_queue_eligible"] is True
+    assert report["outside_in"]["web"]["dast"]["performed"] is True
+    assert report["outside_in"]["web"]["dast"]["complete"] is True
 
 
 def test_unified_soundness_blocks_dast_only_without_autofix(tmp_path, make_scan):
@@ -111,6 +113,56 @@ def test_unified_soundness_blocks_dast_only_without_autofix(tmp_path, make_scan)
     assert top["signals"][0] == "outside-in-confirmed"
     assert top["agent"]["fix_queue_eligible"] is False
     assert "excluded:dast-only:no-inside-out-source" in top["agent"]["reason_codes"]
+
+
+def test_dast_report_ingest_does_not_require_sandbox_running(tmp_path, make_scan):
+    repo = tmp_path / "repo"
+    fastapi_app(repo)
+    report_path = tmp_path / "zap.json"
+    zap_report(report_path)
+    scan = make_scan(findings=[], scan_id="unified-ingest-no-sandbox")
+    scan.target_path = str(repo)
+
+    report = unified_soundness_verdict(
+        scan,
+        UnifiedSoundnessRequest(
+            dast_report_paths=[str(report_path)],
+            dast_run_tools=False,
+            dast_require_sandbox_running=True,
+        ),
+    )
+
+    dast = report["outside_in"]["web"]["dast"]
+    assert dast["performed"] is True
+    assert dast["complete"] is True
+    assert dast["summary"]["dast_finding_count"] > 0
+    assert report["summary"]["outside_in_confirmed_issue_count"] > 0
+    assert report["verdict"]["status"] == "unsound"
+
+
+def test_dast_run_mode_without_sandbox_is_loudly_incomplete(tmp_path, make_scan):
+    repo = tmp_path / "repo"
+    fastapi_app(repo)
+    scan = make_scan(findings=[], scan_id="unified-run-no-sandbox")
+    scan.target_path = str(repo)
+
+    report = unified_soundness_verdict(
+        scan,
+        UnifiedSoundnessRequest(
+            dast_base_url="http://127.0.0.1:8000",
+            dast_run_tools=True,
+            dast_require_sandbox_running=True,
+        ),
+    )
+
+    dast = report["outside_in"]["web"]["dast"]
+    assert dast["requested"] is True
+    assert dast["performed"] is False
+    assert dast["complete"] is False
+    assert dast["status"] == "skipped"
+    assert "outside-in:dast" in report["verdict"]["incomplete_dimensions"]
+    assert report["verdict"]["qualification"] == "outside-in-incomplete"
+    assert any("run_blocked" in reason for reason in dast["reason_codes"])
 
 
 def test_feedback_tuning_profile_learns_resolved_and_recurred_signatures():

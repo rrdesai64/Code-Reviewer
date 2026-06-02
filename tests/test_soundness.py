@@ -1,4 +1,5 @@
 from app.models import FindingDataflow, Location
+from app.consolidation import ensure_consolidated_scan
 from app.priority import apply_priority_scoring
 from app.soundness import soundness_verdict
 
@@ -125,6 +126,47 @@ def test_soundness_collapses_multi_tool_duplicate_into_one_agent_queue_item(make
     assert report["agent_fix_queue"][0]["issue_id"] == report["issues"][0]["issue_id"]
     assert "tool-agreement" in report["agent_fix_queue"][0]["precision"]["strong_signals"]
     assert report["agent_loop_readiness"]["agent_handoff_ready"] is True
+
+
+def test_confirmed_exploitable_cluster_forces_p0_and_block(make_scan, make_finding):
+    confirmed = make_finding(
+        id="dast-confirmed",
+        fingerprint="dast-confirmed",
+        source="dast:zap",
+        rule_id="zap-40018",
+        severity="INFO",
+        path="app/db.py",
+        line=42,
+        message="SQL injection was dynamically confirmed",
+        cwe=["CWE-89"],
+    )
+    confirmed.dataflow = FindingDataflow(confirmed_exploitable=True)
+    lower = make_finding(
+        id="low-confidence",
+        fingerprint="low-confidence",
+        source="semgrep",
+        rule_id="python.sql-injection",
+        severity="INFO",
+        path="app/db.py",
+        line=42,
+        message="Possible SQL injection",
+        cwe=["CWE-89"],
+    )
+    scan = make_scan(findings=[lower, confirmed])
+
+    clustered = ensure_consolidated_scan(scan)
+    assert len(clustered.consolidated_findings) == 1
+    assert clustered.consolidated_findings[0].priority == "P0"
+
+    report = soundness_verdict(clustered)
+
+    assert report["verdict"]["status"] == "block"
+    assert report["verdict"]["blocking_issue_count"] == 1
+    issue = report["issues"][0]
+    assert issue["priority"]["tier"] == "P0"
+    assert issue["gate"]["effect"] == "block"
+    assert "priority:P0" in issue["gate"]["reason_codes"]
+    assert issue["evidence"]["dataflow"]["confirmed_exploitable"] is True
 
 
 def test_soundness_agent_fix_queue_excludes_low_value_test_and_vendor_items(make_scan, make_finding):

@@ -28,7 +28,9 @@ def unified_soundness_verdict(scan: ScanResult, request: UnifiedSoundnessRequest
     issues = ranked_unified_issues(inside_out.get('issues', []), tuning, request.limit)
     blocking = [issue for issue in issues if issue['gate']['effect'] == 'block']
     status = 'unsound' if blocking else 'sound'
-    confidence = unified_confidence(status, issues, augmented)
+    dast_state = dast_dimension_state(dast_report)
+    incomplete_dimensions = incomplete_outside_in_dimensions(dast_state)
+    confidence = unified_confidence(status, issues, augmented, dast_state)
     correlation = correlation_summary(issues)
     provider_registry = outside_in_provider_registry()
     verdict = {
@@ -47,6 +49,9 @@ def unified_soundness_verdict(scan: ScanResult, request: UnifiedSoundnessRequest
         'verdict': {
             'status': status,
             'confidence': confidence,
+            'qualification': 'outside-in-incomplete' if incomplete_dimensions else 'complete',
+            'outside_in_complete': not incomplete_dimensions,
+            'incomplete_dimensions': incomplete_dimensions,
             'blocking_issue_count': len(blocking),
             'top_issue_id': issues[0]['issue_id'] if issues else '',
             'strongest_signal': strongest_signal(issues),
@@ -59,6 +64,7 @@ def unified_soundness_verdict(scan: ScanResult, request: UnifiedSoundnessRequest
             'agent_fix_queue_count': inside_out['summary']['agent_fix_queue_count'],
             'safe_autofix_candidate_count': inside_out['summary']['safe_autofix_candidate_count'],
             'outside_in_confirmed_issue_count': correlation['outside_in_confirmed_issue_count'],
+            'outside_in_complete': not incomplete_dimensions,
             'sast_dast_correlated_issue_count': correlation['sast_dast_correlated_issue_count'],
             'feedback_tuned_issue_count': sum(1 for issue in issues if issue['tuning']['matched']),
         },
@@ -69,7 +75,7 @@ def unified_soundness_verdict(scan: ScanResult, request: UnifiedSoundnessRequest
             'agent_loop_readiness': inside_out['agent_loop_readiness'],
             'determinism': inside_out['determinism'],
         },
-        'outside_in': outside_in_summary(dast_report, provider_registry),
+        'outside_in': outside_in_summary(dast_report, provider_registry, dast_state),
         'correlation': correlation,
         'feedback_tuning': tuning_summary(tuning),
         'policy': {
@@ -94,6 +100,8 @@ def unified_soundness_verdict(scan: ScanResult, request: UnifiedSoundnessRequest
                 ],
                 'inside_out_digest': inside_out['determinism']['replay_digest'],
                 'tuning_digest': (tuning or {}).get('determinism', {}).get('stable_profile_digest', ''),
+                'outside_in_dast_status': dast_state['status'],
+                'outside_in_dast_complete': dast_state['complete'],
             }),
             'volatile_timestamps_included': False,
         },
@@ -260,13 +268,15 @@ def unified_issue_sort_key(issue: dict[str, Any]) -> tuple[float, int, int, str]
     )
 
 
-def unified_confidence(status: str, issues: list[dict[str, Any]], scan: ScanResult) -> str:
+def unified_confidence(status: str, issues: list[dict[str, Any]], scan: ScanResult, dast_state: dict[str, Any]) -> str:
     if status == 'unsound':
         if any(issue['signal_strength'] == 'strongest' for issue in issues):
             return 'very-high'
         if any(issue['signal_strength'] == 'strong' for issue in issues):
             return 'high'
         return 'medium'
+    if dast_state['requested'] and not dast_state['complete']:
+        return 'low'
     if any(status_needs_attention(tool_status) for tool_status in scan.summary.tools.values()):
         return 'medium'
     return 'high'
@@ -309,21 +319,88 @@ def correlation_summary(issues: list[dict[str, Any]]) -> dict[str, Any]:
 def outside_in_summary(
     dast_report: dict[str, Any] | None,
     provider_registry: dict[str, Any],
+    dast_state: dict[str, Any],
 ) -> dict[str, Any]:
     dast_summary = {
         'provided': bool(dast_report),
-        'status': (dast_report or {}).get('status', 'not_run'),
+        'requested': dast_state['requested'],
+        'performed': dast_state['performed'],
+        'complete': dast_state['complete'],
+        'status': dast_state['status'],
+        'reason_codes': dast_state['reason_codes'],
+        'unqualified_pass': dast_state['status'] == 'passed' and dast_state['complete'],
         'gate': (dast_report or {}).get('gate') or {},
         'summary': (dast_report or {}).get('summary') or {},
+        'run': (dast_report or {}).get('run') or {},
+        'inputs': (dast_report or {}).get('inputs') or {},
+        'parse_errors': (dast_report or {}).get('parse_errors') or [],
     }
     return {
         'web': {
             'runtime_smoke': 'available-through-phase-3c',
             'dast': dast_summary,
-            'provider_status': 'ready',
+            'provider_status': 'ready' if dast_state['complete'] else 'incomplete',
         },
         'providers': provider_registry,
     }
+
+
+def dast_dimension_state(dast_report: dict[str, Any] | None) -> dict[str, Any]:
+    if not dast_report:
+        return {
+            'requested': False,
+            'performed': False,
+            'complete': True,
+            'status': 'not_requested',
+            'reason_codes': [],
+        }
+    inputs = dast_report.get('inputs') or {}
+    run = dast_report.get('run') or {}
+    summary = dast_report.get('summary') or {}
+    report_paths = inputs.get('report_paths') or []
+    run_requested = bool(inputs.get('run_tools'))
+    requested = bool(report_paths or run_requested)
+    finding_count = int(summary.get('dast_finding_count') or 0)
+    parse_error_count = int(summary.get('parse_error_count') or 0)
+    run_status = str(run.get('status') or '')
+    run_blockers = [str(item) for item in run.get('blockers') or [] if item]
+    report_ingest_attempted = bool(report_paths)
+    report_ingest_complete = report_ingest_attempted and parse_error_count == 0
+    run_performed = run_status in {'completed', 'partial'}
+    performed = bool(finding_count or report_ingest_complete or run_performed)
+    reasons: list[str] = []
+    if run_requested and run_status == 'blocked':
+        reasons.extend(f'run_blocked:{reason}' for reason in run_blockers)
+    if parse_error_count:
+        reasons.append(f'report_parse_errors:{parse_error_count}')
+    if requested and not performed and not reasons:
+        reasons.append('dast_requested_but_not_performed')
+    complete = requested is False or (performed and not reasons)
+    if run_requested and run_status == 'blocked':
+        complete = False
+    if not requested:
+        status = 'not_requested'
+    elif not performed:
+        status = 'skipped'
+    elif not complete:
+        status = 'incomplete'
+    elif str(dast_report.get('status') or '') == 'block':
+        status = 'blocked'
+    else:
+        status = 'passed'
+    return {
+        'requested': requested,
+        'performed': performed,
+        'complete': complete,
+        'status': status,
+        'reason_codes': sorted(set(reasons)),
+    }
+
+
+def incomplete_outside_in_dimensions(dast_state: dict[str, Any]) -> list[str]:
+    if dast_state['requested'] and not dast_state['complete']:
+        return ['outside-in:dast']
+    return []
 
 
 def outside_in_provider_registry() -> dict[str, Any]:

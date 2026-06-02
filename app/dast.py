@@ -321,7 +321,8 @@ def run_dast_tools(request: DastScanRequest) -> dict[str, Any]:
 
 
 def run_preview(request: DastScanRequest) -> dict[str, Any]:
-    return {'mode': 'ingest', 'status': 'not_run', 'blockers': [], 'commands': dast_commands(request), 'artifacts': []}
+    status = 'report_ingest_requested' if request.report_paths else 'not_run'
+    return {'mode': 'ingest', 'status': status, 'blockers': [], 'commands': dast_commands(request), 'artifacts': []}
 
 
 def run_blockers(request: DastScanRequest) -> list[str]:
@@ -330,8 +331,8 @@ def run_blockers(request: DastScanRequest) -> list[str]:
         blockers.append('run mode requires base_url from the Phase 3 sandboxed runtime')
     elif not allowed_base_url(request.base_url, allow_remote=request.allow_remote_base_url):
         blockers.append('DAST run target must be loopback/private unless allow_remote_base_url=true')
-    if request.require_sandbox_running and not request.report_paths:
-        blockers.append('run mode requires Phase 3 sandbox evidence or supplied DAST report path before ingestion')
+    if request.require_sandbox_running:
+        blockers.append('run mode requires Phase 3 sandbox evidence or --dast-no-sandbox-required')
     if not dast_commands(request):
         blockers.append('requested DAST tool is not installed or available on PATH')
     return blockers

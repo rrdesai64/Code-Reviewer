@@ -22,6 +22,8 @@ SAFE_AUTOFIX_REMEDIATION_CLASSES = {'dependency-update', 'mechanical-patch'}
 DEPENDENCY_FIX_SOURCES = {'dependency-manifest', 'pip-audit', 'snyk'}
 SECRET_FIX_SOURCES = {'secret-scan', 'gitleaks', 'trufflehog'}
 ACTIONABLE_DECISION = 'open'
+PRIORITY_ORDER = {'P0': 4, 'P1': 3, 'P2': 2, 'P3': 1, 'P4': 0}
+PRIORITY_SCORE_FLOORS = {'P0': 100.0, 'P1': 65.0, 'P2': 40.0, 'P3': 15.0, 'P4': 0.0}
 
 
 def soundness_verdict(scan: ScanResult, limit: int = 100) -> dict[str, Any]:
@@ -135,7 +137,7 @@ def issue_from_cluster(scan: ScanResult, cluster: ConsolidatedFinding, by_id: di
         },
         'gate': gate,
         'agent': {},
-        'priority': priority_payload(representative),
+        'priority': effective_priority_payload(cluster, actionable, representative),
         'vulnerability': vulnerability_payload(cluster, representative, rule),
         'location': location,
         'locations': [location],
@@ -176,6 +178,7 @@ def merge_issue(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
     primary['locations'] = sorted_unique_locations([*left.get('locations', []), *right.get('locations', [])])
     primary['location'] = primary['locations'][0]
     primary['gate'] = merge_gate(left['gate'], right['gate'])
+    primary['priority'] = merge_priority(left.get('priority') or {}, right.get('priority') or {})
     primary['agent'] = merge_agent_decisions(primary.get('agent', {}), secondary.get('agent', {}))
     primary['correlation']['legacy_cluster_ids'] = sorted(set(left['correlation']['legacy_cluster_ids'] + right['correlation']['legacy_cluster_ids']))
     primary['correlation']['duplicate_cluster_count'] = len(primary['correlation']['legacy_cluster_ids'])
@@ -213,6 +216,19 @@ def sorted_unique_locations(locations: list[dict[str, Any]]) -> list[dict[str, A
 def merge_gate(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
     reasons = sorted(set(left.get('reason_codes', []) + right.get('reason_codes', [])))
     return {'effect': 'block' if reasons else 'none', 'reason_codes': reasons}
+
+
+def merge_priority(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    tier = max_priority([str(left.get('tier') or 'P4'), str(right.get('tier') or 'P4')])
+    score = max(float(left.get('score') or 0), float(right.get('score') or 0), PRIORITY_SCORE_FLOORS.get(tier, 0.0))
+    factors = [*(left.get('factors') or []), *(right.get('factors') or [])]
+    return {
+        **left,
+        **right,
+        'tier': tier,
+        'score': score,
+        'factors': dedupe_priority_factors(factors),
+    }
 
 
 def merge_agent_decisions(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
@@ -276,7 +292,9 @@ def gate_for_issue(finding: Finding) -> dict[str, Any]:
 def gate_for_findings(findings: list[Finding], representative: Finding) -> dict[str, Any]:
     reasons = set(gate_for_issue(representative)['reason_codes'])
     for finding in findings:
+        reasons.update(gate_for_issue(finding)['reason_codes'])
         if finding.dataflow.confirmed_exploitable:
+            reasons.add('priority:P0')
             reasons.add(dynamic_gate_reason(finding))
     return {'effect': 'block' if reasons else 'none', 'reason_codes': sorted(reasons)}
 
@@ -512,6 +530,50 @@ def priority_payload(finding: Finding) -> dict[str, Any]:
     if finding.priority:
         return finding.priority.model_dump(mode='json')
     return {'tier': finding.risk.priority, 'score': float(finding.risk.score), 'factors': []}
+
+
+def effective_priority_payload(cluster: ConsolidatedFinding, findings: list[Finding], representative: Finding) -> dict[str, Any]:
+    payload = priority_payload(representative)
+    member_priority = max_priority([member_priority_tier(finding) for finding in findings])
+    cluster_priority = str(cluster.priority or 'P4')
+    effective = max_priority([str(payload.get('tier') or 'P4'), member_priority, cluster_priority])
+    score = max(float(payload.get('score') or 0), float(cluster.priority_score or 0), PRIORITY_SCORE_FLOORS.get(effective, 0.0))
+    if effective == payload.get('tier') and score == float(payload.get('score') or 0):
+        return payload
+    factors = [
+        *(payload.get('factors') or []),
+        {
+            'name': 'cluster_effective_priority',
+            'delta': 0,
+            'reason': f'Cluster priority is {effective} because the highest merged member priority is {member_priority}.',
+        },
+    ]
+    return {
+        **payload,
+        'tier': effective,
+        'score': score,
+        'factors': dedupe_priority_factors(factors),
+    }
+
+
+def member_priority_tier(finding: Finding) -> str:
+    if finding.dataflow.confirmed_exploitable:
+        return 'P0'
+    if finding.priority and finding.priority.tier:
+        return finding.priority.tier
+    return finding.risk.priority or 'P4'
+
+
+def max_priority(priorities: list[str]) -> str:
+    return max(priorities or ['P4'], key=lambda value: PRIORITY_ORDER.get(str(value or 'P4'), 0))
+
+
+def dedupe_priority_factors(factors: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    keyed: dict[tuple[str, str], dict[str, Any]] = {}
+    for factor in factors:
+        key = (str(factor.get('name') or ''), str(factor.get('reason') or ''))
+        keyed[key] = factor
+    return [keyed[key] for key in sorted(keyed)]
 
 
 def vulnerability_payload(cluster: ConsolidatedFinding, finding: Finding, rule: dict[str, Any] | None) -> dict[str, Any]:

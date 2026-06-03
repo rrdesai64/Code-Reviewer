@@ -1,4 +1,9 @@
-param([int]$Port = 8000)
+param(
+  [int]$Port = 8000,
+  [string]$OutputRoot = "",
+  [string]$DataDir = "",
+  [string]$ReportsDir = ""
+)
 
 $EnvFile = Join-Path $PSScriptRoot ".env"
 
@@ -16,6 +21,27 @@ if (Test-Path $EnvFile) {
       [Environment]::SetEnvironmentVariable($name, $value, "Process")
     }
   }
+}
+
+$OutputRoot = $OutputRoot.Trim()
+$DataDir = $DataDir.Trim()
+$ReportsDir = $ReportsDir.Trim()
+$HasOutputRootOverride = -not [string]::IsNullOrWhiteSpace($OutputRoot)
+$HasDataDirOverride = -not [string]::IsNullOrWhiteSpace($DataDir)
+$HasReportsDirOverride = -not [string]::IsNullOrWhiteSpace($ReportsDir)
+
+if ($HasOutputRootOverride) {
+  [Environment]::SetEnvironmentVariable("SECURE_REVIEW_OUTPUT_ROOT", $OutputRoot, "Process")
+}
+if ($HasDataDirOverride) {
+  [Environment]::SetEnvironmentVariable("SECURE_REVIEW_DATA_DIR", $DataDir, "Process")
+} elseif ($HasOutputRootOverride) {
+  [Environment]::SetEnvironmentVariable("SECURE_REVIEW_DATA_DIR", (Join-Path $OutputRoot "data"), "Process")
+}
+if ($HasReportsDirOverride) {
+  [Environment]::SetEnvironmentVariable("REPORT_BUNDLE_DIR", $ReportsDir, "Process")
+} elseif ($HasOutputRootOverride) {
+  [Environment]::SetEnvironmentVariable("REPORT_BUNDLE_DIR", (Join-Path $OutputRoot "reports"), "Process")
 }
 
 $DefaultOutputRoot = if (-not [string]::IsNullOrWhiteSpace($env:SECURE_REVIEW_OUTPUT_ROOT)) { $env:SECURE_REVIEW_OUTPUT_ROOT } else { "E:\secure-review" }

@@ -21,7 +21,6 @@ from .finding_ai import build_scan_ai_review
 from .fix_workflow import apply_fix_bundle, build_fix_bundle
 from .github_pr import build_github_pr_review
 from .governance import compliance_evidence_export
-from .hermes import hermes_report_for_scan
 from .ingestion import scanner_mesh_report
 from .issue_planning import build_issue_plan
 from .messaging_gateway import build_scan_gateway_report
@@ -47,7 +46,6 @@ from .soundness import soundness_verdict
 from .storage import load_baseline, load_scan
 from .suppressions import inline_suppression_report
 from .team_learning import team_learning_dashboard
-from .teaching_loop import teaching_loop_report_for_scan
 from .unified_soundness import unified_soundness_verdict
 from .verified_autofix import run_verified_autofix
 
@@ -91,7 +89,6 @@ def build_report_bundle(scan: ScanResult, base_dir: Path | None = None, ai_revie
     write_json_artifact('inline-suppressions.json', lambda: inline_suppression_report(scan))
     write_json_artifact('sanitized-report.json', lambda: sanitized_scan_report(scan))
     write_json_artifact('rag-memory.json', lambda: rag_memory_for_scan(scan))
-    write_json_artifact('hermes-orchestration.json', lambda: hermes_report_for_scan(scan))
     write_json_artifact('ai-review.json', lambda: build_scan_ai_review(scan, provider='offline', limit=ai_review_limit, include_prompts=False))
     write_json_artifact('cyclonedx-sbom.json', lambda: build_cyclonedx(scan), 'application/vnd.cyclonedx+json')
     write_json_artifact('spdx-sbom.json', lambda: build_spdx(scan))
@@ -107,7 +104,6 @@ def build_report_bundle(scan: ScanResult, base_dir: Path | None = None, ai_revie
     write_json_artifact('chat-notification.json', lambda: build_chat_notification(scan))
     write_json_artifact('team-learning-dashboard.json', lambda: team_learning_dashboard())
     write_json_artifact('recursive-learning.json', lambda: scan_recursive_learning_report(scan))
-    write_json_artifact('teacher-student-learning.json', lambda: teaching_loop_report_for_scan(scan))
     write_json_artifact('benchmark-gate.json', lambda: scan_benchmark_gate_artifact(scan))
     write_json_artifact('messaging-gateway.json', lambda: build_scan_gateway_report(scan))
     write_json_artifact('governance-evidence.json', lambda: compliance_evidence_export(scan_id=scan.scan_id))

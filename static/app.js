@@ -124,7 +124,6 @@ function renderScan(scan) {
     <button class="ghost" onclick="showReportBundle('${scan.scan_id}')">Report Bundle</button>
     <button class="ghost" onclick="showSanitizedReport('${scan.scan_id}')">Sanitized Report</button>
     <button class="ghost" onclick="showRagMemory('${scan.scan_id}')">RAG Memory</button>
-    <button class="ghost" onclick="showHermes('${scan.scan_id}')">Hermes</button>
     <button class="ghost" onclick="showGovernance('${scan.scan_id}')">Governance</button>
     <a class="link-button secondary" href="/api/scans/${scan.scan_id}/github-pr-comment" target="_blank">PR Comment</a>
     <button class="ghost" onclick="saveBaseline('${scan.scan_id}')">Save Baseline</button>
@@ -282,15 +281,6 @@ async function showRagMemory(scanId) {
     return;
   }
   showJsonPanel('RAG Memory', await response.json());
-}
-
-async function showHermes(scanId) {
-  const response = await fetch(`/api/scans/${scanId}/hermes`);
-  if (!response.ok) {
-    statusEl.textContent = 'Could not load Hermes orchestration.';
-    return;
-  }
-  showJsonPanel('Hermes Orchestration', await response.json());
 }
 
 async function showGovernance(scanId) {

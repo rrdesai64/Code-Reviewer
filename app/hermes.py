@@ -29,6 +29,7 @@ from .rag_memory import rag_memory_for_scan, scan_rag_memory_report
 SCHEMA_VERSION = 1
 DEFAULT_GOAL = 'secure-review-triage'
 MAX_TASKS = 250
+RETIRED_REASON = 'Hermes orchestration and repository-learning agents have been retired for this deployment.'
 BLOCKING_AGENT_STATUSES = {'block', 'release-blocker', 'critical-dependency-risk', 'coverage-gap'}
 REVIEW_AGENT_STATUSES = {'review-required', 'evidence-required', 'human-approval-required', 'manual-remediation'}
 
@@ -59,11 +60,13 @@ def hermes_status() -> dict[str, Any]:
     return {
         'schema_version': SCHEMA_VERSION,
         'generated_at': now_iso(),
-        'status': 'ready',
+        'status': 'retired',
+        'retired': True,
+        'retired_reason': RETIRED_REASON,
         'hermes_dir': str(hermes_dir()),
         'run_count': len(list(hermes_runs_dir().glob('*.json'))),
         'latest_runs': runs,
-        'agent_registry': agent_registry(),
+        'agent_registry': [],
         'supported_goals': supported_goals(),
         'safety_contract': safety_contract(),
     }
@@ -168,7 +171,7 @@ def create_hermes_run(
     if not scan_id:
         raise ValueError('scan_id is required for persisted Hermes runs')
     memory = scan_rag_memory_report(scan_id, rebuild=True)
-    run = run_hermes_on_memory(
+    return run_hermes_on_memory(
         memory,
         goal=goal,
         requester=requester,
@@ -177,7 +180,6 @@ def create_hermes_run(
         include_ineligible=include_ineligible,
         persist=persist,
     )
-    return run
 
 
 def hermes_report_for_scan(scan: Any, goal: str = DEFAULT_GOAL, limit: int = 100) -> dict[str, Any]:
@@ -198,6 +200,38 @@ def run_hermes_on_memory(
     started = time.time()
     resolved_goal = normalize_goal(goal)
     run_id = make_run_id(memory, resolved_goal, requester)
+    policy = {
+        'schema_version': SCHEMA_VERSION,
+        'decision': 'blocked',
+        'blocked_reasons': [RETIRED_REASON],
+        'include_ineligible': include_ineligible,
+        **safety_contract(),
+    }
+    run = base_run(run_id, memory, resolved_goal, requester, [], policy)
+    run['status'] = 'retired'
+    run['completed_at'] = now_iso()
+    run['duration_seconds'] = round(time.time() - started, 3)
+    run['retired'] = True
+    run['retired_reason'] = RETIRED_REASON
+    run['plan'] = {'task_count': 0, 'task_type_counts': {}, 'agent_count': 0, 'goal': resolved_goal}
+    run['tasks'] = []
+    run['agent_results'] = []
+    run['agent_errors'] = []
+    run['synthesis'] = {
+        'status': 'retired',
+        'summary': RETIRED_REASON,
+        'blocker_count': 0,
+        'review_required_count': 0,
+        'scanner_candidate_count': 0,
+        'raw_repository_reads': 0,
+        'raw_report_reads': 0,
+        'repository_learning_enabled': False,
+        'teacher_student_learning_enabled': False,
+    }
+    if persist:
+        save_hermes_run(run)
+    return run
+
     policy = evaluate_memory_policy(memory, include_ineligible=include_ineligible)
     agents = select_agents(allowed_agents)
     if policy['decision'] == 'blocked':

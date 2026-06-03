@@ -4,7 +4,7 @@ param(
   [string]$ProjectName = "",
   [string]$SonarProjectKey = "",
   [string]$SonarBranchName = "",
-  [string]$OutputRoot = "D:\secure-review",
+  [string]$OutputRoot = "E:\secure-review",
   [string]$ReportsDir = ".\reports",
   [string]$RunId = "",
   [ValidateSet("windows-sandbox", "manual")][string]$Provider = "windows-sandbox",

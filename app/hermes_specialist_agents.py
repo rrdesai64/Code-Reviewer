@@ -301,7 +301,6 @@ def specialist_agent_registry_entry(profile: dict[str, Any]) -> dict[str, Any]:
             f'{key}-dependency-review',
             f'{key}-scanner-coverage',
             f'{key}-remediation-routing',
-            'teacher-student-learning',
         ],
         'item_types': ['scan-summary', 'finding-pattern', 'rule-pattern', 'dependency-signal', 'scanner-status'],
         'languages': profile['languages'],
@@ -311,11 +310,6 @@ def specialist_agent_registry_entry(profile: dict[str, Any]) -> dict[str, Any]:
             'integration_mode': 'native-compatible-agent',
             'dependency_policy': 'no new runtime packages',
             'security_model': 'Disposable VM/worktree isolation is the execution boundary; this agent reads only sanitized RAG memory.',
-        },
-        'teacher_bridge': {
-            'teacher_actor': 'codex',
-            'lesson_languages': profile['lesson_languages'],
-            'influence_rule': 'Only active lessons with passing benchmark evidence and approval can influence recommendations.',
         },
     }
 
@@ -404,8 +398,7 @@ def run_specialist_agent(agent: dict[str, Any], task: dict[str, Any], item: dict
         findings.extend(signals['risk_findings'] or [f"No {profile['display']} blocker detected from sanitized memory."])
         recommendations.extend(validation_steps(profile, signals))
 
-    active_lessons = active_teacher_lessons_for_item(profile, item, signals)
-    recommendations.extend(lesson_recommendations(active_lessons))
+    active_lessons: list[dict[str, Any]] = []
 
     return {
         'result_id': stable_id(agent['agent_id'], task['task_id'], status),
@@ -435,6 +428,7 @@ def run_specialist_agent(agent: dict[str, Any], task: dict[str, Any], item: dict
             'dependency_findings': signals['dependency_findings'],
             'validation_commands': validation_commands(profile, signals),
             'active_teacher_lessons': active_lessons,
+            'teacher_student_learning_enabled': False,
             'requires_human_approval': True,
             'requires_benchmark_gate': signals['scanner_tuning_candidate'],
         },
@@ -542,63 +536,11 @@ def specialist_scanner_gaps(profile: dict[str, Any], item: dict[str, Any]) -> li
 
 
 def active_teacher_lessons_for_item(profile: dict[str, Any], item: dict[str, Any], signals: dict[str, Any]) -> list[dict[str, Any]]:
-    try:
-        from .benchmark_gate import approved_learning_influences
-    except Exception:
-        return []
-
-    lessons: list[dict[str, Any]] = []
-    seen_languages = set()
-    for language in profile.get('lesson_languages', []):
-        if language in seen_languages:
-            continue
-        seen_languages.add(language)
-        try:
-            lessons.extend(approved_learning_influences(language=language))
-        except Exception:
-            continue
-    if not lessons:
-        return []
-
-    metadata = item.get('metadata') or {}
-    tags = {str(tag).lower() for tag in item.get('tags', [])}
-    text = normalized_text(item)
-    categories = {str(category).lower() for category in signals.get('categories', set())}
-    source = str(metadata.get('source') or metadata.get('engine') or '').lower()
-    rule_id = str(metadata.get('rule_id') or '').lower()
-    matched: list[dict[str, Any]] = []
-    for lesson in lessons:
-        lesson_category = str(lesson.get('category') or '').lower()
-        lesson_source = str(lesson.get('source') or '').lower()
-        lesson_rule = str(lesson.get('rule_id') or '').lower()
-        evidence = lesson.get('evidence_summary') if isinstance(lesson.get('evidence_summary'), dict) else {}
-        evidence_text = ' '.join(str(value).lower() for value in evidence.values())
-        if lesson_source and source and lesson_source != source:
-            continue
-        if lesson_rule and rule_id and lesson_rule != rule_id:
-            continue
-        if lesson_category and lesson_category in categories:
-            matched.append(public_teacher_lesson(lesson))
-            continue
-        if lesson_rule and lesson_rule in text:
-            matched.append(public_teacher_lesson(lesson))
-            continue
-        evidence_tokens = [token for token in re.split(r'[^a-z0-9_.:-]+', evidence_text) if len(token) >= 4]
-        if any(token in text for token in evidence_tokens):
-            matched.append(public_teacher_lesson(lesson))
-            continue
-        if lesson_category and lesson_category in tags:
-            matched.append(public_teacher_lesson(lesson))
-    return dedupe_lessons(matched)[:5]
+    return []
 
 
 def lesson_recommendations(lessons: list[dict[str, Any]]) -> list[str]:
-    recommendations = []
-    for lesson in lessons:
-        title = lesson.get('title') or lesson.get('lesson_id')
-        change = lesson.get('proposed_change') or 'Apply the approved teacher lesson during specialist triage.'
-        recommendations.append(f'Active teacher lesson applies: {title}. {change}')
-    return recommendations
+    return []
 
 
 def public_teacher_lesson(lesson: dict[str, Any]) -> dict[str, Any]:

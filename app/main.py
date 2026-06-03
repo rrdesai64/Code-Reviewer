@@ -346,7 +346,6 @@ async def create_scan(project_name: str | None = Form(None), repo_path: str | No
     save_scan(scan)
     sanitized = save_sanitized_scan(scan)
     rag_memory = save_rag_memory_for_report(sanitized)
-    hermes_run = create_hermes_run(scan_id=scan.scan_id, requester=user.username, persist=True)
     if policy['controls'].get('agent_learning', True):
         update_repository_memory(scan)
     else:
@@ -362,12 +361,6 @@ async def create_scan(project_name: str | None = Form(None), repo_path: str | No
         'status': rag_memory.get('status'),
         'item_count': rag_memory.get('item_count', 0),
         'skipped_reason': rag_memory.get('skipped_reason', ''),
-    }
-    payload['hermes'] = {
-        'run_id': hermes_run.get('run_id'),
-        'status': hermes_run.get('status'),
-        'task_count': hermes_run.get('plan', {}).get('task_count', 0),
-        'summary': hermes_run.get('synthesis', {}).get('summary', ''),
     }
     payload['report_bundle'] = report_bundle
     return payload
@@ -394,7 +387,6 @@ def get_scan(scan_id: str, user: AuthUser = Depends(require_permission('scan:rea
         'item_count': rag_memory.get('item_count', 0),
         'skipped_reason': rag_memory.get('skipped_reason', ''),
     }
-    payload['hermes'] = hermes_report_for_scan(scan)
     payload['report_bundle'] = report_bundle_metadata(scan)
     return payload
 

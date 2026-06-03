@@ -19,6 +19,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+throw "Hermes teacher-student learning has been retired. This script no longer creates specialist lessons or Hermes agent feedback."
+
 $SupportedLanguages = @(
   "python",
   "javascript",

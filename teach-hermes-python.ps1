@@ -17,6 +17,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+throw "Hermes teacher-student learning has been retired. This script no longer creates lessons or Hermes agent feedback."
+
 function New-ApiHeaders {
   $headers = @{}
   if (-not [string]::IsNullOrWhiteSpace($BearerToken)) {

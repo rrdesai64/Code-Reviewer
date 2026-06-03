@@ -9,11 +9,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .hermes import run_hermes_on_memory
 from .paths import data_dir
 from .rag_memory import rag_memory_for_scan, scan_rag_memory_report
 
 SCHEMA_VERSION = 1
+RETIRED_REASON = 'Teacher-student learning between Codex and Hermes agents has been retired.'
 DEFAULT_PASS_SCORE = 7
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_LIMIT = 50
@@ -42,7 +42,9 @@ def ensure_teaching_loop_dirs() -> None:
 def teaching_loop_schema() -> dict[str, Any]:
     return {
         'schema_version': SCHEMA_VERSION,
-        'name': 'secure-review-teacher-student-loop',
+        'name': 'secure-review-teacher-student-loop-retired',
+        'status': 'retired',
+        'retired_reason': RETIRED_REASON,
         'source_contract': {
             'accepted_source': 'rag-memory-from-sanitized-report-lake',
             'raw_repository_reads_allowed': False,
@@ -53,10 +55,11 @@ def teaching_loop_schema() -> dict[str, Any]:
         },
         'curriculum_states': ['pending', 'in_progress', MASTERED, DEFERRED, 'skipped'],
         'teaching_contract': {
-            'teacher': 'codex',
-            'student': 'hermes-specialist-agents',
-            'student_input': 'sanitized RAG memory items and Hermes orchestration results only',
-            'proof_of_work': 'memory item id, scan id, agent result ids, findings, recommendations, safety flags',
+            'enabled': False,
+            'teacher': None,
+            'student': None,
+            'student_input': None,
+            'proof_of_work': None,
             'circuit_breaker_attempts': DEFAULT_MAX_ATTEMPTS,
             'pass_score': DEFAULT_PASS_SCORE,
         },
@@ -72,11 +75,10 @@ def teaching_loop_schema() -> dict[str, Any]:
 
 def teaching_guardrails() -> list[str]:
     return [
-        'Teaching loop consumes saved sanitized RAG memory only.',
-        'Teaching loop never reads cloned repositories, raw scan reports, patches, or full local paths.',
-        'Teaching loop never executes repository code or scanner tools.',
-        'Hermes mastery records are learning evidence, not scanner rule changes.',
-        'Scanner/rule influence still requires Benchmark Gate approval and passing benchmark evidence.',
+        RETIRED_REASON,
+        'No Hermes student run is created.',
+        'No mastery record is produced.',
+        'No scanner/rule influence is derived from repository scan learning.',
     ]
 
 
@@ -86,7 +88,9 @@ def teaching_loop_status() -> dict[str, Any]:
     return {
         'schema_version': SCHEMA_VERSION,
         'generated_at': now_iso(),
-        'status': 'ready',
+        'status': 'retired',
+        'retired': True,
+        'retired_reason': RETIRED_REASON,
         'teaching_loop_dir': str(teaching_loop_dir()),
         'session_count': len(list(teaching_sessions_dir().glob('*.json'))),
         'latest_sessions': sessions,
@@ -146,96 +150,26 @@ def run_teaching_loop_on_memory(
     session_id = stable_id(str(source.get('scan_id') or 'global'), requester, now_iso(), str(limit), str(max_attempts))
     policy = evaluate_teaching_policy(memory)
     base = base_session(session_id, memory, requester, max_attempts, pass_score, policy)
-
-    if policy['decision'] == BLOCKED:
-        base.update({
-            'status': BLOCKED,
-            'completed_at': now_iso(),
-            'duration_seconds': round(time.time() - started, 3),
-            'summary': 'Teaching loop was blocked by sanitized-memory eligibility or safety policy.',
-            'synthesis': blocked_synthesis(policy),
-        })
-        if persist:
-            save_teaching_session(base)
-        return base
-
-    curriculum = build_curriculum(memory, limit=limit)
-    hermes_run = run_hermes_on_memory(
-        memory,
-        requester='teaching-loop',
-        limit=max(len(curriculum) * 4, len(curriculum), 1),
-        persist=False,
-    )
-    attempts_by_lesson: dict[str, list[dict[str, Any]]] = {}
-    mastered: list[dict[str, Any]] = []
-    deferred: list[dict[str, Any]] = []
-    completed_curriculum: list[dict[str, Any]] = []
-    results_by_item = group_agent_results_by_item(hermes_run.get('agent_results', []))
-
-    for unit in curriculum:
-        item = unit['source_item']
-        lesson_id = unit['lesson_id']
-        unit_attempts: list[dict[str, Any]] = []
-        final_judgment: dict[str, Any] | None = None
-        final_answer: dict[str, Any] | None = None
-        for attempt_no in range(1, max_attempts + 1):
-            answer = student_answer_for_item(item, results_by_item.get(str(item.get('item_id') or ''), []), attempt_no)
-            judgment = judge_student_answer(unit, answer, pass_score=pass_score)
-            attempt = {
-                'attempt': attempt_no,
-                'answer': answer,
-                'judgment': judgment,
-            }
-            unit_attempts.append(attempt)
-            final_judgment = judgment
-            final_answer = answer
-            if judgment['understood']:
-                break
-        attempts_by_lesson[lesson_id] = unit_attempts
-        public_unit = public_curriculum_unit(unit)
-        public_unit['attempt_count'] = len(unit_attempts)
-        public_unit['teacher_judgment'] = final_judgment or {}
-        public_unit['status'] = MASTERED if final_judgment and final_judgment['understood'] else DEFERRED
-        completed_curriculum.append(public_unit)
-        if public_unit['status'] == MASTERED:
-            mastered.append(mastery_record(unit, final_answer or {}, final_judgment or {}))
-        else:
-            deferred.append(deferred_record(unit, final_judgment or {}, len(unit_attempts)))
-
-    state_counts = Counter(unit['status'] for unit in completed_curriculum)
-    status = 'mastered' if completed_curriculum and state_counts.get(DEFERRED, 0) == 0 else 'review_required' if completed_curriculum else 'empty'
-    session = {
-        **base,
-        'status': status,
+    base.update({
+        'status': 'retired',
         'completed_at': now_iso(),
         'duration_seconds': round(time.time() - started, 3),
-        'curriculum': completed_curriculum,
-        'attempts_by_lesson': attempts_by_lesson,
-        'mastered_records': mastered,
-        'deferred_records': deferred,
-        'hermes_student_run': {
-            'run_id': hermes_run.get('run_id'),
-            'status': hermes_run.get('status'),
-            'task_count': (hermes_run.get('plan') or {}).get('task_count', 0),
-            'agent_result_count': len(hermes_run.get('agent_results', [])),
-            'persisted': False,
-        },
+        'summary': RETIRED_REASON,
         'synthesis': {
-            'status': status,
-            'curriculum_count': len(completed_curriculum),
-            'mastered_count': len(mastered),
-            'deferred_count': len(deferred),
-            'state_counts': dict(state_counts),
-            'summary': synthesis_summary(source, mastered, deferred),
-            'benchmark_gate_required_for_influence': True,
+            'status': 'retired',
+            'curriculum_count': 0,
+            'mastered_count': 0,
+            'deferred_count': 0,
+            'summary': RETIRED_REASON,
+            'teacher_student_learning_enabled': False,
+            'repository_learning_enabled': False,
             'raw_repository_reads': 0,
             'raw_report_reads': 0,
         },
-        'summary': synthesis_summary(source, mastered, deferred),
-    }
+    })
     if persist:
-        save_teaching_session(session)
-    return session
+        save_teaching_session(base)
+    return base
 
 
 def evaluate_teaching_policy(memory: dict[str, Any]) -> dict[str, Any]:
@@ -276,7 +210,7 @@ def base_session(session_id: str, memory: dict[str, Any], requester: str, max_at
     return {
         'schema_version': SCHEMA_VERSION,
         'session_id': session_id,
-        'session_type': 'teacher-student-sanitized-memory-loop',
+        'session_type': 'agent-learning-retired',
         'created_at': now_iso(),
         'completed_at': None,
         'duration_seconds': 0,
@@ -561,7 +495,7 @@ def record_teaching_governance(session: dict[str, Any]) -> None:
         record_governance_event(
             actor=str(session.get('requester') or 'system'),
             action='teaching_loop.session_completed',
-            category='teacher-student-learning',
+            category='agent-learning-retired',
             resource=str(session.get('session_id') or ''),
             scan_id=str(source.get('scan_id') or ''),
             reason=str(session.get('summary') or 'Sanitized-only teaching loop completed.'),

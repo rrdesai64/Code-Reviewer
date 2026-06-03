@@ -19,7 +19,6 @@ from .benchmark_gate import benchmark_gate_report_for_recommendations
 from .catalog_coverage import catalog_coverage_map
 from .github_pr import GitHubIntegrationError, build_github_pr_review
 from .governance import compliance_evidence_export
-from .hermes import run_hermes_on_memory
 from .fix_workflow import apply_fix_bundle, build_fix_bundle
 from .finding_ai import build_scan_ai_review
 from .ingestion import scanner_mesh_report
@@ -158,7 +157,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--suppressions-out')
     parser.add_argument('--sanitized-report-out')
     parser.add_argument('--rag-memory-out')
-    parser.add_argument('--hermes-out')
+    parser.add_argument('--hermes-out', help='deprecated: Hermes orchestration has been retired and no artifact is produced')
     parser.add_argument('--chat-provider', choices=['all', 'slack', 'teams'], default='all')
     parser.add_argument('--chat-include-findings', type=int, default=10)
     parser.add_argument('--chat-publish', action='store_true', help='publish the prepared Slack/Teams notification when credentials and dry-run gates allow it')
@@ -229,7 +228,6 @@ def main(argv: list[str] | None = None) -> int:
     save_scan(scan)
     sanitized = save_sanitized_scan(scan)
     rag_memory = save_rag_memory_for_report(sanitized)
-    hermes_run = run_hermes_on_memory(rag_memory, requester='cli', persist=True)
     if quarantine['controls'].get('agent_learning', True):
         update_repository_memory(scan)
     else:
@@ -456,7 +454,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.rag_memory_out:
         Path(args.rag_memory_out).write_text(json.dumps(rag_memory, indent=2), encoding='utf-8')
     if args.hermes_out:
-        Path(args.hermes_out).write_text(json.dumps(hermes_run, indent=2), encoding='utf-8')
+        Path(args.hermes_out).write_text(json.dumps({
+            'status': 'retired',
+            'retired': True,
+            'summary': 'Hermes orchestration and repository-learning agents have been retired for this deployment.',
+        }, indent=2), encoding='utf-8')
     gateway_report = None
     if args.messaging_gateway_out or args.gateway_publish:
         try:

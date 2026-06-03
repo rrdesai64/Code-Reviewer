@@ -16,6 +16,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+throw "Hermes orchestration has been retired. This script no longer reviews Hermes runs."
+
 function New-ApiHeaders {
   $headers = @{}
   if (-not [string]::IsNullOrWhiteSpace($BearerToken)) {

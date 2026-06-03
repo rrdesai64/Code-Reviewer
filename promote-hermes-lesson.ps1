@@ -14,6 +14,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+throw "Hermes lesson promotion has been retired. Benchmark lessons no longer influence Hermes agents."
+
 function New-ApiHeaders {
   $headers = @{}
   if (-not [string]::IsNullOrWhiteSpace($BearerToken)) {
